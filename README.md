@@ -1,32 +1,36 @@
-# React + TypeScript + Vite
+# ArtVault
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Production-oriented, real-time, AI-powered art marketplace web app.
+React + TypeScript + Vite, with Firebase (Auth, Firestore, Storage, Cloud
+Functions) as the planned backend.
 
-Currently, two official plugins are available:
+Project status, completed/pending modules, and architecture decisions are
+tracked in [`ARTVAULT_PROJECT_STATE.md`](./ARTVAULT_PROJECT_STATE.md).
+Detailed designs live under [`docs/`](./docs):
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+- [`docs/DATABASE.md`](./docs/DATABASE.md)
+- [`docs/SECURITY.md`](./docs/SECURITY.md)
+- [`docs/AI_ARCHITECTURE.md`](./docs/AI_ARCHITECTURE.md)
+- [`docs/AUCTION_ARCHITECTURE.md`](./docs/AUCTION_ARCHITECTURE.md)
+- [`docs/AR_ARCHITECTURE.md`](./docs/AR_ARCHITECTURE.md)
+- [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 
-## React Compiler
+## Local development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+No Firebase account or billing plan is required for local development —
+see `docs/DEPLOYMENT.md` for why.
+
+## Scripts
+
+- `npm run dev` — start the Vite dev server
+- `npm run build` — typecheck (`tsc -b`) and build
+- `npm run typecheck` — typecheck only
+- `npm run lint` — Oxlint
+- `npm run test -- --run` — run the test suite once (omit `-- --run` for watch mode)
+- `npm run preview` — preview the production build

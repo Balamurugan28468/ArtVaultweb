@@ -1,10 +1,17 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { RouterProvider } from 'react-router'
+import { AppProviders } from '@/app/providers/AppProviders'
+import { router } from '@/app/routes/router'
+import { connectFirebaseEmulators } from '@/lib/firebase/config'
 import './index.css'
-import App from './App.tsx'
+
+connectFirebaseEmulators()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <AppProviders>
+      <RouterProvider router={router} />
+    </AppProviders>
   </StrictMode>,
 )

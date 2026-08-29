@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// Deny-by-default foundation. No path is opened for read or write here.
+// Each feature module adds its own explicit, narrowly-scoped rules when
+// that module is implemented (e.g. artwork images scoped to their seller).
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

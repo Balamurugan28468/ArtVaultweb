@@ -1,1 +1,8 @@
-export {};
+export { signInWithEmail, signOutUser, signUpWithEmail } from './api/authClient'
+export { toAuthErrorMessage } from './api/authErrors'
+export { getCurrentRoleClaim, waitForRoleClaim } from './api/roleClaim'
+export { SignInForm } from './components/SignInForm'
+export { SignOutButton } from './components/SignOutButton'
+export { SignUpForm } from './components/SignUpForm'
+export { signInSchema, signUpSchema, type SignInInput, type SignUpInput } from './schemas'
+export { isUserRole, USER_ROLES, type UserProfile, type UserRole } from './types'

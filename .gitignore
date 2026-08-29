@@ -11,6 +11,13 @@ node_modules
 dist
 dist-ssr
 *.local
+functions/lib
+
+# Firebase Emulator Suite local state/logs
+.firebase
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
 
 # Local env files may hold real (non-emulator) Firebase config; never commit them.
 .env

@@ -1,10 +1,33 @@
 rules_version = '2';
 
-// Deny-by-default foundation. No collection is opened for read or write here.
-// Each feature module adds its own explicit, narrowly-scoped rules (with role
-// checks against custom auth claims) when that module is implemented.
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Created only by the onUserCreate Cloud Function (Admin SDK) right
+    // after sign-up — never directly by a client. A user may update their
+    // own profile, but role/uid/email/createdAt must stay exactly as the
+    // function set them; role changes only ever happen server-side.
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if false;
+      allow update: if isOwner(uid)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    // Deny-by-default foundation for every other collection. Each later
+    // feature module adds its own explicit, narrowly-scoped rules (with
+    // role checks against custom auth claims) when that module is built.
     match /{document=**} {
       allow read, write: if false;
     }

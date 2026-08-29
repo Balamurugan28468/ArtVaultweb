@@ -1,10 +1,36 @@
 # ArtVault — Database Architecture (Firestore)
 
-**Status: design draft only.** Module 00 creates a deny-by-default rules
-skeleton (`firestore.rules`) and an empty `firestore.indexes.json`. No
-collection below is created, read from, or written to by any code yet —
-they are recorded here so later modules build toward one consistent shape
-instead of improvising per-feature.
+**Status: mostly design draft.** Module 00 created a deny-by-default rules
+skeleton. Module 01 (Authentication) is the first module to actually create
+and read a real collection: `users/{uid}`, written once by the
+`onUserCreate` Cloud Function right after sign-up (see
+`functions/src/index.ts`), read by the signed-in owner via
+`firestore.rules`. Every other collection below remains design-only — not
+created, read, or written by any code yet — recorded here so later modules
+build toward one consistent shape instead of improvising per-feature.
+
+## `users/{uid}` (implemented in Module 01)
+
+```
+uid: string
+email: string | null
+displayName: string | null
+role: 'CUSTOMER' | 'SELLER' | 'ADMIN' | 'SUPER_ADMIN'
+createdAt: Timestamp (server)
+updatedAt: Timestamp (server)
+```
+
+Created only by `functions/src/index.ts`'s `onUserCreate` Auth trigger,
+using the Admin SDK (which bypasses security rules entirely) — a client can
+never create this document directly (`firestore.rules` denies `create`
+outright). The owning user may `read` their own doc and `update`
+non-identity fields (e.g. `displayName`), but `firestore.rules` requires
+`uid`, `email`, `role`, and `createdAt` to stay unchanged on any
+client-issued update — role escalation from the client is structurally
+impossible, not just discouraged. `ADMIN`/`SUPER_ADMIN` are only ever
+granted by the `functions/src/setAdminClaim.ts` operator script, run
+locally by a human with Admin SDK credentials — never by any deployed,
+client-reachable function.
 
 ## Guiding rule: no unbounded arrays
 
@@ -17,11 +43,10 @@ computed by reading an entire subcollection.
 
 ## Draft collection layout
 
-```
-users/{uid}
-  profile, role (mirror of the auth custom claim, not authoritative),
-  sellerRef, createdAt, updatedAt
+(`users/{uid}` is now implemented as described above; everything below
+remains design-only.)
 
+```
 sellers/{sellerId}
   storefront profile, status: pending | approved | suspended
 

@@ -19,6 +19,15 @@ src/
     firebase/           client SDK init only
     api/                typed wrappers around Cloud Functions callables
   config/               env schema, constants
+
+functions/               separate Node/TypeScript project (its own
+                         package.json, node_modules, tsconfig) — Cloud
+                         Functions deploy independently of the Vite app,
+                         so it is intentionally outside src/ and outside
+                         the root npm scripts (typecheck/lint/test/build
+                         only cover the frontend). Run its own checks with
+                         `npm --prefix functions run typecheck` /
+                         `test` / `build`.
 ```
 
 Each `features/x/` owns its own `components/`, `hooks/`, `api/`, `types.ts`, and
@@ -47,13 +56,19 @@ when that feature's module is actually implemented.
   Chakra, Ant — specifically to keep dev-server memory and bundle size low
   on the 8GB development laptop this project targets).
 
+## Decided in Module 01
+
+- **Cloud Functions runtime: Node 22** — the more current of the two
+  Firebase-supported options at the time Module 01 needed it, chosen for
+  its longer remaining support window over Node 20. Set via
+  `functions/package.json`'s `engines.node`.
+
 ## Deferred architectural decisions
 
-These are intentionally **not** decided in Module 00. Each is picked inside
-the module that actually needs it, verified against current pricing/
+These are intentionally **not** decided yet. Each is picked inside the
+module that actually needs it, verified against current pricing/
 availability at that time, and recorded in `ARTVAULT_PROJECT_STATE.md`:
 
-- Cloud Functions runtime version (Node 20 vs Node 22).
 - Payment provider (see `docs/DEPLOYMENT.md` and the payment module).
 - AI provider behind the `AIProvider` interface (see `docs/AI_ARCHITECTURE.md`).
 - Structured/full-text search provider, if Firestore-native filtering proves

@@ -1,11 +1,12 @@
 # ArtVault — Project State
 
-_Last updated: 2026-08-30 — Module 02 (Design System & Navigation): desktop
-approved by the owner as-is. Mobile required a second correction pass
-(AI-launcher collision, bottom-nav-vs-content collision, crowded header,
-auth-page scrolling) after manual inspection at ~302×531. Corrections
-applied and re-verified (65/65 real-browser checks); awaiting final owner
-review before commit. Module 01 remains complete and committed._
+_Last updated: 2026-08-30 — Module 02 (Design System & Navigation):
+**COMPLETE, owner-approved, and committed** (`77cee05`). Desktop approved
+as-is; mobile went through two corrective passes (presentation polish,
+then a layout/collision fix, then a route-scroll-reset fix) after the
+owner's own manual review at ~302×531 across three rounds. Final owner
+visual review in real Chrome DevTools confirmed all previously reported
+defects resolved. Module 01 remains complete and committed._
 
 ## Project version
 
@@ -13,12 +14,27 @@ review before commit. Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 02 — Design System & Navigation.** Desktop approved as-is by the
-owner. Mobile went through two corrective passes (presentation polish,
-then a mobile-specific layout/collision fix — see "Module 02 mobile
-correction pass" below) after the owner's own manual review at both
-normal and stress-test viewport sizes; awaiting final owner review before
-commit.
+None in progress. Module 02 is complete and committed; Module 03 has not
+been started.
+
+## Module 02 — final completion status
+
+- **Status:** COMPLETE.
+- **Owner visual review:** PASSED (final round, real Chrome DevTools).
+- **302×531 regression:** PASSED — Home/Sign In/Sign Up load and
+  transition without clipping; scroll resets correctly on every route
+  change; bottom nav and drawer stable.
+- **Responsive shell/navigation verification:** PASSED across the full
+  official matrix (320×568, 375×667, 390×844, 412×915, 768×1024,
+  1024×768, 1366×768) plus the ~302×531 stress case.
+- **Route scroll-reset regression:** PASSED — client-side navigation
+  between Home, Sign In, and Sign Up (including via the drawer) each
+  resets the mobile `<main>` scroll container and the desktop
+  window scroll to the top.
+- **Final quality gate:** `typecheck` clean; `lint` clean (pre-existing
+  warnings only, no errors); `test -- --run` 42/42 passed (16 files);
+  `build` succeeds; `git diff --check` clean.
+- **Checkpoint commit:** `77cee05` (`77cee056d025998612c3ad921ba95b459c14aa82`).
 
 ## Module 02 planning decisions (approved, pre-implementation)
 
@@ -333,6 +349,14 @@ Built exactly per the approved, corrected plan:
   (Playwright) — one genuine bug found and fixed during browser testing
   (see Technical debt history). Review result: **PASS**. Checkpoint
   commit: this module's own commit (see `git log`).
+- **Module 02 — Design System & Navigation:** shared UI primitive library
+  (`src/shared/ui`), branding component, app shell (top bar, bottom nav,
+  sidebar, nav drawer) with mobile bounded-scroll / desktop full-page
+  layout, route-level scroll-reset on client-side navigation, and
+  presentation-only updates to the Module 01 auth pages. Three owner
+  correction rounds (presentation polish, mobile collision/layout,
+  small-viewport scroll-reset), each independently re-verified. Review
+  result: **PASS — owner approved**. Checkpoint commit: `77cee05`.
 
 ## Pending modules (not started, order not yet committed)
 

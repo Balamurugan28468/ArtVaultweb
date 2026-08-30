@@ -1,15 +1,19 @@
+import { lazy } from 'react'
 import { createBrowserRouter } from 'react-router'
-import { RootLayout } from '@/app/layouts/RootLayout'
-import { AccountPlaceholderPage } from '@/app/routes/AccountPlaceholderPage'
+import { AppShell } from '@/app/layouts/AppShell'
 import { HomePage } from '@/app/routes/HomePage'
 import { RequireAuth } from '@/app/routes/guards/RequireAuth'
-import { SignInPage } from '@/app/routes/SignInPage'
-import { SignUpPage } from '@/app/routes/SignUpPage'
+
+const SignInPage = lazy(() => import('@/app/routes/SignInPage').then((m) => ({ default: m.SignInPage })))
+const SignUpPage = lazy(() => import('@/app/routes/SignUpPage').then((m) => ({ default: m.SignUpPage })))
+const AccountPlaceholderPage = lazy(() =>
+  import('@/app/routes/AccountPlaceholderPage').then((m) => ({ default: m.AccountPlaceholderPage })),
+)
 
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <RootLayout />,
+    element: <AppShell />,
     children: [
       { index: true, element: <HomePage /> },
       { path: 'sign-in', element: <SignInPage /> },

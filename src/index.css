@@ -1,9 +1,69 @@
 @import 'tailwindcss';
 
+@theme {
+  /* Surfaces */
+  --color-bg: #0a0c12;
+  --color-surface: #12151f;
+  --color-surface-elevated: #1a1e2b;
+  --color-surface-light: #f6f6f8;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-strong: rgba(255, 255, 255, 0.18);
+  /* For elements on the light input surface (bg-surface-light) — a white
+     border there would be nearly invisible against a near-white background. */
+  --color-border-on-light: rgba(20, 22, 28, 0.16);
+
+  /* Text */
+  --color-text-primary: #f5f6f8;
+  --color-text-secondary: #a6adba;
+  --color-text-muted: #6b7280;
+  --color-text-on-light: #14161c;
+
+  /* Brand */
+  --color-brand-primary: #8b5cf6;
+  --color-brand-primary-hover: #7c3aed;
+  --color-brand-primary-active: #6d28d9;
+  --color-accent-gold: #f5a524;
+  --color-accent-gold-hover: #dc9012;
+
+  /* Status */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+
+  /* Radius (overrides Tailwind's default scale for a consistent system) */
+  --radius-md: 0.625rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.75rem;
+
+  /* Shadows */
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.35);
+  --shadow-elevated: 0 16px 48px rgba(0, 0, 0, 0.5);
+
+  /* Stacking order (consumed via arbitrary values, e.g. z-[var(--z-modal)]) */
+  --z-index-dropdown: 20;
+  --z-index-floating-action: 30;
+  --z-index-drawer: 40;
+  --z-index-modal: 50;
+  --z-index-toast: 60;
+
+  /* Motion (duration uses Tailwind's built-in duration-* scale, e.g. duration-150) */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+/* One consistent visible-focus treatment, applied via focus-visible: utilities */
+:focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
 }

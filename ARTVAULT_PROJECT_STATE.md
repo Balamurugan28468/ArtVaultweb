@@ -1,9 +1,11 @@
 # ArtVault — Project State
 
-_Last updated: 2026-08-29 — Module 01 complete: implemented, independently
-reviewed, verified live against the Firebase Local Emulator Suite, and
-real-browser tested. Approved by the owner; committed as the Module 01
-checkpoint (see this file's own git history for the commit hash)._
+_Last updated: 2026-08-30 — Module 02 (Design System & Navigation): desktop
+approved by the owner as-is. Mobile required a second correction pass
+(AI-launcher collision, bottom-nav-vs-content collision, crowded header,
+auth-page scrolling) after manual inspection at ~302×531. Corrections
+applied and re-verified (65/65 real-browser checks); awaiting final owner
+review before commit. Module 01 remains complete and committed._
 
 ## Project version
 
@@ -11,7 +13,308 @@ checkpoint (see this file's own git history for the commit hash)._
 
 ## Current module
 
-None in progress — Module 01 complete. Awaiting Module 02 scope selection.
+**Module 02 — Design System & Navigation.** Desktop approved as-is by the
+owner. Mobile went through two corrective passes (presentation polish,
+then a mobile-specific layout/collision fix — see "Module 02 mobile
+correction pass" below) after the owner's own manual review at both
+normal and stress-test viewport sizes; awaiting final owner review before
+commit.
+
+## Module 02 planning decisions (approved, pre-implementation)
+
+Recorded now because they are durable product/architecture rules, not
+just Module 02 detail — they will govern every later module's navigation
+and any "not yet built" affordance, not only this one:
+
+- **No fake/dead navigation.** The nav config may list future
+  destinations (Marketplace, Categories, Auction, Wishlist, Cart, Orders,
+  Seller Studio, Admin, etc.), but each item carries an explicit
+  enabled/available flag. Only routes that actually exist render as
+  clickable nav; future items stay hidden until their module ships. No
+  placeholder pages are created merely to make a link "work."
+- **AI Assistant launcher is an honest non-functional affordance in
+  Module 02.** No simulated chat, no fake replies, no fake panel implying
+  the assistant works. Rendered as a clearly disabled/`aria-disabled`
+  state (e.g. "ArtVault AI — available in a later module"), not a
+  clickable fake "coming soon" interaction. Becomes genuinely interactive
+  only when the AI Assistant module is built.
+- **View in AR is style/contract only in Module 02.** No fake AR launch,
+  no simulated camera placement. Rendered explicitly unavailable (or used
+  only in internal component demos) until the real AR module exists.
+- **Official branding asset does not exist in the repository yet.**
+  Confirmed by direct filesystem check (`public/` has only the default
+  Vite `favicon.svg`/`icons.svg`; no logo/brand file anywhere in `src/` or
+  `public/`) — the colorful "ArtVault A / Art Beyond Limits" reference
+  the owner shared exists only as chat-pasted images, not a repo asset.
+  Module 02 will **not** invent or generate a substitute final logo. It
+  prepares the branding asset path/contract and uses, at most, a clearly
+  documented temporary text/monogram placeholder if development needs
+  something on-screen meanwhile. **Action item for the owner:** add the
+  approved logo file(s) to the repository (e.g. `public/brand/`) so
+  Module 02 (or a follow-up pass) can wire in the real asset.
+- **Mobile safe areas are first-class from the start.** Bottom
+  navigation and the floating AI launcher account for
+  `env(safe-area-inset-bottom/left/right)` and must never overlap the
+  bottom nav, device safe areas, or other important controls.
+- **Module 01 authentication logic is frozen for Module 02.** Only
+  presentation may change (markup/classes). Business logic, Firebase
+  integration, role-claim behavior, persistence, and route protection are
+  untouched unless an actual regression is found — and if one is, it gets
+  fixed and re-verified with the same rigor as the Module 01 review, not
+  silently patched.
+- **Design system scope stays disciplined.** Build only what the app
+  shell, auth pages, navigation, and near-term page composition genuinely
+  need now; component APIs may be shaped for later extension, but nothing
+  is built solely because a future module *might* want it.
+
+## Module 02 mobile correction pass (pending final owner review)
+
+Desktop Home/Sign In/Sign Up were approved as-is; this pass is mobile-only,
+following the owner's manual inspection down to ~302×531:
+
+- **AI launcher collision with content, fixed:** a `position: fixed`
+  floating button will always visually sit on top of whatever page content
+  scrolls beneath its screen position, regardless of how much bottom
+  padding follows that content — padding only affects reachability, not
+  what renders where before scrolling. Since the launcher is a
+  non-functional placeholder, usability wins: it now hides itself below
+  `700px` viewport height (`[@media(min-height:700px)]:flex`), which is
+  precisely where a tall form (Sign Up) risks not fitting a short screen.
+  Still visible normally at every official viewport height (≥768) and on
+  desktop.
+- **Bottom nav covering form content, fixed at the architecture level, not
+  with more padding:** the real fix was structural. Below `lg`, the shell
+  is now `h-screen flex flex-col overflow-hidden` with `<main>` as the
+  only `overflow-y-auto` region — content can no longer render behind the
+  now-non-fixed bottom nav (a normal flex sibling, not an overlay),
+  because `<main>`'s own box structurally ends before the nav begins.
+  Desktop (`lg`+) is unchanged: `lg:h-auto lg:min-h-screen
+  lg:overflow-visible` restores plain whole-page scroll exactly as
+  approved. One honest trade-off: bounding `<main>`'s scroll on mobile
+  means the page no longer scrolls at the true document/body level there,
+  which on some real mobile browsers can affect address-bar
+  auto-hide-on-scroll behavior — a known, minor trade-off of this
+  (industry-standard) pattern, not verifiable from a headless browser.
+- **Crowded mobile header, fixed:** the top bar's Sign in/Sign up links
+  are now hidden below `sm` (640px) — the drawer (opened via the
+  hamburger, already offering both) covers that width range, so the
+  mobile header stays to just hamburger + brand mark instead of hamburger
+  + logo + two links fighting for space.
+- **Auth card padding, tightened for small phones:** `Card` padding
+  `p-6` → `p-4 sm:p-6`, section vertical padding `py-8` → `py-6 sm:py-8`,
+  giving narrow phones more usable field width without shrinking any
+  control below the 44px touch-target floor.
+- **Verified 65/65 real-browser checks** across the official matrix
+  (375×667, 390×844, 412×915, 768×1024, 1024×768, 1366×768) plus
+  320×568 and the reported ~302×531 stress case: no horizontal overflow;
+  zero collisions between the AI launcher, the bottom nav, and any real
+  control (inputs/buttons/links) at any size; the Sign Up form's
+  "Sign in" link fully reachable and unobstructed after scrolling at
+  every size; drawer open/focus/Escape-close intact; a real sign-up +
+  refresh through the restyled/restructured mobile shell still reaches
+  `/account` and persists (Module 01 regression); desktop sidebar and AI
+  launcher confirmed unchanged at 1366×768. 0 genuine console errors.
+- **Test-methodology note:** two rounds of false positives were found and
+  fixed in the *verification script itself* (not the app) along the way:
+  `getBoundingClientRect()` ignores ancestor scroll-clipping, so a field
+  scrolled out of `<main>`'s visible area needed to be excluded/clipped
+  before collision-checking; and a naive AABB overlap check treated
+  perfectly adjacent (touching, zero-area) edges as collisions, needing
+  `<=`/`>=` instead of `<`/`>`. Both confirmed via direct screenshot
+  inspection before being called false positives, not assumed.
+
+## Module 02 small-viewport correction pass (pending final owner review)
+
+Despite the "65/65" result above, the owner's own manual inspection in
+Chrome DevTools at ~302×531 found real clipping on Home, Sign In, and Sign
+Up. Investigated rather than dismissed — the report was correct; the
+verification method had two real gaps.
+
+- **Root cause:** React Router does not reset the scroll position of a
+  custom scroll container on client-side (`<Link>`) navigation — its
+  built-in scroll restoration only covers the window/document, which isn't
+  the active scrolling element on mobile (that's the bounded `<main>`
+  introduced in the prior correction pass). Empirically reproduced: scroll
+  Sign Up down, click a real `<Link>` to Home, and `main.scrollTop`
+  remained at its old value instead of resetting to 0 — so Home's content
+  rendered shifted upward, behind the fixed top bar. This is a real,
+  state-dependent bug: it only appears after a scrolled navigation, never
+  on a fresh page load, which is why a fresh `page.goto()` never showed it.
+- **Fix — `src/app/layouts/AppShell.tsx`:** added a `ref` on `<main>` and a
+  `useEffect` keyed on `useLocation().pathname` that resets
+  `mainRef.current.scrollTop = 0` (the mobile bounded-scroll case) and
+  `window.scrollTo(0, 0)` (the desktop whole-page-scroll case) on every
+  actual path change. Deliberately scoped to `pathname` only (so a
+  query-string-only change on the same route doesn't reset scroll) and
+  touches only this one container plus the window — it does not reset any
+  other, currently-nonexistent nested scroll region (e.g. a future modal's
+  own scroll), per instruction not to globally destroy legitimate nested
+  scroll state. (`scrollTop = 0` was used instead of `Element.scrollTo()`
+  because jsdom, used by the Vitest suite, doesn't implement
+  `Element.prototype.scrollTo` and threw in tests; `scrollTop` assignment
+  is universally supported and equivalent for a vertical-only reset.)
+- **Why the previous "65/65" pass missed it:** every check in that pass
+  used `page.goto(url)`, which is always a fresh navigation and naturally
+  starts scroll at 0 — the suite never once simulated a real user clicking
+  through the SPA via `<Link>` elements between routes, which is the only
+  way this bug manifests.
+- **A second, related test-script bug found and fixed in this round (not
+  a product bug):** an unscoped `document.querySelectorAll('a')` searching
+  for text like "Sign in" could silently match the wrong element — the top
+  bar keeps a real `<a href="/sign-in">`, correctly CSS-hidden below `sm`
+  by a `hidden sm:flex` wrapper (the bottom nav and drawer already offer
+  it at that width, approved in the prior pass) — which still has a real,
+  zero-size `getBoundingClientRect()`. A DOM-order match can pick that
+  hidden node over the real, visible page content, producing a false PASS
+  because a zero-height rect trivially satisfies "not clipped." Fixed by
+  scoping all such text lookups to `<main>` only, since page-content
+  clipping checks only ever care about what's inside the scroll container
+  anyway. The same ambiguity also broke `page.click('a[href="/sign-in"]')`
+  in the new route-transition test (Playwright picked the hidden instance
+  and timed out) — fixed by clicking only the visible instance.
+- **Re-verified, this time including real client-side navigation:** full
+  official matrix (320×568, 375×667, 390×844, 412×915, 768×1024, 1024×768,
+  1366×768) plus ~302×531, fresh-load boundary checks against both the top
+  bar and bottom nav for Home/Sign In/Sign Up; explicit client-side route
+  transitions (Sign Up, scrolled → Home; Home → Sign In; Sign In → Sign
+  Up; Home → Sign Up via the drawer, since the bottom nav intentionally
+  has no direct Sign Up link at this width) each confirming
+  `main.scrollTop` resets to 0 and no header clipping; Sign Up's tail
+  (Create account button, "Sign in" link) confirmed fully visible above
+  the bottom nav with a real gap when scrolled to the bottom; drawer
+  overflow/dialog/Escape-close unaffected; Module 01 sign-up + refresh
+  regression still reaches and persists `/account`. 115/115 checks passed.
+  Additionally confirmed by direct visual inspection of screenshots (not
+  only measured rects) at 302×531: Home, Sign In, Sign Up (top and
+  scrolled-to-bottom), and the exact scrolled-Sign-Up→Home transition —
+  all show clean, unclipped content with a visible gap below the top bar.
+- **Full quality gate re-run after the fix:** `typecheck` clean; `lint`
+  clean (pre-existing warnings only, no errors); `test -- --run` 42/42
+  passed (16 files) — this surfaced and fixed a real, if
+  environment-only, issue: jsdom doesn't implement `Element.scrollTo`,
+  which the initial fix used and which threw in the test suite; switched
+  to `scrollTop` assignment, which both jsdom and every real browser
+  support; `build` succeeds; `git diff --check` clean.
+- **Console/runtime errors:** 0 genuine errors across the full
+  verification run (84 console messages, all filtered DevTools/Autofill
+  noise).
+- **Remaining limitations:** verification is headless-Chromium-based, not
+  a real device; the previously-noted address-bar auto-hide trade-off
+  from bounding `<main>`'s scroll on mobile still applies and still isn't
+  verifiable from a headless browser.
+
+## Module 02 owner visual correction pass (first pass, presentation polish)
+
+After the first automated pass ("PASS"), the owner's own manual visual
+review found the shell still read as a dev scaffold rather than the
+approved premium identity. Corrected, presentation-only:
+
+- **Brand presence strengthened:** `BrandLogo` now pairs a larger gradient
+  monogram mark with a two-tone "Art**Vault**" wordmark (gold "Vault"),
+  still documented as temporary pending the real asset — nothing final
+  was invented.
+- **Header decluttered:** removed the disabled search field entirely
+  (was dominating the top bar and reading as an unfinished placeholder)
+  rather than keeping a "(coming soon)" field — deferred to the real
+  Search module as instructed.
+- **Sidebar intentionality:** narrower rail, an "MENU" eyebrow label,
+  and better item padding — still exactly the same single real `Home`
+  link, no destinations invented.
+- **Home copy replaced:** the developer-facing "ArtVault foundation is
+  running" text is gone — now an honest premium welcome (brand tagline,
+  positioning line, a plain statement that more will appear as modules
+  ship) with zero fake artworks/prices/stats.
+- **AI launcher identity:** added a gold ring and a small "AI" badge so
+  it reads as a deliberate ArtVault entry point rather than a generic
+  circle — still fully disabled, no panel, no chat.
+- **Auth pages integrated:** added a subtle brand-gradient backdrop and a
+  gold top-border accent on the sign-in/up `Card` so they feel part of
+  the same shell — Module 01 logic untouched.
+- **Real bug caught during this pass:** `Input`/`TextArea`/`SearchInput`
+  used a *white*-tinted border token meant for dark surfaces, on their
+  *light* `bg-surface-light` background — nearly invisible in practice.
+  Added a dedicated `--color-border-on-light` token and fixed all three.
+- Re-verified: 42/42 tests passing (2 test files updated for the new,
+  intentionally different Home/BrandLogo text — `BrandLogo`'s two-tone
+  wordmark splits "Art"/"Vault" across elements, which the default
+  `getByText` string matcher can't reassemble — a known Testing Library
+  limitation, not a bug; fixed by asserting on the `aria-label` instead),
+  typecheck/lint/build clean, and a fresh 24/24 responsive re-check
+  (375×667 through 1366×768) confirmed no regressions plus the search
+  field's genuine absence from the rendered DOM.
+
+## Module 02 implementation (first pass, automated review — PASS)
+
+Built exactly per the approved, corrected plan:
+
+- **Design tokens** (`src/index.css`, Tailwind v4 `@theme`): dark navy
+  shell, purple/violet primary, gold/orange accent, radius/shadow/z-index
+  scale, one visible-focus treatment. Verified `--ease-*` generates real
+  Tailwind utilities; `--duration-*` does not (not a supported v4
+  namespace) — motion uses Tailwind's built-in `duration-*` scale instead.
+- **Shared UI** (`src/shared/ui/`): Container, ResponsiveGrid, Button,
+  IconButton, Input, TextArea, SearchInput, Badge, Chip, Avatar, Card,
+  Modal, Drawer, Dropdown, Spinner, Skeleton, EmptyState, ErrorState,
+  PageHeader, SectionHeader, Toast/useToast, ViewInArBadge — scoped to
+  exactly what the shell/nav/auth pages need, nothing built speculatively.
+- **Responsive shell** (`src/app/layouts/`): `AppShell` composes
+  `AppTopBar` (search disabled/honest, profile dropdown or sign-in/up),
+  `AppSidebar` (desktop, `lg`+), `AppBottomNav` + `NavDrawer` (mobile),
+  replacing the old flat `RootLayout`.
+- **Role-aware nav** (`src/app/navigation/`): `navItems.ts` + `useNavItems`
+  — every item carries `status: 'available' | 'comingSoon'`; only
+  `available` items (`Home`, `Account`) render as real links today.
+  Marketplace/Categories/Auction/Wishlist/Cart/Orders/Seller
+  Studio/Admin exist in the data only, genuinely hidden until their
+  module ships — no dead links, no placeholder pages.
+- **AI Assistant launcher** (`src/features/ai/`): fixed floating button,
+  `disabled`/`aria-disabled`, labeled "available in a later module," no
+  panel, no chat, no API call. Safe-area-aware positioning
+  (`env(safe-area-inset-bottom/right)`), verified in a real browser to
+  never overlap the mobile bottom nav at any required width.
+- **View in AR contract** (`ViewInArBadge`): visually real, functionally
+  inert pill — `aria-disabled`, no camera/placement simulation.
+- **Branding:** confirmed (filesystem check) no logo asset exists in the
+  repo; `BrandLogo` renders a documented temporary gradient text/monogram
+  placeholder; `public/brand/README.md` records the expected real-asset
+  path contract for when the owner adds it.
+- **Auth visual upgrade:** `SignInForm`/`SignUpForm`/`SignOutButton`/
+  `SignInPage`/`SignUpPage`/`AccountPlaceholderPage` restyled onto the new
+  primitives — every `aria-*`, label, role, and `autoComplete` preserved
+  exactly. `SignOutButton` gained one additive optional `onClick` prop
+  (so the mobile drawer can close itself after sign-out) — the sign-out
+  call and its error handling are unchanged.
+- **Code-splitting:** `SignInPage`/`SignUpPage`/`AccountPlaceholderPage`
+  are now `React.lazy` + one `Suspense` boundary in `AppShell`. Confirmed
+  working (separate ~0.7-0.8 kB chunk files each) but — reported honestly,
+  not overclaimed — this does **not** shrink the ~925 kB main chunk
+  materially, because the dominant contributor is the Firebase SDK (needed
+  eagerly at startup for `AuthProvider` regardless of route), not the
+  auth pages. See Technical debt.
+- **Independent review + fixes performed before verification:** an
+  `asChild`/Slot-polymorphism pattern was mistakenly referenced on
+  `Button`/`DropdownItem` for link-styled nav items (invalid — nesting a
+  `Link` inside a `<button>` is invalid HTML besides); fixed by exporting
+  `buttonClassName`/`dropdownItemClassName` helpers instead. A real
+  contrast bug (`text-text-on-light` used for heading text on the dark
+  `Card` surface in `SignInPage`) was caught and fixed before browser
+  testing.
+- **Real-browser verification** (Playwright Chromium, `claude-in-chrome`
+  still unavailable this session): 24/24 checks passed across
+  375×667/390×844/412×915/768×1024/1024×768/1366×768 — no horizontal
+  overflow at any size, bottom nav shown with sidebar hidden below `lg`
+  and vice versa above it, AI launcher never overlaps the bottom nav
+  (confirmed via real measured bounding rects, not assumption), mobile
+  drawer opens/moves focus in/closes on Escape, auth forms fit and
+  function at 390px width. A real sign-up + refresh was re-run through
+  the fully restyled forms/shell as the Module 01 regression check —
+  still reaches `/account` and persists correctly. 0 genuine console
+  errors throughout.
+- **Environment note:** the Functions emulator's first load attempt
+  failed with the same "Cannot determine backend specification" message
+  as before, on an otherwise-still-CommonJS build (confirmed unchanged) —
+  consistent with this machine's already-documented slow/flaky cold start
+  under load, not a regression of the Module 01 ESM fix.
 
 ## Completed modules
 
@@ -277,7 +580,11 @@ re-ran clean after these changes (see Tests/Build below).
 
 ## Tests
 
-- **Root (`npm run test -- --run`):** 11 files, 31 tests, all passing.
+- **Root (`npm run test -- --run`):** 16 files, 42 tests, all passing
+  (up from 11/31 — Module 02 added `useNavItems`, `Modal`, `Drawer`,
+  `AIAssistantLauncher`, `ViewInArBadge` tests, plus a `router.test.tsx`
+  fix for the now-intentional duplicate "Sign in" entry between the top
+  bar and mobile bottom nav).
   Covers: env defaults + failure path, router/layout composition, the
   `AuthProvider` loading→authenticated/unauthenticated state machine
   (including the stale-lookup race-condition fix above), the
@@ -308,10 +615,26 @@ module — see "Live emulator verification" above.
 
 ## Technical debt
 
-- The production build emits a single ~907 kB JS chunk (grew slightly
-  from Module 00's ~856 kB with the new auth forms). Same reasoning as
-  Module 00: expected to resolve via route-level code-splitting once more
-  real routes exist, not addressed now.
+- **Route-level code-splitting is implemented (Module 02)** — sign-in/up/
+  account are genuinely separate chunks now — **but it did not shrink the
+  main bundle** (~925 kB, up slightly from ~907 kB). The dominant cost is
+  the Firebase SDK, loaded eagerly at startup because `AuthProvider` needs
+  `onAuthStateChanged` immediately on every route, plus the shell/nav/UI
+  code that now renders on every page. Splitting further would mean
+  deferring Firebase itself, which isn't reasonable while auth state gates
+  the whole shell. Revisit only if a real profiling need arises later.
+- `Dropdown`/`DropdownItem` implement outside-click and Escape-to-close
+  but not full ARIA menu roving-focus (arrow-key navigation between
+  items) — reasonable for today's 2-item profile menu; worth revisiting
+  if a dropdown ever grows to many items.
+- Color-token contrast was reasoned about at definition time (light text
+  on dark surfaces, dark text on light input surfaces) but not verified
+  with an automated contrast-checking tool — no such tool was available
+  in this environment. Worth a real contrast audit before production.
+- The sidebar/bottom-nav/drawer currently show only Home (+ Account when
+  signed in) — correct and expected per the "no fake nav" rule, not a
+  bug, but it will look sparse until Marketplace/Auction/etc. modules
+  ship and flip their nav items to `available`.
 - Running `npm run test`/`build` inside this machine's sandboxed shell
   fails to spawn worker threads (Vitest) — passes normally outside the
   sandbox restriction; CI is unaffected. Carried over from Module 00.
@@ -377,6 +700,8 @@ module — see "Live emulator verification" above.
 
 ## Next action
 
-Module 01 is approved and committed. Propose and get sign-off on Module 02
-scope next — candidates: Customer Account or Artwork Management,
-depending on the owner's priority.
+Module 02 (Design System & Navigation) is implemented, independently
+reviewed, and real-browser verified — awaiting owner review before
+commit. Owner still needs to supply the real ArtVault logo asset to the
+repository when convenient (not a blocker — a documented temporary
+placeholder covers development meanwhile; see `public/brand/README.md`).

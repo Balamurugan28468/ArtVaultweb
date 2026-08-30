@@ -1,1 +1,1 @@
-export {};
+export { AIAssistantLauncher } from './components/AIAssistantLauncher'

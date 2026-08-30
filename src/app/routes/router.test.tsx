@@ -15,14 +15,21 @@ vi.mock('firebase/auth', () => ({
 
 describe('router', () => {
   it('renders the root layout and the home page at "/" for a signed-out visitor', async () => {
-    render(
+    const { container } = render(
       <AuthProvider>
         <RouterProvider router={router} />
       </AuthProvider>,
     )
 
-    expect(await screen.findByText('ArtVault')).toBeInTheDocument()
-    expect(await screen.findByText('ArtVault foundation is running')).toBeInTheDocument()
-    expect(screen.getByText('Sign in')).toBeInTheDocument()
+    // BrandLogo's wordmark visually splits "Art"/"Vault" across nested
+    // elements (for the two-tone brand color), which the default
+    // getByText string matcher can't reassemble — check the accessible
+    // name via aria-label instead, which is the authoritative one anyway.
+    expect(await screen.findByText('Welcome to ArtVault')).toBeInTheDocument()
+    expect(container.querySelectorAll('[aria-label="ArtVault"]').length).toBeGreaterThan(0)
+    // Both the top bar and the mobile bottom nav render a "Sign in" entry
+    // by design (see AppTopBar/AppBottomNav) — assert at least one exists
+    // rather than assuming a single match.
+    expect(screen.getAllByText('Sign in').length).toBeGreaterThan(0)
   })
 })

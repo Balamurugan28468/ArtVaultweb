@@ -11,6 +11,7 @@ export interface UserCreateInput {
   uid: string
   email?: string | null
   displayName?: string | null
+  photoURL?: string | null
 }
 
 /**
@@ -25,7 +26,11 @@ export async function handleUserCreate(user: UserCreateInput): Promise<void> {
     uid: user.uid,
     email: user.email ?? null,
     displayName: user.displayName ?? null,
+    photoURL: user.photoURL ?? null,
     role: DEFAULT_ROLE,
+    phoneNumber: null,
+    bio: null,
+    profileCompleted: false,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   })

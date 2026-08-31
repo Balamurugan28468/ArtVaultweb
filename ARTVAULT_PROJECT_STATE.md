@@ -1,12 +1,13 @@
 # ArtVault — Project State
 
-_Last updated: 2026-08-30 — Module 02 (Design System & Navigation):
-**COMPLETE, owner-approved, and committed** (`77cee05`). Desktop approved
-as-is; mobile went through two corrective passes (presentation polish,
-then a layout/collision fix, then a route-scroll-reset fix) after the
-owner's own manual review at ~302×531 across three rounds. Final owner
-visual review in real Chrome DevTools confirmed all previously reported
-defects resolved. Module 01 remains complete and committed._
+_Last updated: 2026-09-01 — Module 03 (Customer Account & Profile
+Foundation): **COMPLETE, owner-approved, and committed.** Owner completed
+full manual verification (emulator persistence, same-account sign-in,
+profile persistence, desktop and small-mobile account dashboard, responsive
+Edit Profile modal, Save/Cancel accessibility, profile update + success
+feedback, profile completion) and approved the module. Module 02 remains
+complete, owner-approved, and committed (`77cee05`); Module 01 remains
+complete and committed._
 
 ## Project version
 
@@ -14,8 +15,8 @@ defects resolved. Module 01 remains complete and committed._
 
 ## Current module
 
-None in progress. Module 02 is complete and committed; Module 03 has not
-been started.
+None in progress. Module 03 is complete, owner-approved, and committed;
+Module 04 has not been started.
 
 ## Module 02 — final completion status
 
@@ -332,6 +333,577 @@ Built exactly per the approved, corrected plan:
   consistent with this machine's already-documented slow/flaky cold start
   under load, not a regression of the Module 01 ESM fix.
 
+## Module 03 — Customer Account & Profile Foundation (COMPLETE)
+
+**Status:** **COMPLETE — owner-approved.** Implementation finished,
+independently reviewed, real-browser verified, then further verified by the
+owner's own full manual pass (see "Final owner approval" below) across
+three follow-up review rounds (Edit Profile responsive sizing, the sign-up
+"Network error" root cause, and Windows Java/emulator-persistence
+reliability), each investigated to a real root cause and fixed — not
+patched around. Committed; see `git log` for the commit hash.
+
+### Final owner approval
+
+The owner completed a full manual verification pass and approved the
+module outright, with no further owner-visible blockers reported:
+
+- Firebase emulator starts correctly with Java 21.
+- Emulator persistence works across a real restart.
+- The same user account can sign in again after that restart.
+- Customer profile data (display name, phone, bio) persists correctly.
+- Account dashboard works on desktop.
+- Account dashboard works at a very small mobile viewport (~302×531).
+- Edit Profile's responsive modal (sized/scrolled/sticky-footer fix) works.
+- Edit Profile Save/Cancel remain reachable without hunting for them.
+- A profile update succeeds and persists.
+- Success feedback (toast) displays correctly.
+- Profile-completion status updates correctly once display name, phone, and
+  bio are all present.
+- The Module 03 responsive issues found during review were fixed.
+- The emulator-persistence issues found during review were fixed.
+
+### Final Module 03 deliverables
+
+- **Customer account dashboard** (`src/app/routes/AccountPage.tsx`) —
+  loading/error/missing/loaded states, role-aware header, responsive
+  desktop/mobile layout, honestly-disabled future-section reservations (no
+  fake navigation).
+- **Profile model** — `users/{uid}` extended (`src/features/auth/types.ts`)
+  with `photoURL`, `phoneNumber`, `bio`, `profileCompleted`; full shape
+  initialized at account creation (`functions/src/index.ts`).
+- **Profile repository/hooks** (`src/features/account/api/
+  profileRepository.ts`, `.../hooks/{useUserProfile,useUpdateProfile}.ts`)
+  — one real-time listener per signed-in uid, defensive read-side mapping,
+  a write-side allow-list mirroring the Firestore rule exactly.
+- **Real-time profile updates** — Firestore `onSnapshot`-backed; the
+  account header reflects a saved edit immediately, no manual refetch.
+- **Edit Profile** (`src/features/account/components/EditProfileModal.tsx`)
+  — dirty-gated Save, validation, saving state, success toast, inline error
+  preserving input on failure, unsaved-changes confirm-on-close; restructured
+  onto a sticky-header/single-scroll-body/sticky-footer `Modal` so Cancel
+  and Save never require hunting for them, at any viewport down to ~302×531.
+- **Display name, phone, bio** — editable, validated (Zod client-side,
+  mirrored server-side in `firestore.rules`).
+- **Read-only email** — displayed, never editable in this module (no
+  reverification flow exists yet).
+- **Read-only role** — displayed, never editable, no client path to
+  authorization escalation.
+- **Avatar/fallback initials** (`src/shared/ui/Avatar.tsx`) — deterministic
+  initials fallback, real `photoURL` support (no upload feature yet).
+- **Profile completion** — deterministic client computation, UX metadata
+  only, never a security/authorization signal (enforced as a type-only
+  check, `bool`, in the Firestore rule).
+- **Firestore security rules** (`firestore.rules`) — real field-level
+  allow-list (`diff().affectedKeys().hasOnly([...])`), not just an identity
+  check; schema/type/length validation in the rule itself; `updatedAt`
+  required to be a genuine `serverTimestamp()`.
+- **Firestore rules tests** (`firestore-tests/users.rules.test.ts`) —
+  21/21 passing against the real Local Emulator Suite, covering every
+  required ownership/protected-field/schema/mass-assignment/full-overwrite
+  scenario.
+- **Authentication regression** — full Module 01 flow (sign-up → account →
+  refresh → edit → refresh → sign-out → redirect → sign-in) re-verified in
+  a real browser; one genuine pre-existing defect found and fixed
+  (`src/features/auth/api/authClient.ts` — Firestore `displayName` wasn't
+  synced from the Auth trigger's pre-`updateProfile()` snapshot).
+- **Responsive account UI** — verified across 320×568, 375×667, 390×844,
+  412×915, 768×1024, 1024×768, 1366×768.
+- **Responsive Edit Profile modal** — verified across the same matrix plus
+  the ~302×531 stress case (98/98 real-browser checks in the fix pass).
+- **Emulator persistence workflow** (`npm run emulators` →
+  `scripts/start-emulators.mjs`) — auto-import/export against
+  `./emulator-data`, graceful-shutdown-aware (never force-kills its child).
+- **Windows Java 21 development guidance** (`docs/DEPLOYMENT.md` →
+  "Permanent Windows Java setup") — one-time `JAVA_HOME`/`Path` fix, plus a
+  pre-flight check in the launcher itself that refuses to proceed with a
+  clear error instead of a confusing Firebase-internal one.
+- **Emulator data recovery/safety behavior** — the launcher detects and
+  auto-recovers a stranded export (a real, reproduced Windows file-lock
+  race between Firebase's export-replace and a running `npm run dev`'s
+  file watcher) at both startup and shutdown, documented in
+  `docs/DEPLOYMENT.md`.
+
+### Known limitations
+
+- Avatar upload, email change/reverification, and seller onboarding are
+  all explicitly out of scope for this module (see "Deferred functionality").
+- The theoretical backward-compatibility gap for any Firestore `users/{uid}`
+  document that predates this module's schema is documented in
+  `docs/DATABASE.md` — moot today since nothing has ever been deployed.
+- One advisory-only lint warning (`react/set-state-in-effect` on
+  `useUserProfile.ts`) — the same shape React's own data-fetching-effect
+  docs use; not restructured further for a cosmetic lint preference.
+- The emulator-data recovery safety net cannot complete while `npm run dev`
+  is actively holding a lock on the export path — data is never lost in
+  that case, just left in a `firebase-export-*/` staging folder until
+  `npm run dev` is stopped and the emulators restarted (documented).
+- This session's tooling has no attached Windows console, so a literal
+  interactive Ctrl+C keypress could not be mechanically verified from here;
+  the equivalent code path (`child.on('exit')` triggering export
+  completion/recovery) was verified directly instead. A real Ctrl+C in the
+  owner's own terminal is the one thing only their machine can confirm —
+  now moot, since the owner's own manual verification pass covered exactly
+  this.
+
+### Deferred functionality (explicitly out of scope for Module 03)
+
+Avatar upload (Storage), email change/reverification flow, seller
+onboarding ("Become a seller"), and every marketplace/cart/orders/
+seller-studio/admin surface reserved (but disabled) in the account sections
+grid — all belong to later modules per the Module 03 scope rule.
+
+### Owner-review fix: Windows Java 21 detection + emulator-data recovery
+
+`npm.cmd run emulators` failed with "firebase-tools no longer supports Java
+version before 21" (this machine's raw PATH resolves an old Java 8 before
+the installed JDK 21), and the launcher separately reported "no previous
+emulator export found" even though persistence had previously been
+configured and tested.
+
+- **Java detection added — `scripts/start-emulators.mjs`:** checks
+  `java -version` (deliberately single-dash — Java 8 doesn't understand
+  `--version` and would just error out, which would defeat detecting
+  exactly that case) before starting anything, preferring
+  `%JAVA_HOME%\bin\java.exe` if `JAVA_HOME` is set (never a hardcoded,
+  machine-specific path). Refuses to proceed with a clear, actionable error
+  if Java is missing or below 21. If `JAVA_HOME` is set, its `bin/` is also
+  prepended to the *spawned child's* PATH, so the emulator suite itself
+  reliably uses the right Java even before a user finishes the full manual
+  PATH reorder.
+- **Documented — `docs/DEPLOYMENT.md` → "Permanent Windows Java setup":**
+  step-by-step `JAVA_HOME`/`Path` configuration via Windows' own
+  "Edit environment variables for your account", with `java --version` /
+  `where.exe java` verification — a one-time fix, no more temporary
+  `$env:`/`export PATH=...` commands needed in any future terminal.
+- **`emulator-data` detection root cause — genuinely investigated, not
+  assumed:** the detection *logic* itself was correct throughout. The
+  directory had actually gone missing: firebase-tools' export mechanism
+  replaces an existing `./emulator-data` by removing it first, then
+  renaming a fresh `firebase-export-<timestamp><random>/` staging directory
+  into place — and on this machine, if anything else holds even a lock on
+  that path at that exact moment (empirically confirmed, repeatedly: a
+  running `npm run dev`'s file watcher, watching this same project root),
+  that final rename fails with `EPERM`. The old directory is already gone
+  by then, so nothing is lost, but the new data is left stranded in the
+  staging directory. Found two such stranded exports on disk when
+  investigating — one contained genuine data (including the owner's own
+  test account) and was recovered; the launcher's detection then correctly
+  found and imported it.
+- **Fixed — the launcher now recovers this automatically, in two passes:**
+  once at startup (catches a previous run's export that got stranded, and
+  runs before this process has touched anything, the least-contested
+  moment) and once after shutdown if `--export-on-exit` itself failed the
+  same way, each with a short bounded retry. Confirmed by deliberately
+  reproducing the exact race (exporting while `npm run dev` was running)
+  and watching the launcher detect, retry, and — once `npm run dev` was
+  stopped — successfully recover the stranded data into `./emulator-data`
+  with no manual intervention, then correctly import it on the next start.
+  When `npm run dev` is still actively holding the lock, recovery can't
+  complete (documented, with the exact recovery step, in
+  `docs/DEPLOYMENT.md`) — the data is never lost, just left in the staging
+  directory until you stop `npm run dev` and start the emulators again.
+- **Export safety / Ctrl+C:** the launcher's existing design was already
+  correct here (never force-kills the child; waits for it to exit before
+  the wrapper itself exits) and is unchanged in shape — the new recovery
+  logic is a genuine data-loss safety net for the race above, not a
+  replacement for graceful shutdown. `firebase-export-*/` was added to
+  `.gitignore` alongside `emulator-data/` (same category of local-only
+  artifact).
+- **One honest limitation, carried over from the prior fix:** this
+  session's tooling still has no attached Windows console, so a literal
+  interactive Ctrl+C keypress could not be mechanically delivered here —
+  the full persistence cycle (create account → edit profile → stop → data
+  exported → restart → import → sign in → data intact) was verified for
+  real by stopping the emulator process directly (which exercises the
+  exact same `child.on('exit')` recovery/export-completion code path a
+  real Ctrl+C would), not by simulating the keypress itself. A real
+  interactive Ctrl+C in the owner's own terminal remains the one thing only
+  the owner's own machine can fully confirm.
+- **Full persistence test performed and passed** with a fresh account and
+  bio set to exactly "artist forever" per instruction — see the Owner
+  Review section of this report for the full sequence and result.
+
+### Owner-review tooling fix: missing `npm run emulators` script
+
+The owner tried `npm run emulators` (documented informally as the expected
+way to start the Local Emulator Suite) and got "Missing script: emulators"
+— no such script had ever been added to `package.json`; `docs/DEPLOYMENT.md`
+only ever documented the raw `npx firebase-tools emulators:start` command.
+
+- **Added:** `"emulators": "node scripts/start-emulators.mjs"` to
+  `package.json` (existing scripts untouched).
+- **Added — `scripts/start-emulators.mjs`:** detects a previous export via
+  `emulator-data/firebase-export-metadata.json` (the file firebase-tools
+  itself writes on every successful export — a reliable presence signal,
+  not an assumption); if found, starts with `--import=./emulator-data
+  --export-on-exit=./emulator-data` and prints "importing saved data"; if
+  not, starts with just `--export-on-exit=./emulator-data` and prints
+  "starting fresh". Prefers a local `node_modules/.bin/firebase` if one
+  exists, otherwise falls back to `npx firebase-tools` (this repo has no
+  local firebase-tools devDependency today, so it currently always takes
+  the npx path — the local-CLI check is there for forward compatibility).
+  Spawned with `shell: true` (required on Windows to resolve the `.cmd`
+  shims) and the full command built as one string rather than an args
+  array, avoiding Node's DEP0190 deprecation warning about unescaped
+  shell-array arguments — safe here since every argument is a fixed,
+  code-controlled flag, never user input. The wrapper does not exit on its
+  own `SIGINT`; it only exits once its child process has, so `npm run
+  emulators` doesn't return control to the terminal before Firebase's own
+  graceful shutdown/export has actually finished.
+- **Added `emulator-data/` to `.gitignore`** (alongside the existing
+  Firebase Emulator Suite entries) — local export data, never committed.
+- **Verified `npm run emulators` starts successfully** — first run showed
+  "No previous emulator export found... starting fresh" and reached "All
+  emulators ready."
+- **Full persistence test performed and passed:** created a real account,
+  edited its profile (phone + bio) through the live UI, exported the
+  emulator data, stopped every emulator process, ran `npm run emulators`
+  again — it printed "Found a previous emulator export... importing saved
+  data" and the logs confirmed a real Firestore/Auth import — then signed
+  in with the same account through the live UI again: displayName, email,
+  phone, and bio all came back exactly as saved. Confirms the core
+  requirement (profile data survives an emulator restart) end-to-end.
+- **One honest caveat on how the export step was triggered:** this
+  session's tooling runs each shell command through an isolated,
+  non-interactive execution layer with no attached Windows console, so a
+  literal Ctrl+C keypress could not be mechanically delivered to the running
+  emulator process the way a real terminal would (confirmed directly — a
+  `GenerateConsoleCtrlEvent`/`AttachConsole` attempt failed because there
+  was no console to attach to). The export itself was instead triggered via
+  `firebase emulators:export` against the live running suite — the exact
+  same underlying export routine `--export-on-exit` calls internally, so
+  the data-persistence guarantee this task cares about is verified for
+  real. The wrapper's own "wait for the child to exit before exiting itself"
+  logic was verified by code review and by observing a real child-process
+  exit propagate correctly, but a literal interactive Ctrl+C in a real
+  terminal is the one thing only the owner can fully confirm on their own
+  machine.
+
+### Owner-review fix: Edit Profile modal too large on mobile
+
+During the owner's own manual review, the Edit Profile modal was found to
+occupy nearly the entire viewport on mobile (reported at ~302×531): too much
+vertical space per field, and Save/Cancel could require excessive scrolling
+to reach. Fixed as a presentation-only change — no profile functionality,
+validation, or security logic touched.
+
+- **Root cause:** `Modal` (`src/shared/ui/Modal.tsx`) had no height cap and
+  no internal scroll region — header, fields, and the Cancel/Save row were
+  all one unbounded block centered by an unconstrained flex wrapper. When
+  content was taller than the viewport, there was nothing to scroll (the
+  wrapper itself never got `overflow-y-auto`), so the header and/or footer
+  could render fully off-screen. The background page could also still
+  scroll behind the open modal (no scroll lock).
+- **Fix — `src/shared/ui/Modal.tsx`:** restructured into a fixed-height flex
+  column — a `shrink-0` header, exactly one scrolling body
+  (`flex-1 overflow-y-auto`), and an optional new `footer` prop
+  (`shrink-0`, rendered outside the scrolling region so it — and any action
+  buttons in it — stay visible while the body scrolls). Sized
+  `max-h-[calc(100dvh-24px)]` / `w-full` inside `p-3` outer padding on
+  mobile (≈ `calc(100vw-24px)` × `calc(100dvh-24px)`, matching spec) and
+  `sm:max-h-[85vh]` / `sm:max-w-[460px]` inside `sm:p-4` outer padding on
+  desktop (≈ `calc(100vw-32px)` max-width, 440–500px target width, 80–85vh
+  target height). Added a background-scroll lock (`document.body.style
+  .overflow = 'hidden'` while open, always restored on close/unmount) since
+  Modal previously had none. This is a general primitive improvement, not
+  Edit-Profile-specific — safe because `Modal` currently has exactly one
+  real consumer (`EditProfileModal`).
+- **Fix — `src/features/account/components/EditProfileModal.tsx`:** the
+  Cancel/Save button row moved out of the scrolling `<form>` into `Modal`'s
+  new `footer` prop (Save now submits via `onClick={handleSubmit(onSubmit)}`
+  directly rather than native `type="submit"` form-nesting, since it's a
+  sibling of the form now, not a descendant — avoids any native
+  form-association ambiguity). Email/Role — still read-only, still present,
+  not removed — now sit side-by-side in a two-column row at `sm:` and up
+  (single column on narrow phones) to save vertical space. Field gaps
+  tightened (`gap-3 sm:gap-4`, was `gap-4` always).
+- **Fix — `src/shared/ui/TextArea.tsx`:** default height reduced from
+  `min-h-24` to `min-h-20 sm:min-h-24` (Bio is its only real consumer).
+- **Accessibility preserved, verified in a real browser:** focus trap still
+  covers the relocated footer buttons (confirmed via full Tab-order replay
+  including Cancel and Save), focus still lands on Close on open, Escape
+  still closes (through the same unsaved-changes confirm when dirty), focus
+  still returns to the Edit Profile trigger on close, `aria-invalid`/
+  `aria-describedby` still present and correctly wired on validation
+  errors.
+- **Real-browser responsive verification** (Playwright Chromium) across
+  302×531, 320×568, 375×667, 390×844, 412×915, 768×1024, 1366×768 — **98/98
+  checks passed**: modal fits the viewport at every size, heading and Close
+  visible, all five fields (Display name, Phone, Bio, Email, Role) usable/
+  readable, Cancel and Save reachable *without* scrolling to them (the new
+  sticky footer), no horizontal overflow, background scroll locked while
+  open and restored on close, Save button height ≥44px. A separate
+  accessibility-focused pass (8/8 checks) confirmed the focus-trap/Escape/
+  focus-return/aria-invalid/aria-describedby behavior above.
+- **Quality gate re-run:** typecheck clean; lint clean (same 8 pre-existing/
+  advisory warnings, no new ones); full test suite 96/96 (up from 93 — 4 new
+  `Modal.test.tsx` cases: scroll-lock on open, scroll-lock restored on
+  close, footer renders outside the body, no footer region when none is
+  passed); build succeeds; `git diff --check` clean; Firestore rules 21/21
+  (unaffected — this fix touched no rules-relevant code).
+- **Files changed for this fix:** `src/shared/ui/Modal.tsx`,
+  `src/shared/ui/Modal.test.tsx`, `src/shared/ui/TextArea.tsx`,
+  `src/features/account/components/EditProfileModal.tsx`.
+
+### Owner-review blocker found and fixed: sign-up "Network error"
+
+During the owner's own manual review, sign-up on a fresh `npm run dev`
+consistently failed with "Network error — check your connection and try
+again." Investigated rather than dismissed as a real internet problem, per
+instruction.
+
+- **Root cause:** the Firebase Auth Emulator (`127.0.0.1:9099`) was not
+  running/reachable at the moment the owner tested. Firebase's client SDK
+  reports this exact condition with the same error code
+  (`auth/network-request-failed`) it would use for a genuine internet
+  outage — the SDK cannot distinguish "no internet" from "the local
+  emulator isn't up," and the app's error mapping didn't either, so it
+  showed the same generic, actively misleading message either way.
+  Confirmed by direct reproduction: with the emulators genuinely
+  unreachable, the exact reported symptom reproduces immediately; with the
+  emulators running, the identical sign-up flow succeeds end-to-end with
+  zero errors — proving the account-creation code path itself was already
+  correct and this was never a code defect in the sign-up logic.
+- **Fix — `src/features/auth/api/authErrors.ts`:** `toAuthErrorMessage` now
+  checks `env.VITE_USE_FIREBASE_EMULATORS` (the same flag that decides
+  whether the app connects to the emulators at all) and, only when true,
+  overrides `auth/network-request-failed` with an actionable message
+  naming the expected emulator endpoint and pointing at
+  `docs/DEPLOYMENT.md`, instead of the generic connectivity message. A real
+  production build (emulators off) still gets the honest generic message,
+  since in that configuration a network failure could genuinely be the
+  user's connection. Also added a safe diagnostic `console.error` logging
+  only `error.code`/`error.message` for every `FirebaseError` reaching this
+  function — never credentials, tokens, or other request input, since
+  Firebase's own error objects never carry those.
+- **Re-verified:** typecheck, lint, and the full test suite (93/93, up from
+  90 — three new `authErrors.test.ts` cases: the new emulator-aware
+  message, the non-emulator fallback, and the safe diagnostic log) all pass.
+  Firestore rules re-confirmed 21/21 against a fresh live emulator instance.
+  A full real-browser retest against the actual Local Emulator Suite
+  (Playwright Chromium) covering sign-up → Firebase Auth user created →
+  `users/{uid}` created with synchronized displayName → `/account` loads →
+  refresh persists → sign-out → sign-in → account still correct: **8/8
+  passed, 0 console errors** (excluding the new intentional diagnostic
+  log line itself).
+- **Files changed for this fix:** `src/features/auth/api/authErrors.ts`,
+  `src/features/auth/api/authErrors.test.ts`.
+
+### Scope implemented
+
+Customer account dashboard, real profile editing (display name, phone, bio),
+Firestore persistence with realtime updates, field-level Firestore security
+rules with emulator-verified tests, avatar initials/photo fallback
+foundation, loading/error/missing/loaded account states, role-aware
+read-only identity display, responsive desktop/mobile account UI, a
+dedicated account repository/hook layer, and full authentication + Module 02
+regression testing. Marketplace, cart, orders, seller studio, and every
+other later-module feature were deliberately **not** touched — the account
+dashboard reserves their information architecture as genuinely disabled,
+non-interactive `<button disabled aria-disabled="true">` affordances only
+("Available in a later module"), matching the Module 02 no-fake-navigation
+rule.
+
+### Customer profile model (`users/{uid}`, extended)
+
+```
+uid, email, role, createdAt        — read-only from the client (unchanged from Module 01)
+photoURL                            — read-only from the client (no avatar upload in this module)
+displayName, phoneNumber, bio       — editable via Edit Profile
+profileCompleted                    — editable, UX metadata only, never authorization
+updatedAt                           — set by the client on every edit via serverTimestamp()
+```
+
+`functions/src/index.ts`'s `onUserCreate` trigger now initializes every
+field above (previously only `uid`/`email`/`displayName`/`role`/
+`createdAt`/`updatedAt`) so every account created from this point on has the
+full shape. See `docs/DATABASE.md` for the full schema and the documented
+(theoretical — nothing is deployed) backward-compatibility note for any
+pre-Module-03 document.
+
+### Writable vs. protected fields
+
+- **Writable by the customer:** `displayName`, `phoneNumber`, `bio`,
+  `profileCompleted`.
+- **Protected (client can never change):** `uid`, `email`, `role`,
+  `createdAt`, `photoURL`. Enforced in `firestore.rules` via
+  `request.resource.data.diff(resource.data).affectedKeys().hasOnly([...])`
+  — not just an identity-equality check — so no request (partial
+  `updateDoc()` or a full `setDoc()` overwrite) can inject an unlisted or
+  privileged field. See `docs/SECURITY.md`.
+
+### Firestore security rules
+
+`firestore.rules`'s `users/{uid}` update rule was rewritten from a bare
+"same uid/email/role/createdAt" check into a real field-level allow-list:
+changed-key restriction, per-field type/length validation
+(`displayName` 2-60 chars, `phoneNumber`/`bio` within their caps or `null`,
+`profileCompleted` must be `bool`), and a requirement that `updatedAt`
+equal `request.time` (a genuine `serverTimestamp()`, not a client-forged
+value). No indexes were needed (single-document reads/updates only).
+
+### Firestore rules test results
+
+`firestore-tests/users.rules.test.ts`, run for real against the Firebase
+Local Emulator Suite (not mocked) — **21/21 passing**, twice-confirmed on
+separate emulator instances. Covers every required scenario: unauthenticated
+read blocked; owner read allowed; other-user read blocked; owner create
+blocked; owner delete blocked; owner can update displayName/phoneNumber/bio
+individually and combined; owner cannot change uid/role/email/createdAt/
+photoURL; owner cannot inject an unlisted privileged field (`isAdmin`) or
+admin/moderation metadata (`suspended`, `sellerVerified`, `moderationStatus`)
+via mass assignment; a malicious full-document `setDoc()` overwrite cannot
+bypass the protected-field restriction; empty/oversized displayName,
+oversized bio, and a non-boolean `profileCompleted` are all rejected.
+
+### Real-browser verification
+
+Driven with Playwright Chromium against the live Vite dev server and the
+real Firebase Local Emulator Suite (auth, firestore, functions) — **29/29
+checks passed, 0 console errors**:
+- Sign-up → lands on `/account` with the real display name shown (see bug
+  fix below), email, Customer role badge, and an honest
+  "complete your profile" hint.
+- Future-section grid renders with every button genuinely `disabled` —
+  no fake interactivity.
+- Edit Profile: opens via a real dialog; Save starts disabled; becomes
+  enabled once the form is genuinely dirty; email/role fields are
+  disabled/read-only in the form; save succeeds, shows a success toast,
+  closes the modal, and the header updates immediately via the realtime
+  listener (no manual refetch); "Profile complete" badge appears once
+  displayName + phone + bio are all present.
+- Refresh persistence: display name, phone, and bio all survive a full page
+  reload.
+- Unsaved-changes guard: editing a field then clicking Cancel prompts a
+  confirm dialog; accepting discards and closes.
+- Sign-out clears the session and leaves `/account`; a direct `/account`
+  navigation while signed out redirects to `/sign-in`; signing back in
+  reloads the same persisted, previously-edited profile.
+- Responsive matrix (320×568, 375×667, 390×844, 412×915, 768×1024,
+  1024×768, 1366×768): no horizontal overflow at any size, Edit Profile
+  always reachable; at 375×667 specifically, the modal's Save button stays
+  within the viewport and Escape closes the dialog.
+
+### Bug found and fixed during real-browser verification
+
+**Root cause:** `onUserCreate` fires on Firebase Auth account creation,
+*before* `authClient.ts`'s follow-up `updateProfile(credential.user, {
+displayName })` call resolves — a well-known Firebase Auth trigger timing
+gap, not something either call did wrong on its own. The trigger's snapshot
+of the user record has no `displayName` yet, so the Firestore profile
+document it creates always had `displayName: null`, even though the same
+name is set on the Firebase Auth user object moments later. This existed
+since Module 01 but was invisible until Module 03 built the first UI that
+actually reads and displays the Firestore document's `displayName` — Module
+01/02's `AccountPlaceholderPage` only ever showed `user.email` from the Auth
+object directly.
+
+**Fix — `src/features/auth/api/authClient.ts`:** after `updateProfile()`
+and `waitForRoleClaim()` resolve, `signUpWithEmail` now also writes
+`displayName` (plus `updatedAt: serverTimestamp()`) directly to the
+Firestore profile document — a best-effort, caught-and-logged write that
+never fails sign-up itself. Firestore rules already permit a user to set
+their own `displayName`, so this closes the gap using the same allowed
+write path Edit Profile uses, rather than changing the trigger's own
+timing (which the Firebase platform doesn't allow fixing generally). Found,
+root-caused, fixed, and re-verified with a fresh sign-up in the same
+real-browser pass — confirmed via the Cloud Functions Admin SDK write
+running first in-process, so by the time `waitForRoleClaim` resolves
+client-side (which requires an additional token-refresh round trip) the
+trigger's own Firestore write has almost always already completed.
+
+### Authentication regression results
+
+Full Module 01 flow re-verified in the same real-browser pass: sign-up →
+account, refresh → still authenticated, edit profile → save → refresh →
+still updated, sign-out → account inaccessible, direct `/account` while
+signed out → redirected, sign-in → persisted profile loads. All passed.
+
+### Module 02 regression results
+
+Full frontend suite (24 files, 90 tests — up from 16 files/42 tests) passes,
+including every existing Module 01/02 test unmodified in behavior (only two
+files touched for Module 03 wiring: `router.tsx` swaps the placeholder route
+for the real one, `AppTopBar.tsx` passes `photoURL`/`displayName` to
+`Avatar`). `useNavItems`/shell/drawer/bottom-nav tests all still pass
+unmodified — Module 02 navigation was not touched.
+
+### Accessibility
+
+Semantic headings; explicit `<label htmlFor>` pairing for read-only
+Email/Role fields (implicit wrapping labels for the editable fields, matching
+the existing Module 01 SignIn/SignUpForm pattern); `aria-invalid`/
+`aria-describedby` on every validated field; `aria-readonly` on Email/Role;
+future-section buttons are genuine native `disabled` elements (not just
+visually dimmed), so they're automatically out of the tab order and announced
+correctly — no ARIA simulation needed; Modal's existing focus-trap/Escape/
+focus-return behavior (Module 02) is reused as-is, not reimplemented; avatar
+photo now carries a real `alt` (the person's name) rather than an empty
+decorative alt, since the component is used in contexts (e.g. the top-bar
+dropdown trigger) where no adjacent visible name text exists.
+
+### Files created
+
+`src/features/account/{types.ts, schemas.ts, index.ts}`,
+`src/features/account/api/profileRepository.ts`,
+`src/features/account/hooks/{useUserProfile.ts, useUpdateProfile.ts}`,
+`src/features/account/components/{AccountHeader.tsx, EditProfileModal.tsx,
+AccountSections.tsx}`, `src/app/routes/AccountPage.tsx`, plus matching test
+files for each (`.test.ts`/`.test.tsx`) and `src/shared/ui/Avatar.test.tsx`.
+
+### Files modified
+
+`src/features/auth/types.ts` (extended `UserProfile`),
+`src/features/auth/api/authClient.ts` (display-name sync fix, see above),
+`functions/src/index.ts` (+ `functions/src/index.test.ts` unaffected —
+`expect.objectContaining` still passes), `firestore.rules`,
+`firestore-tests/users.rules.test.ts`, `src/shared/ui/Avatar.tsx` (added
+`photoURL` support), `src/app/layouts/AppTopBar.tsx` (passes
+`photoURL`/`displayName` to `Avatar`), `src/app/routes/router.tsx` (real
+`AccountPage` replaces the Module 01 placeholder), `docs/DATABASE.md`,
+`docs/SECURITY.md`. `src/app/routes/AccountPlaceholderPage.tsx` was deleted
+(superseded).
+
+### Known limitations
+
+- No document created before this module's `onUserCreate` change is known
+  to exist in any persisted environment (nothing has ever been deployed),
+  so the stricter Module 03 update rule's backward-compatibility gap
+  (documented in `docs/DATABASE.md`) is theoretical, not a live migration
+  need.
+- The `authClient.ts` display-name sync write is best-effort: in the rare
+  case the trigger's own Firestore write genuinely hasn't completed yet
+  when it runs, it fails silently (logged, not surfaced to the user) and
+  the user would see their name missing until they set it via Edit
+  Profile. Not reproduced in real-browser testing this session.
+- One new lint warning (`react/set-state-in-effect` on
+  `useUserProfile.ts`) — advisory only, same non-blocking tier as the
+  project's 7 pre-existing warnings. The effect resets to a `loading` state
+  before (re)subscribing, the same shape React's own data-fetching-effect
+  documentation uses; not restructured further to avoid a materially more
+  complex hook for a cosmetic lint preference.
+
+### Deferred features (explicitly out of scope, not started)
+
+Avatar upload (Storage), email change/reverification flow, seller
+onboarding ("Become a seller"), and every marketplace/cart/orders/
+seller-studio/admin surface reserved (but disabled) in the account sections
+grid — all belong to later modules per the Module 03 scope rule.
+
+### Technical debt
+
+- Main bundle grew from ~927 kB to ~995 kB (gzip ~280 kB → ~300 kB) with the
+  account feature added; `AccountPage` itself is correctly code-split
+  (~11 kB own chunk) — the growth is the account feature's own code plus
+  react-hook-form/zod usage already present from Module 01, not a
+  regression in the existing code-splitting approach. Carries forward the
+  existing Firebase-SDK-dominates-the-main-chunk debt noted in Module 02.
+- No migration/backfill script exists for the theoretical pre-Module-03
+  document shape gap noted above — not built since nothing to migrate
+  exists yet; would be needed before any real deployment if legacy accounts
+  ever existed.
+
 ## Completed modules
 
 - **Module 00 — Foundation:** feature-first folder structure, routing
@@ -357,15 +929,27 @@ Built exactly per the approved, corrected plan:
   correction rounds (presentation polish, mobile collision/layout,
   small-viewport scroll-reset), each independently re-verified. Review
   result: **PASS — owner approved**. Checkpoint commit: `77cee05`.
+- **Module 03 — Customer Account & Profile Foundation:** real customer
+  account dashboard, profile repository/hooks with realtime updates, Edit
+  Profile (display name, phone, bio editable; email and role read-only),
+  avatar initials/photo fallback, deterministic profile-completion
+  metadata, field-level Firestore security rules with 21/21 emulator-
+  verified tests, and full authentication regression. Four owner review
+  rounds (initial implementation, Edit Profile responsive sizing, the
+  sign-up "Network error" root cause, Windows Java 21/emulator-persistence
+  reliability), each investigated to a real root cause and fixed. Review
+  result: **PASS — owner approved**. Checkpoint commit: this module's own
+  commit (see `git log`).
 
 ## Pending modules (not started, order not yet committed)
 
-Customer Account, Seller Studio, Artwork Management, Artist Profiles,
-Marketplace/Search, Wishlist/Likes/Follows/Sharing, Cart,
-Checkout/Payments, Orders, Inventory, Reviews, Notifications, AI (analysis
-/ assistant / search / recommendations), Auctions, AR Engine, Admin
-Control Center, Audit Logs, Analytics, hardened Security Rules, Production
-Deployment.
+Seller Studio, Artwork Management, Artist Profiles, Marketplace/Search,
+Wishlist/Likes/Follows/Sharing, Cart, Checkout/Payments, Orders, Inventory,
+Reviews, Notifications, AI (analysis / assistant / search /
+recommendations), Auctions, AR Engine, Admin Control Center, Audit Logs,
+Analytics, hardened Security Rules, Production Deployment. (Customer Account
+& Profile Foundation is Module 03, implemented and in review — see above;
+avatar *upload* specifically remains deferred to a future module.)
 
 ## Architecture decisions made so far
 
@@ -417,13 +1001,15 @@ Deployment.
 
 ## Database version
 
-`users/{uid}` is implemented (Module 01). Every other collection remains a
-draft — not created in a live project. See `docs/DATABASE.md`.
+`users/{uid}` is implemented (Module 01, extended in Module 03). Every other
+collection remains a draft — not created in a live project. See
+`docs/DATABASE.md`.
 
 ## Firestore collections
 
-- **Implemented:** `users/{uid}` (Module 01) — see `docs/DATABASE.md` for
-  its schema and rule.
+- **Implemented:** `users/{uid}` (Module 01, extended in Module 03 with
+  `photoURL`/`phoneNumber`/`bio`/`profileCompleted` and a field-level update
+  rule) — see `docs/DATABASE.md` for its schema and rule.
 - **Draft (not yet created):** `sellers`, `artists`, `artworks`,
   `carts/{uid}/items`, `orders`, `orders/{orderId}/items`,
   `wishlists/{uid}/items`, `likes/{artworkId}/by`, `follows`
@@ -604,28 +1190,39 @@ re-ran clean after these changes (see Tests/Build below).
 
 ## Tests
 
-- **Root (`npm run test -- --run`):** 16 files, 42 tests, all passing
-  (up from 11/31 — Module 02 added `useNavItems`, `Modal`, `Drawer`,
-  `AIAssistantLauncher`, `ViewInArBadge` tests, plus a `router.test.tsx`
-  fix for the now-intentional duplicate "Sign in" entry between the top
-  bar and mobile bottom nav).
-  Covers: env defaults + failure path, router/layout composition, the
-  `AuthProvider` loading→authenticated/unauthenticated state machine
-  (including the stale-lookup race-condition fix above), the
-  `RequireAuth` guard's three render states, `signUpSchema`/`signInSchema`
-  validation, `toAuthErrorMessage` code mapping, the `waitForRoleClaim`
-  retry/give-up logic, `SignInForm`/`SignUpForm` validation + success +
-  failure paths, and the redirect-back path parsing (all with the Firebase
-  SDK mocked — no live emulator needed).
+- **Root (`npm run test -- --run`):** 24 files, 90 tests, all passing (up
+  from 16/42 — Module 03 added `schemas.test.ts`, `profileRepository.test.ts`,
+  `useUserProfile.test.tsx`, `AccountHeader.test.tsx`,
+  `EditProfileModal.test.tsx`, `AccountSections.test.tsx`,
+  `AccountPage.test.tsx`, and `Avatar.test.tsx`).
+  Covers (Module 03 additions): profile update-schema validation
+  (trimming, length caps, loose international phone format), the profile
+  repository's defensive read-side mapping (missing optional fields on a
+  pre-Module-03 document, an unrecognized role, error-code mapping) and its
+  write-side allow-list + deterministic `profileCompleted`, the
+  `useUserProfile` realtime-subscription lifecycle (no subscription while
+  loading/signed-out, exactly one subscription per uid, cleanup on unmount
+  and on uid change), Edit Profile's dirty-state gating/validation/save
+  success/save failure (values preserved, not cleared)/unsaved-changes
+  confirm-on-close, `AccountHeader`'s role/completion badges, every future
+  account section rendering as a genuinely disabled control, and
+  `AccountPage`'s four `ProfileState` branches (loading/error/missing/
+  loaded). Everything from Module 01/02 (env, router/layout, `AuthProvider`,
+  `RequireAuth`, auth schemas/forms, `useNavItems`, `Modal`, `Drawer`,
+  `AIAssistantLauncher`, `ViewInArBadge`) still passes unmodified.
 - **`functions/` (`npm --prefix functions run test`):** 1 file, 2 tests,
-  passing. Covers `handleUserCreate` setting the claim/creating the
-  profile doc, and normalizing missing email/displayName to `null` rather
-  than `undefined` (Firestore rejects `undefined` field values).
-- **`firestore-tests/users.rules.test.ts` (`npm run test:rules`): 6/6
-  passing, verified against a real live Firestore emulator** (see "Live
-  emulator verification" above). Kept in its own `vitest.rules.config.ts`
-  and out of the main `npm run test` run so a missing emulator never fails
-  the default test command in an environment without Java configured.
+  passing (unmodified — `expect.objectContaining` still matches after
+  Module 03 added fields to the created document). Covers
+  `handleUserCreate` setting the claim/creating the profile doc, and
+  normalizing missing email/displayName to `null` rather than `undefined`
+  (Firestore rejects `undefined` field values).
+- **`firestore-tests/users.rules.test.ts` (`npm run test:rules`): 21/21
+  passing** (up from 6/6 — Module 03 rewrote the update rule into a
+  field-level allow-list and added coverage for every required security
+  scenario), **verified against a real live Firestore emulator**, twice, on
+  separate emulator instances. Kept in its own `vitest.rules.config.ts` and
+  out of the main `npm run test` run so a missing emulator never fails the
+  default test command in an environment without Java configured.
 
 ## Deployment
 
@@ -724,8 +1321,9 @@ module — see "Live emulator verification" above.
 
 ## Next action
 
-Module 02 (Design System & Navigation) is implemented, independently
-reviewed, and real-browser verified — awaiting owner review before
-commit. Owner still needs to supply the real ArtVault logo asset to the
-repository when convenient (not a blocker — a documented temporary
+Module 03 (Customer Account & Profile Foundation) is complete, owner-
+approved, and committed. Not pushed (no remote configured), no new branch
+created. Module 04 has not been started — next module selection is an
+owner decision. Owner still needs to supply the real ArtVault logo asset to
+the repository when convenient (not a blocker — a documented temporary
 placeholder covers development meanwhile; see `public/brand/README.md`).

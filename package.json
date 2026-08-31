@@ -10,7 +10,8 @@
     "lint": "oxlint",
     "test": "vitest",
     "test:rules": "vitest run --config vitest.rules.config.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "emulators": "node scripts/start-emulators.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

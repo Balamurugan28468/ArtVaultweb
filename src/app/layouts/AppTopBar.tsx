@@ -41,7 +41,7 @@ export function AppTopBar({ onOpenDrawer }: { onOpenDrawer: () => void }) {
                   aria-label="Account menu"
                   className="flex items-center gap-2 rounded-md p-1 hover:bg-surface-elevated"
                 >
-                  <Avatar name={user.email ?? 'Account'} size="sm" />
+                  <Avatar name={user.displayName ?? user.email ?? 'Account'} photoURL={user.photoURL} size="sm" />
                 </button>
               )}
             >

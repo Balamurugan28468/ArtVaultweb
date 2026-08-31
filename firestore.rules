@@ -10,18 +10,56 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    // Fields a customer may change via Edit Profile (Module 03). photoURL is
+    // deliberately excluded: no avatar-upload feature exists yet, so the
+    // rule grants no capability the app doesn't actually use — see
+    // ARTVAULT_PROJECT_STATE.md, "Avatar Foundation".
+    function editableProfileKeys() {
+      return ['displayName', 'phoneNumber', 'bio', 'profileCompleted', 'updatedAt'];
+    }
+
+    function isValidDisplayName(value) {
+      return value is string && value.size() >= 2 && value.size() <= 60;
+    }
+
+    function isValidOptionalString(value, maxSize) {
+      return value == null || (value is string && value.size() <= maxSize);
+    }
+
+    // A client-issued update to users/{uid} may only ever change the fields
+    // in editableProfileKeys() — enforced via the diff's affected-keys set,
+    // not just a blanket "same uid" check — so no request can inject a new,
+    // unlisted field (privileged or otherwise) or overwrite an identity
+    // field, whether via updateDoc() or a full setDoc() overwrite (Firestore
+    // rules treat both the same way once the document already exists).
+    function isValidProfileUpdate() {
+      let incoming = request.resource.data;
+      let existing = resource.data;
+      let changedKeys = incoming.diff(existing).affectedKeys();
+
+      return
+        incoming.uid == existing.uid &&
+        incoming.email == existing.email &&
+        incoming.role == existing.role &&
+        incoming.createdAt == existing.createdAt &&
+        incoming.photoURL == existing.photoURL &&
+        changedKeys.hasOnly(editableProfileKeys()) &&
+        isValidDisplayName(incoming.displayName) &&
+        isValidOptionalString(incoming.phoneNumber, 20) &&
+        isValidOptionalString(incoming.bio, 280) &&
+        incoming.profileCompleted is bool &&
+        incoming.updatedAt == request.time;
+    }
+
     // Created only by the onUserCreate Cloud Function (Admin SDK) right
-    // after sign-up — never directly by a client. A user may update their
-    // own profile, but role/uid/email/createdAt must stay exactly as the
-    // function set them; role changes only ever happen server-side.
+    // after sign-up — never directly by a client. A user may read and
+    // update their own profile, but only through isValidProfileUpdate()
+    // above; role/uid/email/createdAt/photoURL changes are structurally
+    // impossible from the client, not just discouraged.
     match /users/{uid} {
       allow read: if isOwner(uid);
       allow create: if false;
-      allow update: if isOwner(uid)
-        && request.resource.data.uid == resource.data.uid
-        && request.resource.data.email == resource.data.email
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.createdAt == resource.data.createdAt;
+      allow update: if isOwner(uid) && isValidProfileUpdate();
       allow delete: if false;
     }
 

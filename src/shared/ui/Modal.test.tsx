@@ -42,4 +42,39 @@ describe('Modal', () => {
     fireEvent.click(document.querySelector('[aria-hidden="true"]')!)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('locks background scroll while open and restores it on close', () => {
+    const previousOverflow = document.body.style.overflow
+    const { rerender } = render(
+      <Modal open onClose={vi.fn()} title="Test modal">
+        content
+      </Modal>,
+    )
+    expect(document.body.style.overflow).toBe('hidden')
+
+    rerender(
+      <Modal open={false} onClose={vi.fn()} title="Test modal">
+        content
+      </Modal>,
+    )
+    expect(document.body.style.overflow).toBe(previousOverflow)
+  })
+
+  it('renders footer content outside the scrolling body region', () => {
+    render(
+      <Modal open onClose={vi.fn()} title="Test modal" footer={<button type="button">Footer action</button>}>
+        content
+      </Modal>,
+    )
+    expect(screen.getByRole('button', { name: 'Footer action' })).toBeInTheDocument()
+  })
+
+  it('renders no footer region when none is provided', () => {
+    render(
+      <Modal open onClose={vi.fn()} title="Test modal">
+        content
+      </Modal>,
+    )
+    expect(screen.queryByRole('button', { name: 'Footer action' })).not.toBeInTheDocument()
+  })
 })

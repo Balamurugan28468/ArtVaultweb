@@ -18,6 +18,11 @@ functions/lib
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
+emulator-data/
+# Transient staging directories firebase-tools' export can leave behind if
+# its own rename into emulator-data/ fails (see scripts/start-emulators.mjs
+# and docs/DEPLOYMENT.md) — same category of local-only artifact.
+firebase-export-*/
 
 # Local env files may hold real (non-emulator) Firebase config; never commit them.
 .env

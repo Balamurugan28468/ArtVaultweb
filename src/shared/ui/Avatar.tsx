@@ -5,8 +5,26 @@ function initialsFrom(name: string): string {
   return (first + last).toUpperCase() || '?'
 }
 
-export function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
+export function Avatar({
+  name,
+  photoURL,
+  size = 'md',
+}: {
+  name: string
+  photoURL?: string | null
+  size?: 'sm' | 'md' | 'lg'
+}) {
   const sizeClasses = { sm: 'h-8 w-8 text-xs', md: 'h-10 w-10 text-sm', lg: 'h-14 w-14 text-lg' }[size]
+
+  if (photoURL) {
+    return (
+      <img
+        src={photoURL}
+        alt={name}
+        className={`inline-flex shrink-0 rounded-full object-cover ${sizeClasses}`}
+      />
+    )
+  }
 
   return (
     <span

@@ -1,8 +1,43 @@
 # ArtVault — Security Architecture
 
-**Status: foundation + authentication.** Module 00 shipped a deny-by-default
-rules skeleton. Module 01 adds the first real rule, the first Cloud
-Function, and the real role model described below.
+**Status: foundation + authentication + customer account.** Module 00
+shipped a deny-by-default rules skeleton. Module 01 added the first real
+rule, the first Cloud Function, and the real role model described below.
+Module 03 hardens that rule into a genuine field-level allow-list for
+customer profile self-service edits.
+
+## Implemented in Module 03
+
+- **`users/{uid}` update rule is now a real field-level allow-list, not
+  just an identity check.** A client-issued update (via `updateDoc()` *or*
+  a full-document `setDoc()` overwrite — Firestore rules treat both
+  identically once the document exists) may only change
+  `displayName`, `phoneNumber`, `bio`, `profileCompleted`, and `updatedAt`.
+  This is enforced via `request.resource.data.diff(resource.data)
+  .affectedKeys().hasOnly([...])` in `firestore.rules` — any request that
+  touches an unlisted field (a new privileged key like `isAdmin`, or an
+  existing protected one like `role`) is rejected outright, independent of
+  the existing `uid == uid && email == email && role == role && createdAt
+  == createdAt` identity check that was already in place from Module 01.
+  `photoURL` was added to the protected set in Module 03: no avatar-upload
+  feature exists yet, so the rule grants no write capability the app
+  doesn't actually use.
+- **Schema validation lives in the rule itself, not only in the client's
+  Zod schema.** `displayName` must be a 2-60 character string,
+  `phoneNumber`/`bio` must be strings within their length caps (or `null`),
+  and `profileCompleted` must be a boolean — a request that skips the
+  client (a hand-crafted write against the SDK) is still rejected by the
+  same constraints the UI enforces.
+  `updatedAt` must equal `request.time`, meaning it must be a genuine
+  `serverTimestamp()` sentinel — a client cannot backdate or forge it.
+- **`profileCompleted` is explicitly documented and enforced as UX metadata
+  only.** The rule checks its type (`bool`) but never uses its value to
+  gate access to anything — it must never become a security control by
+  accident in a later module.
+- **Verified against the real Firebase Local Emulator Suite**, not just
+  read from the rules file — see `firestore-tests/users.rules.test.ts`
+  (21 tests) and ARTVAULT_PROJECT_STATE.md's Module 03 entry for the full
+  run.
 
 ## Implemented in Module 01
 

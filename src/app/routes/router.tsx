@@ -6,9 +6,7 @@ import { RequireAuth } from '@/app/routes/guards/RequireAuth'
 
 const SignInPage = lazy(() => import('@/app/routes/SignInPage').then((m) => ({ default: m.SignInPage })))
 const SignUpPage = lazy(() => import('@/app/routes/SignUpPage').then((m) => ({ default: m.SignUpPage })))
-const AccountPlaceholderPage = lazy(() =>
-  import('@/app/routes/AccountPlaceholderPage').then((m) => ({ default: m.AccountPlaceholderPage })),
-)
+const AccountPage = lazy(() => import('@/app/routes/AccountPage').then((m) => ({ default: m.AccountPage })))
 
 export const router = createBrowserRouter([
   {
@@ -20,7 +18,7 @@ export const router = createBrowserRouter([
       { path: 'sign-up', element: <SignUpPage /> },
       {
         element: <RequireAuth />,
-        children: [{ path: 'account', element: <AccountPlaceholderPage /> }],
+        children: [{ path: 'account', element: <AccountPage /> }],
       },
     ],
   },

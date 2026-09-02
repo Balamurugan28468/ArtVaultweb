@@ -11,7 +11,7 @@ export function SignInForm({ onSuccess }: { onSuccess: () => void | Promise<void
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<SignInInput>({ resolver: zodResolver(signInSchema) })
+  } = useForm<SignInInput>({ resolver: zodResolver(signInSchema), mode: 'onTouched' })
 
   const onSubmit = async (values: SignInInput) => {
     setSubmitError(null)
@@ -25,9 +25,12 @@ export function SignInForm({ onSuccess }: { onSuccess: () => void | Promise<void
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
-      <label className="flex flex-col gap-1.5 text-sm font-medium text-text-secondary">
-        Email
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="sign-in-email" className="text-sm font-medium text-text-secondary">
+          Email
+        </label>
         <Input
+          id="sign-in-email"
           type="email"
           autoComplete="email"
           aria-invalid={!!errors.email}
@@ -39,11 +42,14 @@ export function SignInForm({ onSuccess }: { onSuccess: () => void | Promise<void
             {errors.email.message}
           </span>
         )}
-      </label>
+      </div>
 
-      <label className="flex flex-col gap-1.5 text-sm font-medium text-text-secondary">
-        Password
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="sign-in-password" className="text-sm font-medium text-text-secondary">
+          Password
+        </label>
         <Input
+          id="sign-in-password"
           type="password"
           autoComplete="current-password"
           aria-invalid={!!errors.password}
@@ -55,7 +61,7 @@ export function SignInForm({ onSuccess }: { onSuccess: () => void | Promise<void
             {errors.password.message}
           </span>
         )}
-      </label>
+      </div>
 
       {submitError && (
         <p role="alert" className="text-sm text-danger">

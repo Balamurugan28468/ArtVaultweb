@@ -21,6 +21,41 @@ describe('toAuthErrorMessage', () => {
     expect(toAuthErrorMessage(new Error('boom'))).toBe('Something went wrong. Please try again.')
   })
 
+  it('maps weak-password to an actionable, policy-referencing message', () => {
+    const error = new FirebaseError('auth/weak-password', 'boom')
+    expect(toAuthErrorMessage(error)).toBe('Password does not meet the security requirements.')
+  })
+
+  it('maps too-many-requests', () => {
+    const error = new FirebaseError('auth/too-many-requests', 'boom')
+    expect(toAuthErrorMessage(error)).toBe('Too many attempts. Please try again later.')
+  })
+
+  it('maps user-disabled', () => {
+    const error = new FirebaseError('auth/user-disabled', 'boom')
+    expect(toAuthErrorMessage(error)).toBe('This account is currently unavailable.')
+  })
+
+  it('maps operation-not-allowed', () => {
+    const error = new FirebaseError('auth/operation-not-allowed', 'boom')
+    expect(toAuthErrorMessage(error)).toBe('Sign-in is temporarily unavailable.')
+  })
+
+  it('maps invalid-email to the same wording used for client-side validation', () => {
+    const error = new FirebaseError('auth/invalid-email', 'boom')
+    expect(toAuthErrorMessage(error)).toBe('Enter a valid email address.')
+  })
+
+  describe('account enumeration protection', () => {
+    it.each(['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'])(
+      'maps %s to the same generic "Invalid email or password." message',
+      (code) => {
+        const error = new FirebaseError(code, 'boom')
+        expect(toAuthErrorMessage(error)).toBe('Invalid email or password.')
+      },
+    )
+  })
+
   it('logs the Firebase error code and message (never credentials) for a known FirebaseError', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const error = new FirebaseError('auth/email-already-in-use', 'boom')

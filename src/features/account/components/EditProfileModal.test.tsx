@@ -61,12 +61,31 @@ describe('EditProfileModal', () => {
     expect(screen.getByRole('button', { name: /save changes/i })).not.toBeDisabled()
   })
 
-  it('shows a validation error and does not submit for an invalid display name', async () => {
+  it('shows a specific "required" message for an empty display name', async () => {
+    render(<EditProfileModal profile={buildProfile()} open onClose={vi.fn()} />)
+    fireEvent.input(screen.getByLabelText('Display name'), { target: { value: '   ' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+    expect(await screen.findByText('Display name is required.')).toBeInTheDocument()
+    expect(updateUserProfile).not.toHaveBeenCalled()
+  })
+
+  it('shows a validation error and does not submit for a too-short display name', async () => {
     render(<EditProfileModal profile={buildProfile()} open onClose={vi.fn()} />)
     fireEvent.input(screen.getByLabelText('Display name'), { target: { value: 'A' } })
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
     expect(await screen.findByText(/at least 2 characters/i)).toBeInTheDocument()
     expect(updateUserProfile).not.toHaveBeenCalled()
+  })
+
+  it('clears the display-name error once the user corrects it', async () => {
+    render(<EditProfileModal profile={buildProfile()} open onClose={vi.fn()} />)
+    fireEvent.input(screen.getByLabelText('Display name'), { target: { value: 'A' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+    await screen.findByText(/at least 2 characters/i)
+
+    fireEvent.input(screen.getByLabelText('Display name'), { target: { value: 'Alice Updated' } })
+
+    await waitFor(() => expect(screen.queryByText(/at least 2 characters/i)).not.toBeInTheDocument())
   })
 
   it('shows a validation error for an invalid phone number', async () => {
@@ -77,12 +96,48 @@ describe('EditProfileModal', () => {
     expect(updateUserProfile).not.toHaveBeenCalled()
   })
 
+  it('accepts a valid phone number', async () => {
+    updateUserProfile.mockResolvedValueOnce(undefined)
+    render(<EditProfileModal profile={buildProfile()} open onClose={vi.fn()} />)
+    fireEvent.input(screen.getByLabelText(/Phone number/), { target: { value: '+1 555 0100' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+    await waitFor(() => expect(updateUserProfile).toHaveBeenCalled())
+  })
+
+  it('leaves the optional phone number empty without error', async () => {
+    updateUserProfile.mockResolvedValueOnce(undefined)
+    render(<EditProfileModal profile={buildProfile()} open onClose={vi.fn()} />)
+    fireEvent.input(screen.getByLabelText('Display name'), { target: { value: 'Alice Updated' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+    await waitFor(() => expect(updateUserProfile).toHaveBeenCalledWith('alice', expect.objectContaining({ phoneNumber: null })))
+  })
+
   it('shows a validation error for a too-long bio', async () => {
     render(<EditProfileModal profile={buildProfile()} open onClose={vi.fn()} />)
     fireEvent.input(screen.getByLabelText(/Bio/), { target: { value: 'x'.repeat(281) } })
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
-    expect(await screen.findByText(/under 280 characters/i)).toBeInTheDocument()
+    expect(await screen.findByText(/exceed 280 characters/i)).toBeInTheDocument()
     expect(updateUserProfile).not.toHaveBeenCalled()
+  })
+
+  it('accepts a valid bio', async () => {
+    updateUserProfile.mockResolvedValueOnce(undefined)
+    render(<EditProfileModal profile={buildProfile()} open onClose={vi.fn()} />)
+    fireEvent.input(screen.getByLabelText(/Bio/), { target: { value: 'Collector of contemporary sculpture.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+    await waitFor(() =>
+      expect(updateUserProfile).toHaveBeenCalledWith(
+        'alice',
+        expect.objectContaining({ bio: 'Collector of contemporary sculpture.' }),
+      ),
+    )
+  })
+
+  it('shows a live bio character count', () => {
+    render(<EditProfileModal profile={buildProfile({ bio: 'Hello' })} open onClose={vi.fn()} />)
+    expect(screen.getByText('5/280')).toBeInTheDocument()
+    fireEvent.input(screen.getByLabelText(/Bio/), { target: { value: 'Hello world' } })
+    expect(screen.getByText('11/280')).toBeInTheDocument()
   })
 
   it('saves successfully and closes the modal', async () => {
@@ -124,6 +179,30 @@ describe('EditProfileModal', () => {
 
     expect(window.confirm).toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('submits on Enter from within a text field, even though Save lives outside the <form>', async () => {
+    updateUserProfile.mockResolvedValueOnce(undefined)
+    render(<EditProfileModal profile={buildProfile()} open onClose={vi.fn()} />)
+
+    const nameInput = screen.getByLabelText('Display name')
+    fireEvent.input(nameInput, { target: { value: 'Alice Updated' } })
+    fireEvent.submit(nameInput.closest('form') as HTMLFormElement)
+
+    await waitFor(() => expect(updateUserProfile).toHaveBeenCalled())
+  })
+
+  it('treats a whitespace-only bio as empty rather than as saved whitespace', async () => {
+    updateUserProfile.mockResolvedValueOnce(undefined)
+    render(<EditProfileModal profile={buildProfile()} open onClose={vi.fn()} />)
+
+    fireEvent.input(screen.getByLabelText('Display name'), { target: { value: 'Alice Updated' } })
+    fireEvent.input(screen.getByLabelText(/Bio/), { target: { value: '   ' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() =>
+      expect(updateUserProfile).toHaveBeenCalledWith('alice', expect.objectContaining({ bio: null })),
+    )
   })
 
   it('closes without confirmation when the form is unchanged', () => {

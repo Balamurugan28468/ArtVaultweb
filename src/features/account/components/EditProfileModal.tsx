@@ -1,10 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useRef } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import type { UserProfile } from '@/features/auth/types'
 import { Button, Input, Modal, TextArea, useToast } from '@/shared/ui'
 import { useUpdateProfile } from '../hooks/useUpdateProfile'
-import { updateProfileSchema, type UpdateProfileFormValues } from '../schemas'
+import { BIO_MAX_LENGTH, updateProfileSchema, type UpdateProfileFormValues } from '../schemas'
 
 const ROLE_LABEL: Record<UserProfile['role'], string> = {
   CUSTOMER: 'Customer',
@@ -36,11 +36,15 @@ export function EditProfileModal({
     register,
     handleSubmit,
     reset: resetForm,
+    control,
     formState: { errors, isDirty, isSubmitting },
   } = useForm<UpdateProfileFormValues>({
     resolver: zodResolver(updateProfileSchema),
     defaultValues: toFormValues(profile),
+    mode: 'onTouched',
   })
+  const bioValue = useWatch({ control, name: 'bio' })
+  const bioLength = bioValue?.length ?? 0
 
   // Only repopulate on the closed→open transition, never while already
   // open — a realtime profile update arriving mid-edit (e.g. from another
@@ -98,9 +102,12 @@ export function EditProfileModal({
       }
     >
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-3 sm:gap-4">
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-text-secondary">
-          Display name
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="edit-profile-name" className="text-sm font-medium text-text-secondary">
+            Display name
+          </label>
           <Input
+            id="edit-profile-name"
             aria-invalid={!!errors.displayName}
             aria-describedby={errors.displayName ? 'edit-profile-name-error' : undefined}
             {...register('displayName')}
@@ -110,11 +117,14 @@ export function EditProfileModal({
               {errors.displayName.message}
             </span>
           )}
-        </label>
+        </div>
 
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-text-secondary">
-          Phone number <span className="font-normal text-text-muted">(optional)</span>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="edit-profile-phone" className="text-sm font-medium text-text-secondary">
+            Phone number <span className="font-normal text-text-muted">(optional)</span>
+          </label>
           <Input
+            id="edit-profile-phone"
             type="tel"
             autoComplete="tel"
             aria-invalid={!!errors.phoneNumber}
@@ -126,21 +136,35 @@ export function EditProfileModal({
               {errors.phoneNumber.message}
             </span>
           )}
-        </label>
+        </div>
 
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-text-secondary">
-          Bio <span className="font-normal text-text-muted">(optional)</span>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="edit-profile-bio" className="text-sm font-medium text-text-secondary">
+            Bio <span className="font-normal text-text-muted">(optional)</span>
+          </label>
           <TextArea
+            id="edit-profile-bio"
             aria-invalid={!!errors.bio}
-            aria-describedby={errors.bio ? 'edit-profile-bio-error' : undefined}
+            aria-describedby={
+              errors.bio ? 'edit-profile-bio-error edit-profile-bio-count' : 'edit-profile-bio-count'
+            }
             {...register('bio')}
           />
+          {/* No aria-live here deliberately: it's linked via aria-describedby
+              (read once, on focus) instead of a live region, since a live
+              region would announce this on every keystroke. */}
+          <span
+            id="edit-profile-bio-count"
+            className={`text-xs font-normal ${bioLength > BIO_MAX_LENGTH ? 'text-danger' : 'text-text-muted'}`}
+          >
+            {bioLength}/{BIO_MAX_LENGTH}
+          </span>
           {errors.bio && (
             <span id="edit-profile-bio-error" className="text-sm font-normal text-danger">
               {errors.bio.message}
             </span>
           )}
-        </label>
+        </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
@@ -173,6 +197,12 @@ export function EditProfileModal({
             {error.message}
           </p>
         )}
+
+        {/* Save lives in the sticky footer, outside this <form>, so without a
+            real submit control inside it the browser has nothing to trigger
+            on Enter. This hidden button restores native keyboard submission
+            (tabIndex={-1} keeps it out of the tab order and off-screen). */}
+        <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
       </form>
     </Modal>
   )

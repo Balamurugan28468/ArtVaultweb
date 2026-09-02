@@ -11,7 +11,7 @@ export function SignUpForm({ onSuccess }: { onSuccess: () => void | Promise<void
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<SignUpInput>({ resolver: zodResolver(signUpSchema) })
+  } = useForm<SignUpInput>({ resolver: zodResolver(signUpSchema), mode: 'onTouched' })
 
   const onSubmit = async (values: SignUpInput) => {
     setSubmitError(null)
@@ -25,9 +25,12 @@ export function SignUpForm({ onSuccess }: { onSuccess: () => void | Promise<void
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
-      <label className="flex flex-col gap-1.5 text-sm font-medium text-text-secondary">
-        Name
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="sign-up-name" className="text-sm font-medium text-text-secondary">
+          Name
+        </label>
         <Input
+          id="sign-up-name"
           type="text"
           autoComplete="name"
           aria-invalid={!!errors.displayName}
@@ -39,11 +42,14 @@ export function SignUpForm({ onSuccess }: { onSuccess: () => void | Promise<void
             {errors.displayName.message}
           </span>
         )}
-      </label>
+      </div>
 
-      <label className="flex flex-col gap-1.5 text-sm font-medium text-text-secondary">
-        Email
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="sign-up-email" className="text-sm font-medium text-text-secondary">
+          Email
+        </label>
         <Input
+          id="sign-up-email"
           type="email"
           autoComplete="email"
           aria-invalid={!!errors.email}
@@ -55,27 +61,36 @@ export function SignUpForm({ onSuccess }: { onSuccess: () => void | Promise<void
             {errors.email.message}
           </span>
         )}
-      </label>
+      </div>
 
-      <label className="flex flex-col gap-1.5 text-sm font-medium text-text-secondary">
-        Password
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="sign-up-password" className="text-sm font-medium text-text-secondary">
+          Password
+        </label>
         <Input
+          id="sign-up-password"
           type="password"
           autoComplete="new-password"
           aria-invalid={!!errors.password}
-          aria-describedby={errors.password ? 'sign-up-password-error' : undefined}
+          aria-describedby={errors.password ? 'sign-up-password-error sign-up-password-hint' : 'sign-up-password-hint'}
           {...register('password')}
         />
+        <span id="sign-up-password-hint" className="text-xs font-normal text-text-muted">
+          At least 8 characters, with an uppercase letter, a lowercase letter, and a number.
+        </span>
         {errors.password && (
           <span id="sign-up-password-error" className="text-sm font-normal text-danger">
             {errors.password.message}
           </span>
         )}
-      </label>
+      </div>
 
-      <label className="flex flex-col gap-1.5 text-sm font-medium text-text-secondary">
-        Confirm password
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="sign-up-confirm-password" className="text-sm font-medium text-text-secondary">
+          Confirm password
+        </label>
         <Input
+          id="sign-up-confirm-password"
           type="password"
           autoComplete="new-password"
           aria-invalid={!!errors.confirmPassword}
@@ -87,7 +102,7 @@ export function SignUpForm({ onSuccess }: { onSuccess: () => void | Promise<void
             {errors.confirmPassword.message}
           </span>
         )}
-      </label>
+      </div>
 
       {submitError && (
         <p role="alert" className="text-sm text-danger">

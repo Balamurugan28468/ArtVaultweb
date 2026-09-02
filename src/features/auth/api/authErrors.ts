@@ -4,10 +4,19 @@ import { env } from '@/config/env'
 const MESSAGES_BY_CODE: Record<string, string> = {
   'auth/email-already-in-use': 'An account with this email already exists.',
   'auth/invalid-email': 'Enter a valid email address.',
-  'auth/weak-password': 'Use at least 8 characters for your password.',
-  'auth/invalid-credential': 'Incorrect email or password.',
-  'auth/user-disabled': 'This account has been disabled.',
-  'auth/too-many-requests': 'Too many attempts. Please wait a moment and try again.',
+  'auth/weak-password': 'Password does not meet the security requirements.',
+  // Security: never reveal *which* part was wrong (a non-existent email vs.
+  // the right email with the wrong password) — all three collapse to the
+  // same message so a sign-in failure can't be used to enumerate accounts.
+  // Modern Firebase Auth SDKs already return only auth/invalid-credential
+  // for both cases; the other two are mapped defensively in case an older
+  // SDK/emulator version ever returns them directly.
+  'auth/invalid-credential': 'Invalid email or password.',
+  'auth/user-not-found': 'Invalid email or password.',
+  'auth/wrong-password': 'Invalid email or password.',
+  'auth/user-disabled': 'This account is currently unavailable.',
+  'auth/operation-not-allowed': 'Sign-in is temporarily unavailable.',
+  'auth/too-many-requests': 'Too many attempts. Please try again later.',
   'auth/network-request-failed': 'Network error — check your connection and try again.',
 }
 

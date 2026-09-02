@@ -1,13 +1,12 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-01 — Module 03 (Customer Account & Profile
-Foundation): **COMPLETE, owner-approved, and committed.** Owner completed
-full manual verification (emulator persistence, same-account sign-in,
-profile persistence, desktop and small-mobile account dashboard, responsive
-Edit Profile modal, Save/Cancel accessibility, profile update + success
-feedback, profile completion) and approved the module. Module 02 remains
-complete, owner-approved, and committed (`77cee05`); Module 01 remains
-complete and committed._
+_Last updated: 2026-09-02 — Pre-Module-04 validation & error-message
+hardening: **COMPLETE, owner-approved, and committed.** Owner manually
+reviewed and approved the full validation/error-message pass across Sign Up,
+Sign In, and Edit Profile before commit. Module 03 (Customer Account &
+Profile Foundation) remains complete, owner-approved, and committed. Module
+02 remains complete, owner-approved, and committed (`77cee05`); Module 01
+remains complete and committed._
 
 ## Project version
 
@@ -15,8 +14,8 @@ complete and committed._
 
 ## Current module
 
-None in progress. Module 03 is complete, owner-approved, and committed;
-Module 04 has not been started.
+None in progress. Pre-Module-04 validation hardening is complete,
+owner-approved, and committed; Module 04 has not been started.
 
 ## Module 02 — final completion status
 
@@ -904,6 +903,161 @@ grid — all belong to later modules per the Module 03 scope rule.
   exists yet; would be needed before any real deployment if legacy accounts
   ever existed.
 
+## Pre-Module-04 validation & error-message hardening (COMPLETE)
+
+**Status:** **COMPLETE — owner-approved and committed.** Picked up from a
+prior session's uncommitted work-in-progress (recovered intact after an
+unrelated Claude Code session restart — see recovery note below), inspected
+first rather than restarted, then completed, tested, real-browser verified,
+and owner-approved before commit.
+
+### Scope
+
+A production-quality validation and error-message system across every
+currently implemented input form — Sign Up, Sign In, and Edit Profile —
+so every validation failure names the specific field and the specific
+problem, rather than a generic error. Firestore rules were **not** modified
+(client-side limits were confirmed to already match `firestore.rules`
+exactly); no Module 04 functionality was started.
+
+### What was recovered vs. added this pass
+
+Recovered and preserved: `src/shared/validation/fields.ts` (shared
+`requiredTextField`/`emailField` builders), the Sign Up/Sign In schemas
+(`src/features/auth/schemas.ts`), the profile-edit schema
+(`src/features/account/schemas.ts`), the full Firebase Auth error-code map
+(`src/features/auth/api/authErrors.ts`, including account-enumeration
+protection and the emulator-vs-production network-error distinction), and
+the three forms already wired to them.
+
+Added/fixed this pass:
+- **Real bug — whitespace-only phone number incorrectly rejected.** A
+  `.trim().max().regex().optional().or(literal(''))` chain in
+  `account/schemas.ts` evaluated the *untrimmed* input on its `literal('')`
+  union branch, so a whitespace-only phone number failed both branches and
+  was rejected as "Enter a valid phone number." instead of being accepted as
+  empty. Rewritten as a `superRefine` that trims first and only validates
+  shape once something is actually present. Regression-tested.
+- **Real accessibility bug — error/hint text leaking into the accessible
+  name.** All three forms implicitly wrapped `<label>` around both the input
+  *and* its hint/error/count `<span>`, so a field's accessible name silently
+  absorbed that text once an error appeared (e.g. "Display name" became
+  "Display name Display name must be at least 2 characters."). This is a
+  real WCAG concern (a screen reader re-announces a different, longer name
+  after every validation failure) — not merely a testability inconvenience,
+  though it also broke label-based test queries once tests actually
+  exercised failed-then-shown-error states. Rebuilt every field in
+  `SignInForm.tsx`, `SignUpForm.tsx`, and `EditProfileModal.tsx` onto
+  explicit `htmlFor`/`id` label pairing so the accessible name stays the
+  bare label text; hints/errors/counts continue to be conveyed only through
+  `aria-describedby`, as originally intended.
+- **Keyboard-submission gap — Edit Profile.** Its Save button lives in the
+  modal's sticky footer, outside the `<form>` (so it stays visible while the
+  form body scrolls) and is a `type="button"`. With no submit control inside
+  the form, pressing Enter in a text field had nothing to trigger. Fixed
+  with a visually-hidden, `tabIndex={-1}` native submit button inside the
+  form — restores native Enter-to-submit without altering the visible
+  layout or tab order.
+- **Test-isolation bug — mocks not reset between tests.** `SignInForm.test.tsx`
+  and `SignUpForm.test.tsx` never reset their `signInWithEmail`/
+  `signUpWithEmail` mocks between tests, so call counts and call arguments
+  leaked across tests once new tests actually invoked them successfully.
+  Added `beforeEach` resets, matching the pattern already used in
+  `EditProfileModal.test.tsx`.
+- Added targeted test coverage for previously-untested but required
+  scenarios: disabled-account and network/emulator-unreachable sign-in
+  errors, malformed-email and short-name/short-password sign-up cases,
+  focus-moves-to-first-invalid-field on every form, submit-button-disabled
+  duplicate-submission prevention, and the two real bugs above.
+
+### Validation rules (final)
+
+- **Name (Sign Up / Edit Profile):** required (whitespace-only = required,
+  not "too short"), trimmed, 2–60 chars, distinct required/too-short/
+  too-long messages. No character-class restriction — apostrophes, hyphens,
+  initials, and non-Latin names are legitimate.
+- **Email:** required, trimmed, lowercased, format-checked.
+- **Password (Sign Up):** required → ≥8 chars → uppercase → lowercase →
+  digit, one message at a time. Sign In password is required-only (no
+  complexity re-check — an existing, older password must still work).
+- **Confirm password:** required, cross-field match against `password`.
+- **Phone (Edit Profile, optional):** whitespace-only = empty/valid; once
+  non-empty, ≤20 chars and shape-validated.
+- **Bio (Edit Profile, optional):** whitespace-only = empty/valid; ≤280
+  chars with a live count.
+
+### Firebase/Firestore error mapping
+
+`auth/email-already-in-use`, `auth/invalid-email`, `auth/weak-password`,
+`auth/user-disabled`, `auth/operation-not-allowed`, `auth/too-many-requests`,
+and `auth/network-request-failed` (emulator-aware vs. production-aware) each
+map to a distinct, safe message. `auth/invalid-credential`/
+`auth/user-not-found`/`auth/wrong-password` intentionally collapse to one
+generic "Invalid email or password." — deliberate account-enumeration
+protection, not a gap. Firestore write failures
+(`profileRepository.ts`'s pre-existing, untouched `toAccountError`) map
+`permission-denied` and `unavailable`/`deadline-exceeded` to safe messages.
+No raw Firebase error code, stack trace, or emulator/internal detail ever
+reaches the UI.
+
+### Verification
+
+- **Full test suite:** 161/161 passing (25 files). (One run needed
+  `--no-file-parallelism` after stray leftover Node/Java processes from an
+  earlier emulator/dev-server session — killed by PID before use — starved
+  the worker-thread pool; every test that did start, in every attempt,
+  passed with 0 real assertion failures.)
+- **Firestore rules tests:** 21/21 passing (unaffected — rules unchanged;
+  confirmed the client's `PHONE_MAX_LENGTH`/`BIO_MAX_LENGTH`/name bounds
+  already match `firestore.rules`'s `isValidOptionalString`/
+  `isValidDisplayName` exactly).
+- **Typecheck / lint / build / `git diff --check`:** all clean (lint: same 8
+  pre-existing advisory warnings, 0 new).
+- **Real-browser verification** (Playwright Chromium against the live dev
+  server, real SPA `<Link>` navigation, not only `page.goto`) at 1366×768,
+  768×1024, 390×844, 320×568, and the 302×531 stress case: **90/90** Sign
+  In/Sign Up checks (multiple simultaneous field errors, focus-on-error,
+  `aria-describedby` wiring, Enter-key submission, zero horizontal overflow
+  with 4 errors shown at once) and **65/65** Edit Profile checks, driven
+  through a real sign-up → `/account` → Edit Profile flow (the Firestore
+  profile document was seeded via the emulator's rules-bypass test API
+  rather than waiting on `onUserCreate`, since this machine's
+  already-documented flaky Functions-emulator cold start didn't fire that
+  trigger during this run — the trigger itself was not touched): 3
+  simultaneous field errors, sticky-footer Save always reachable and within
+  viewport, no overflow, per-field error clearing, whitespace-only
+  optional-field acceptance, Enter-key submission. 0 genuine console errors
+  across both passes (the one captured error is the pre-existing, documented
+  best-effort display-name-sync failure caused by the Functions-emulator gap
+  above, not a regression).
+
+### Recovery note
+
+This pass began after an unrelated VS Code/Claude Code restart invalidated
+the prior session mid-work. The interrupted session's uncommitted changes
+were confirmed intact on disk, inspected file-by-file before any new edit,
+and preserved as the foundation rather than discarded or redone.
+
+### Files changed
+
+`src/shared/validation/fields.test.ts`, `src/features/auth/schemas.ts` (+
+`.test.ts`), `src/features/account/schemas.ts` (+ `.test.ts`),
+`src/features/auth/components/SignInForm.tsx` (+ `.test.tsx`),
+`src/features/auth/components/SignUpForm.tsx` (+ `.test.tsx`),
+`src/features/account/components/EditProfileModal.tsx` (+ `.test.tsx`).
+`firestore.rules` and all Module 03 profile/repository/hook logic were left
+untouched.
+
+### Known limitations
+
+- No character-class restriction on Name fields — a deliberate, documented
+  choice, not an oversight (see Validation rules above).
+- The real-browser Edit Profile pass worked around this machine's
+  already-documented Functions-emulator cold-start flakiness by seeding the
+  Firestore document directly rather than waiting on the real
+  `onUserCreate` trigger; the trigger's own behavior was not verified again
+  in this pass (it was already verified in Module 03).
+
 ## Completed modules
 
 - **Module 00 — Foundation:** feature-first folder structure, routing
@@ -940,6 +1094,15 @@ grid — all belong to later modules per the Module 03 scope rule.
   reliability), each investigated to a real root cause and fixed. Review
   result: **PASS — owner approved**. Checkpoint commit: this module's own
   commit (see `git log`).
+- **Pre-Module-04 validation & error-message hardening:** production-quality,
+  field-specific validation and safe Firebase/Firestore error mapping across
+  Sign Up, Sign In, and Edit Profile; two real bugs found and fixed
+  (whitespace-only phone number incorrectly rejected; error/hint text
+  leaking into form fields' accessible names); Enter-key submission fixed
+  for Edit Profile; 161/161 unit/component tests, 21/21 Firestore rules
+  tests, and 155/155 real-browser checks across five viewports (1366×768
+  through the 302×531 stress case). Review result: **PASS — owner
+  approved**. Checkpoint commit: this pass's own commit (see `git log`).
 
 ## Pending modules (not started, order not yet committed)
 

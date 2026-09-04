@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { Timestamp } from 'firebase/firestore'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import type { UserProfile } from '@/features/auth/types'
 import { AccountPage } from './AccountPage'
@@ -12,6 +13,19 @@ vi.mock('@/features/account', async (importOriginal) => {
 vi.mock('@/app/providers/AuthProvider', () => ({
   useAuth: () => ({ user: { uid: 'alice' }, status: 'authenticated', role: 'CUSTOMER', refreshRole: vi.fn() }),
 }))
+// AccountSections renders a real seller-status entry point — not this
+// page's concern to test (see AccountSections.test.tsx) — stubbed to a
+// fixed, safe state so these tests aren't coupled to seller-studio's
+// realtime Firestore subscription.
+vi.mock('@/features/seller-studio', () => ({ useSellerStatus: () => ({ status: 'not-applied' }) }))
+
+function renderAccountPage() {
+  return render(
+    <MemoryRouter>
+      <AccountPage />
+    </MemoryRouter>,
+  )
+}
 
 const now = Timestamp.now()
 
@@ -31,7 +45,7 @@ const PROFILE: UserProfile = {
 describe('AccountPage', () => {
   it('shows a loading skeleton while the profile is loading', () => {
     useUserProfile.mockReturnValue({ status: 'loading' })
-    render(<AccountPage />)
+    renderAccountPage()
     expect(screen.getByLabelText('Loading your account')).toBeInTheDocument()
   })
 
@@ -40,19 +54,19 @@ describe('AccountPage', () => {
       status: 'error',
       error: { code: 'permission-denied', message: 'You do not have permission to do that.' },
     })
-    render(<AccountPage />)
+    renderAccountPage()
     expect(screen.getByRole('alert')).toHaveTextContent('You do not have permission to do that.')
   })
 
   it('shows an honest recovery state when no profile document exists', () => {
     useUserProfile.mockReturnValue({ status: 'missing' })
-    render(<AccountPage />)
+    renderAccountPage()
     expect(screen.getByText('No profile found')).toBeInTheDocument()
   })
 
   it('renders the account header and future sections once the profile is loaded', () => {
     useUserProfile.mockReturnValue({ status: 'loaded', profile: PROFILE })
-    render(<AccountPage />)
+    renderAccountPage()
     expect(screen.getByRole('heading', { name: 'Alice Example' })).toBeInTheDocument()
     expect(screen.getByText('More account features')).toBeInTheDocument()
   })

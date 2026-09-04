@@ -63,6 +63,106 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Reads the SELLER custom claim directly from the auth token — never
+    // trusts the users/{uid}.role mirror field, matching the existing
+    // Module 01 rule that role is only ever authoritative as a token claim.
+    function hasRole(role) {
+      return isSignedIn() && request.auth.token.role == role;
+    }
+
+    // A client-issued application. `status` is forced to 'PENDING' here
+    // regardless of what the client sends — the only path to 'APPROVED' is
+    // functions/src/promoteSeller.ts (Admin SDK, bypasses rules entirely,
+    // never a deployed/client-reachable endpoint). See docs/SECURITY.md.
+    function isValidSellerApplication(data) {
+      return
+        data.uid is string &&
+        data.status == 'PENDING' &&
+        data.businessName is string && data.businessName.size() >= 2 && data.businessName.size() <= 80 &&
+        data.description is string && data.description.size() >= 10 && data.description.size() <= 500 &&
+        data.contactEmail is string && data.contactEmail.size() > 0 && data.contactEmail.size() <= 254 &&
+        data.reviewedAt == null &&
+        data.appliedAt == request.time &&
+        data.createdAt == request.time &&
+        data.updatedAt == request.time;
+    }
+
+    // Module 04 — Seller Foundation. `update`/`delete` are both `false`:
+    // Firestore evaluates a write as `create` only when no document
+    // currently exists at this path and as `update` otherwise, regardless
+    // of whether the client called setDoc()/updateDoc() — so a second
+    // application attempt (the doc already exists, PENDING or APPROVED)
+    // is rejected here as an unauthorized update, giving "one application
+    // per seller, never client-modifiable after submission" for free.
+    match /sellers/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) &&
+        request.resource.data.uid == uid &&
+        isValidSellerApplication(request.resource.data);
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    function artworkCategories() {
+      return ['painting', 'sculpture', 'photography', 'digital', 'other'];
+    }
+
+    // Shared by create and the "still editing while DRAFT" update branch —
+    // every field-level constraint a valid artwork document must satisfy,
+    // independent of its status transition.
+    function isValidArtworkFields(data) {
+      return
+        data.sellerId is string &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 100 &&
+        data.description is string && data.description.size() >= 10 && data.description.size() <= 2000 &&
+        data.price is int && data.price >= 100 &&
+        data.category in artworkCategories() &&
+        data.tags is list && data.tags.size() <= 10 &&
+        data.images is list &&
+        data.inventoryCount is int && data.inventoryCount >= 0;
+    }
+
+    // Module 04 — Artwork Draft Management. Only DRAFT and SUBMITTED exist
+    // yet (see docs/DATABASE.md) — no other status value is ever accepted
+    // by create or update, below.
+    match /artworks/{artworkId} {
+      // No public Marketplace read path exists yet — added when that
+      // module is built. For now, only the owning seller can read their
+      // own artwork at all.
+      allow read: if isOwner(resource.data.sellerId);
+
+      allow create: if
+        hasRole('SELLER') &&
+        request.resource.data.sellerId == request.auth.uid &&
+        request.resource.data.status == 'DRAFT' &&
+        request.resource.data.images.size() == 0 &&
+        isValidArtworkFields(request.resource.data) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+
+      // Two, and only two, legal transitions from an update: (1) editing
+      // ordinary fields while still DRAFT, or (2) submitting — DRAFT to
+      // SUBMITTED with no other field touched. A SUBMITTED artwork can
+      // never be updated at all (neither branch's `resource.data.status`
+      // guard matches it) — covers "locked once submitted" and
+      // "SUBMITTED -> DRAFT: denied" together, not as separate checks.
+      allow update: if
+        isOwner(resource.data.sellerId) &&
+        request.resource.data.sellerId == resource.data.sellerId &&
+        request.resource.data.images == resource.data.images &&
+        request.resource.data.updatedAt == request.time &&
+        (
+          (resource.data.status == 'DRAFT' &&
+           request.resource.data.status == 'DRAFT' &&
+           isValidArtworkFields(request.resource.data)) ||
+          (resource.data.status == 'DRAFT' &&
+           request.resource.data.status == 'SUBMITTED' &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']))
+        );
+
+      allow delete: if isOwner(resource.data.sellerId) && resource.data.status == 'DRAFT';
+    }
+
     // Deny-by-default foundation for every other collection. Each later
     // feature module adds its own explicit, narrowly-scoped rules (with
     // role checks against custom auth claims) when that module is built.

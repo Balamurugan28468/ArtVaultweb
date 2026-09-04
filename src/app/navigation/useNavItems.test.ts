@@ -29,4 +29,14 @@ describe('useNavItems', () => {
     const { result } = renderHook(() => useNavItems())
     expect(result.current.every((item) => item.id === 'home' || item.id === 'account')).toBe(true)
   })
+
+  it('adds Seller Studio (now available) for an authenticated SELLER, but not for a CUSTOMER', () => {
+    useAuth.mockReturnValue({ status: 'authenticated', role: 'SELLER' })
+    const sellerItems = renderHook(() => useNavItems()).result.current.map((item) => item.id)
+    expect(sellerItems).toContain('seller-studio')
+
+    useAuth.mockReturnValue({ status: 'authenticated', role: 'CUSTOMER' })
+    const customerItems = renderHook(() => useNavItems()).result.current.map((item) => item.id)
+    expect(customerItems).not.toContain('seller-studio')
+  })
 })

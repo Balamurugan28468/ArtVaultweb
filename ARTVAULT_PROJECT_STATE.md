@@ -1,15 +1,14 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-04 — Email Link and Phone OTP authentication were
-evaluated, fully implemented, and real-browser/emulator verified, but were
-then intentionally deferred by owner decision and fully removed from the
-uncommitted working tree before any commit. Current authentication method:
-Email + Password only — see "Authentication methods — current scope" below.
-Pre-Module-04 validation & error-message hardening remains **COMPLETE,
-owner-approved, and committed** (`d5c1a18`). Module 03 (Customer Account &
-Profile Foundation) remains complete, owner-approved, and committed. Module
-02 remains complete, owner-approved, and committed (`77cee05`); Module 01
-remains complete and committed._
+_Last updated: 2026-09-05 — Module 04 (Seller Foundation & Artwork Draft
+Management): implementation, tests, and real-browser/emulator verification
+**complete, awaiting owner review — not yet committed.** Current
+authentication method remains Email + Password only — see "Authentication
+methods — current scope" below. Pre-Module-04 validation & error-message
+hardening remains **COMPLETE, owner-approved, and committed** (`d5c1a18`).
+Module 03 (Customer Account & Profile Foundation) remains complete,
+owner-approved, and committed. Module 02 remains complete, owner-approved,
+and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Project version
 
@@ -17,8 +16,9 @@ remains complete and committed._
 
 ## Current module
 
-None in progress. Pre-Module-04 validation hardening is complete,
-owner-approved, and committed; Module 04 has not been started.
+**Module 04 — Seller Foundation & Artwork Draft Management: implementation
+complete, verified, awaiting owner review.** Not yet committed. See below
+for the full writeup.
 
 ## Authentication methods — current scope
 
@@ -38,6 +38,178 @@ happened; the working tree was verified byte-identical to the prior
 approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
+
+## Module 04 — Seller Foundation & Artwork Draft Management (COMPLETE, awaiting owner review)
+
+**Status:** implementation, automated tests, Firestore rules tests, and
+real-browser/emulator verification all complete. **Not committed** —
+awaiting explicit owner review and approval per standing instruction.
+
+### Scope
+
+Exactly the plan approved before implementation: a real "Become a seller"
+application flow, backend-authoritative seller-role promotion (no
+self-service path, mirroring the existing ADMIN pattern), a Seller Studio
+shell gated to the `SELLER` role, and artwork draft CRUD limited to the
+`DRAFT`/`SUBMITTED` lifecycle. Explicitly out of scope and not built: real
+image upload (Module 05), an Admin review UI, any artwork status beyond
+`DRAFT`/`SUBMITTED`, a dedicated Inventory feature, and Marketplace/public
+artwork browsing.
+
+### Seller application flow
+
+`Account page → "Become a seller"` (the previously-disabled placeholder
+button is now the one real, functional entry among the future-sections
+grid — every other entry stays genuinely disabled) `→ /seller/apply` →
+validated form (business name, seller description, contact email —
+prefilled from the signed-in account's own email, never asking the user to
+retype data ArtVault already has) → submit → `sellers/{uid}` created with
+`status: 'PENDING'` → the same page now shows a status card ("Pending
+review" — copy deliberately never implies approval) instead of the form
+again, blocking re-application.
+
+### Seller-role security (backend-authoritative, no frontend grant path)
+
+A client can create their own `PENDING` application but can never set
+`status: 'APPROVED'`, never modify another user's application, and never
+set `role: 'SELLER'` on `users/{uid}` directly — all independently
+rules-enforced, not just hidden by the UI. The only promotion path is
+`functions/src/promoteSeller.ts`, a new local operator script (Admin SDK
+credentials, `npm run promote-seller -- <uid>` inside `functions/`),
+structurally identical to the existing `setAdminClaim.ts`: never deployed,
+never a callable, never reachable by any client request. It grants the
+`SELLER` custom claim, mirrors `role: 'SELLER'` onto `users/{uid}`, and
+flips the application to `APPROVED` — refusing to run if no application
+exists, or if it's already approved (an idempotency guard, not a silent
+no-op). No Admin-review UI exists yet — deliberately deferred to a future
+Admin Control Center module, not faked.
+
+Verified end-to-end in a real browser against the Local Emulator Suite: a
+signed-up customer applies, is confirmed still unable to reach
+`/seller-studio` by direct URL while `PENDING`, is promoted via the
+operator script, signs out and back in to pick up the new custom claim (no
+in-app "refresh my role" affordance exists — matches how role changes have
+always required a fresh token in this project), and only then sees the
+Seller Studio nav item and gains access.
+
+### Seller Studio & artwork CRUD
+
+New `RequireRole` route guard (nested inside the existing `RequireAuth`
+subtree in `router.tsx`, so it only ever runs once auth status is already
+resolved) protects `/seller-studio*`; a `CUSTOMER` or unauthenticated user
+is redirected to `/account`. The `seller-studio` nav item (already reserved
+since Module 02 with `status: 'comingSoon'`) is flipped to `'available'` —
+no other navigation-config changes were needed.
+
+Seller Studio ships: a home page (links to My Artworks / Create Artwork),
+My Artworks (realtime, own-artworks-only list), Create Artwork, and Edit
+Draft Artwork — the same form component handles both create and edit.
+Sellers can save a draft repeatedly, edit an existing draft, submit it for
+review (`DRAFT → SUBMITTED`, one-way in this module), and discard
+(delete) a draft they no longer want. Once `SUBMITTED`, the form renders a
+read-only summary instead — no Save/Submit/Discard controls exist for a
+submitted artwork, and the underlying Firestore rule independently rejects
+any such write regardless of what the UI shows.
+
+### Artwork data model
+
+```
+artworks/{artworkId}
+  sellerId: string          immutable after create
+  title: string              2-100 chars
+  description: string        10-2000 chars
+  price: number               integer minor currency units (paise = ₹ × 100); never a float anywhere
+  category: string            one of painting | sculpture | photography | digital | other
+  tags: string[]               up to 10, 30 chars each
+  images: string[]             always [] — rule-enforced, real upload is Module 05
+  inventoryCount: number      integer >= 0
+  status: 'DRAFT' | 'SUBMITTED'
+  createdAt, updatedAt: Timestamp (server)
+```
+
+`price` is entered by the seller as a whole-rupee amount and converted to
+integer paise only at the point the write payload is built
+(`ArtworkForm.tsx`'s submit handler) — never stored, compared, or
+transmitted as a float. No decimal/paise-level pricing input exists yet
+(documented simplification). See `docs/DATABASE.md` for the full field-by-
+field writeup and `docs/SECURITY.md` for the rule rationale.
+
+### Firestore security rules
+
+New `sellers/{uid}` and `artworks/{artworkId}` blocks added to
+`firestore.rules`, ahead of the existing deny-by-default catch-all (left
+untouched). `users/{uid}`'s existing rule is completely unmodified. Full
+rationale, including exactly which transitions are/aren't allowed and why,
+is in `docs/SECURITY.md`'s new "Implemented in Module 04" section.
+
+### Tests
+
+- **Frontend suite: 282/282 passing (41 files)** — up from 161/25 at the
+  last approved commit. New coverage: `integerField` (shared validator),
+  seller/artwork schemas, seller/artwork repositories (mocked Firestore
+  SDK), `useSellerStatus`/`useApplyAsSeller`/`useSellerArtworks`/
+  `useArtwork`/`useCreateArtwork`/`useUpdateArtwork` hooks,
+  `SellerApplicationForm`/`SellerStatusCard`/`ArtworkForm`/`ArtworkListItem`
+  components, `RequireRole` guard, the updated `AccountSections`/
+  `AccountPage`/`useNavItems`, and a new `Toast` auto-dismiss test (see
+  "Real bug found and fixed" below).
+- **Firestore rules suite: 64/64 passing** — the pre-existing 21
+  (`users.rules.test.ts`, unaffected) plus two new files,
+  `sellers.rules.test.ts` (16) and `artworks.rules.test.ts` (27), attacking
+  the rules directly via the SDK (forged uid/sellerId, cross-owner
+  read/update/delete, privilege escalation via the mirrored `users/{uid}`
+  doc, every status-transition boundary) rather than only exercising them
+  through the UI.
+- **Functions suite: 5/5 passing** — the pre-existing 2 (`index.test.ts`,
+  unaffected) plus 3 new (`promoteSeller.test.ts`): grants correctly,
+  refuses when no application exists, refuses to re-promote an
+  already-approved one.
+- **Real-browser verification (Playwright Chromium, Local Emulator Suite):
+  57/57 checks, 0 genuine console errors.** Full workflow: customer → apply
+  → PENDING → blocked from Seller Studio → operator-script promotion →
+  sign-out/sign-in → SELLER → create → edit → submit → SUBMITTED-locked →
+  a second seller confirmed unable to read or list the first seller's
+  artwork (Firestore permission-denied, mapped to a safe message) — plus
+  the full required viewport matrix (1366×768 down to 302×531) on every
+  new screen.
+
+### Real bugs found and fixed during this module (not introduced by it)
+
+- **`shared/ui/Toast.tsx` never auto-dismissed.** Discovered because two of
+  this module's new pages (`SellerApplicationPage`, `ArtworkFormPage`) call
+  `toast.success(...)` at points immediately followed by clicking the top
+  bar's account menu in real-browser testing — a lingering toast (the
+  component only ever had a manual dismiss button) sat at `top-4` and
+  physically blocked that click. This is a real, standing UX defect
+  affecting every existing `toast.success()` call in the app (including
+  Module 03's `EditProfileModal`), not something Module 04 introduced —
+  simply the first flow to click something a toast could cover. Fixed with
+  a 5-second auto-dismiss timer (manual dismiss still available), covered
+  by a new `Toast.test.tsx`.
+- **Running more than one `*.rules.test.ts` file exposed a real
+  test-infrastructure race.** All rules-test files share one live Firestore
+  emulator/project; each independently calls `testEnv.clearFirestore()` (a
+  whole-project wipe) in its own `beforeEach`. Run in parallel (Vitest's
+  default), one file's clear could wipe another's in-flight fixtures —
+  intermittent, not a rules-logic bug (every test passes reliably once
+  serialized). Fixed permanently via `fileParallelism: false` in
+  `vitest.rules.config.ts`, not a one-off `--no-file-parallelism` flag
+  someone would have to remember. Module 03 never hit this because it was
+  the only rules-test file that existed until now.
+
+### Known limitations (documented, not silently accepted)
+
+- No Admin-review UI — seller promotion is a local operator script only,
+  matching the existing ADMIN/SUPER_ADMIN precedent exactly.
+- No real image upload — `images` is schema-reserved but rule-enforced
+  empty; Module 05's job.
+- No paise-level/decimal artwork pricing input — whole rupees only.
+- No public Marketplace read path for artworks — an artwork is visible
+  only to the seller who owns it until a Marketplace module exists.
+- A phone-OTP-style "same person, two accounts" gap doesn't apply here
+  (seller identity is the same `uid` as the underlying `users/{uid}`
+  account, not a separate identity), but the analogous risk — no in-app way
+  to *revoke* SELLER — is out of scope for the same reason the review UI is.
 
 ## Module 02 — final completion status
 
@@ -1128,13 +1300,17 @@ untouched.
 
 ## Pending modules (not started, order not yet committed)
 
-Seller Studio, Artwork Management, Artist Profiles, Marketplace/Search,
-Wishlist/Likes/Follows/Sharing, Cart, Checkout/Payments, Orders, Inventory,
-Reviews, Notifications, AI (analysis / assistant / search /
-recommendations), Auctions, AR Engine, Admin Control Center, Audit Logs,
-Analytics, hardened Security Rules, Production Deployment. (Customer Account
-& Profile Foundation is Module 03, implemented and in review — see above;
-avatar *upload* specifically remains deferred to a future module.)
+Artist Profiles, Marketplace/Search, Wishlist/Likes/Follows/Sharing, Cart,
+Checkout/Payments, Orders, Reviews, Notifications, AI (analysis / assistant
+/ search / recommendations), Auctions, AR Engine, Admin Control Center
+(including seller-application review UI), Audit Logs, Analytics, hardened
+Security Rules, Production Deployment. (Customer Account & Profile
+Foundation is Module 03, complete and committed; Seller Foundation &
+Artwork Draft Management is Module 04, implemented and awaiting owner
+review — see above. Artwork image upload via Firebase Storage — Module 05 —
+and a dedicated Inventory feature beyond the single `inventoryCount` field
+remain deferred. Avatar *upload* specifically also remains deferred to a
+future module.)
 
 ## Architecture decisions made so far
 

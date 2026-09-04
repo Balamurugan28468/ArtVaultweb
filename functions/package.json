@@ -10,7 +10,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "set-admin-claim": "tsc && node lib/setAdminClaim.js"
+    "set-admin-claim": "tsc && node lib/setAdminClaim.js",
+    "promote-seller": "tsc && node lib/promoteSeller.js"
   },
   "dependencies": {
     "firebase-admin": "^14.3.0",

@@ -15,11 +15,21 @@ interface ToastStore {
 }
 
 let nextId = 0
+const AUTO_DISMISS_MS = 5000
 
-const useToastStore = create<ToastStore>((set) => ({
+const useToastStore = create<ToastStore>((set, get) => ({
   toasts: [],
-  push: (message, tone) =>
-    set((state) => ({ toasts: [...state.toasts, { id: nextId++, message, tone }] })),
+  push: (message, tone) => {
+    const id = nextId++
+    set((state) => ({ toasts: [...state.toasts, { id, message, tone }] }))
+    // Toasts are meant to be transient — without this, one sitting at
+    // `top-4` (see Toaster below) can cover fixed page chrome like the top
+    // bar's account menu indefinitely until someone manually dismisses it.
+    // The manual dismiss button stays too, for anyone (including a
+    // screen-reader user) who wants it gone sooner or needs more time to
+    // read it before it goes.
+    setTimeout(() => get().dismiss(id), AUTO_DISMISS_MS)
+  },
   dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
 }))
 

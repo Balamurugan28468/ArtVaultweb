@@ -1,14 +1,17 @@
 # ArtVault — Database Architecture (Firestore)
 
-**Status: foundation + authentication + customer account.** Module 00
-created a deny-by-default rules skeleton. Module 01 (Authentication) created
-`users/{uid}`, written once by the `onUserCreate` Cloud Function right after
-sign-up (see `functions/src/index.ts`). Module 03 (Customer Account &
-Profile Foundation) extends that same document with the editable profile
-fields below and adds the field-level update rule that protects them — see
-`docs/SECURITY.md`. Every other collection below remains design-only — not
-created, read, or written by any code yet — recorded here so later modules
-build toward one consistent shape instead of improvising per-feature.
+**Status: foundation + authentication + customer account + seller/artwork
+foundation.** Module 00 created a deny-by-default rules skeleton. Module 01
+(Authentication) created `users/{uid}`, written once by the `onUserCreate`
+Cloud Function right after sign-up (see `functions/src/index.ts`). Module 03
+(Customer Account & Profile Foundation) extends that same document with the
+editable profile fields below and adds the field-level update rule that
+protects them — see `docs/SECURITY.md`. Module 04 (Seller Foundation &
+Artwork Draft Management) implements `sellers/{uid}` and
+`artworks/{artworkId}` as described below. Every other collection remains
+design-only — not created, read, or written by any code yet — recorded here
+so later modules build toward one consistent shape instead of improvising
+per-feature.
 
 ## `users/{uid}` (implemented in Module 01, extended in Module 03)
 
@@ -63,6 +66,79 @@ separately defensive about this (`mapToProfile` treats any missing optional
 field as `null`/`false` rather than crashing), so *reading* such a document
 in the UI is safe even though *updating* it would need the backfill first.
 
+## `sellers/{uid}` (implemented in Module 04)
+
+```
+uid: string                    == the document id == the applicant's auth uid; read-only from client
+status: 'PENDING' | 'APPROVED' forced to 'PENDING' on client create; never client-updatable afterward
+businessName: string           2-80 chars
+description: string            10-500 chars
+contactEmail: string           defaults to the applicant's account email in the UI, editable there
+appliedAt: Timestamp (server)  set once, on submission
+reviewedAt: Timestamp | null   set only by functions/src/promoteSeller.ts (Admin SDK)
+createdAt: Timestamp (server)
+updatedAt: Timestamp (server)
+```
+
+Deliberately keyed by `uid` (the same id as `users/{uid}`), not a separate
+generated `sellerId` — one application per person, no indirection needed
+until a real multi-storefront-per-seller concept is ever built. A client may
+`create` their own application (`status` forced to `'PENDING'` by the rule
+regardless of what's sent) and `read` it; **`update` and `delete` are both
+`false` for every client**, including the applicant themselves — Firestore
+evaluates a write as `create` only when no document currently exists at that
+path, `update` otherwise, so a duplicate application attempt against an
+already-PENDING (or already-APPROVED) document is rejected as an
+unauthorized update automatically, without any separate "already applied"
+check. The only path from `PENDING` to `APPROVED` is
+`functions/src/promoteSeller.ts` — a local operator script (Admin SDK,
+never a deployed/client-reachable function), which also grants the `SELLER`
+custom claim and mirrors `role: 'SELLER'` onto `users/{uid}`. See
+`docs/SECURITY.md` for the full rationale, including why a formal
+Admin-reviewer UI was deliberately not built yet.
+
+## `artworks/{artworkId}` (implemented in Module 04 — DRAFT/SUBMITTED only)
+
+```
+sellerId: string          == the owning seller's auth uid; immutable after create
+title: string              2-100 chars
+description: string        10-2000 chars
+price: number               integer minor currency units (paise — price in ₹ × 100), never a float
+category: string            one of a small fixed set (painting | sculpture | photography | digital | other)
+tags: string[]              up to 10 tags, 30 chars each — a small bounded list, not an unbounded relationship
+images: string[]            always [] in Module 04 — Storage-backed upload is Module 05
+inventoryCount: number      integer >= 0
+status: 'DRAFT' | 'SUBMITTED'
+createdAt: Timestamp (server)
+updatedAt: Timestamp (server)
+```
+
+Only the first two states of the eventual lifecycle
+(`DRAFT → SUBMITTED → PENDING_REVIEW → APPROVED → PUBLISHED → ...`) exist
+yet — every later state needs a reviewer or a Marketplace that doesn't exist
+yet, and Module 04 deliberately doesn't build a status nothing can ever act
+on or leave. A `SELLER` may `create` their own artwork (`sellerId` must
+equal their own uid, `status` forced to `'DRAFT'`, `images` forced empty).
+While `DRAFT`, the owner may freely edit ordinary fields, or submit
+(`DRAFT → SUBMITTED`, touching only `status`/`updatedAt` — no other field
+may change in that same write) or delete. **Once `SUBMITTED`, the document
+is locked from ordinary seller edits entirely** — no field, including
+reverting back to `DRAFT`, can be changed by the client; only the owning
+seller may even `read` it (no public Marketplace read path exists yet — see
+below). `ar: {...}` is deliberately not part of this document yet — added
+by the AR module per `docs/AR_ARCHITECTURE.md` once it exists.
+
+`price` is stored as an integer number of minor currency units (paise) so
+it can never accumulate floating-point rounding error; the seller-facing UI
+(`src/features/artwork/components/ArtworkForm.tsx`) is the only place that
+ever converts to/from a whole-rupee display value, and only whole-rupee
+amounts are accepted from a seller in Module 04 (no paise-level/decimal
+pricing input yet — a documented, deliberate simplification).
+
+No public read path exists for `artworks/{artworkId}` yet — that's the
+Marketplace module's job, once one is actually built to consume it; until
+then, an artwork (`DRAFT` or `SUBMITTED`) is visible only to its own seller.
+
 ## Guiding rule: no unbounded arrays
 
 Any relationship that can grow open-endedly (cart contents, order line
@@ -74,22 +150,15 @@ computed by reading an entire subcollection.
 
 ## Draft collection layout
 
-(`users/{uid}` is now implemented as described above; everything below
-remains design-only.)
+(`users/{uid}`, `sellers/{uid}`, and `artworks/{artworkId}` are now
+implemented as described above; everything below remains design-only. Note
+`artworks/{artworkId}` will gain an `ar: {...}` sub-object — see that
+section above — and further status values, once the AR and
+review/Marketplace modules that would actually use them exist.)
 
 ```
-sellers/{sellerId}
-  storefront profile, status: pending | approved | suspended
-
 artists/{artistId}
   public artist profile (may coincide with a sellerId)
-
-artworks/{artworkId}
-  title, price, images[], category, tags[], sellerId, inventoryCount, status
-  ar: { widthCm, heightCm, depthCm?, placement: 'wall' | 'floor',
-        modelGlbUrl?, modelUsdzUrl?, posterUrl? }
-  -- an artwork is only AR-eligible once widthCm/heightCm are present;
-     missing dimensions means no AR offer, never a guessed default.
 
 carts/{uid}/items/{artworkId}
   quantity, unitPriceSnapshot, addedAt

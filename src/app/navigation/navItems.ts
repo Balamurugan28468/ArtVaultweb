@@ -29,6 +29,6 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'cart', label: 'Cart', href: '/cart', icon: ShoppingCart, status: 'comingSoon', audiences: ['CUSTOMER', 'SELLER'] },
   { id: 'orders', label: 'Orders', href: '/orders', icon: Package, status: 'comingSoon', audiences: ['CUSTOMER', 'SELLER'] },
   { id: 'account', label: 'Account', href: '/account', icon: User, status: 'available', audiences: ['CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
-  { id: 'seller-studio', label: 'Seller Studio', href: '/seller-studio', icon: LayoutDashboard, status: 'comingSoon', audiences: ['SELLER'] },
+  { id: 'seller-studio', label: 'Seller Studio', href: '/seller-studio', icon: LayoutDashboard, status: 'available', audiences: ['SELLER'] },
   { id: 'admin', label: 'Admin Control Center', href: '/admin', icon: ShieldCheck, status: 'comingSoon', audiences: ['ADMIN', 'SUPER_ADMIN'] },
 ]

@@ -1,10 +1,83 @@
 # ArtVault — Security Architecture
 
-**Status: foundation + authentication + customer account.** Module 00
-shipped a deny-by-default rules skeleton. Module 01 added the first real
-rule, the first Cloud Function, and the real role model described below.
-Module 03 hardens that rule into a genuine field-level allow-list for
-customer profile self-service edits.
+**Status: foundation + authentication + customer account + seller/artwork
+foundation.** Module 00 shipped a deny-by-default rules skeleton. Module 01
+added the first real rule, the first Cloud Function, and the real role
+model described below. Module 03 hardens that rule into a genuine
+field-level allow-list for customer profile self-service edits. Module 04
+adds `sellers/{uid}` and `artworks/{artworkId}`, both backend-authoritative
+about the one thing that actually matters (who may become a SELLER, who
+owns which artwork) exactly the way Module 01 already established for
+`ADMIN`/`SUPER_ADMIN`.
+
+## Implemented in Module 04
+
+- **Seller role: no self-service path, mirroring Module 01's ADMIN
+  pattern exactly.** A customer can `create` their own `sellers/{uid}`
+  application, but the rule forces `status` to `'PENDING'` regardless of
+  what the client sends, and **`update`/`delete` are both `false` for every
+  client, including the applicant.** The only path from `PENDING` to
+  `APPROVED` — which also grants the `SELLER` custom claim and mirrors
+  `role: 'SELLER'` onto `users/{uid}` — is `functions/src/promoteSeller.ts`,
+  a local operator script using Admin SDK credentials, structurally
+  identical to `functions/src/setAdminClaim.ts` (never a deployed function,
+  never a callable, never reachable by any client request). No Admin-review
+  UI exists yet — deliberately deferred, not faked; see "Planned" below.
+- **Duplicate-application protection comes from the rule engine itself, not
+  application logic.** Firestore evaluates a write as `create` only when no
+  document currently exists at that path and as `update` otherwise,
+  regardless of which client SDK method was called — so a second
+  `applyAsSeller` call against an existing application (still `PENDING`, or
+  already `APPROVED`) is rejected as an unauthorized *update*, with no
+  separate "already applied" check needed anywhere.
+- **Artwork ownership is enforced field-by-field, not just by an identity
+  check.** `create` requires `sellerId == request.auth.uid` *and* the
+  `SELLER` custom claim (`request.auth.token.role == 'SELLER'`) — a
+  `PENDING` applicant, or a plain `CUSTOMER`, cannot create an artwork no
+  matter what they send. `update` requires `sellerId` to stay unchanged
+  from the existing document (ownership can never be transferred by a
+  client write) and only permits two transitions: ordinary field edits
+  while `status` stays `'DRAFT'`, or submitting (`DRAFT → SUBMITTED`,
+  touching only `status`/`updatedAt` in that same write, nothing else).
+  Every other combination — including `SUBMITTED → DRAFT`, or setting any
+  status value outside `DRAFT`/`SUBMITTED` — is rejected because neither
+  update branch's `resource.data.status` guard matches it, not by an
+  explicit exclusion list.
+- **A `SUBMITTED` artwork is fully locked from the client's perspective —
+  not just its editable fields.** No update of any kind succeeds once
+  `status == 'SUBMITTED'` (covers "no reverting to DRAFT" and "no further
+  edits" as one mechanism, not two separate checks), and `delete` requires
+  both ownership and `status == 'DRAFT'`.
+- **No public read path for artworks yet.** `read` requires
+  `isOwner(resource.data.sellerId)` — an artwork, `DRAFT` or `SUBMITTED`,
+  is visible only to the seller who owns it; a public Marketplace read rule
+  is added only when a Marketplace module actually exists to use it, never
+  speculatively.
+- **`images` cannot be set by any client write, in create or update.**
+  `create` requires `images.size() == 0`; every `update` branch requires
+  `request.resource.data.images == resource.data.images` (unchanged). This
+  isn't a UI restriction — it's enforced server-side, because real
+  Storage-backed image upload (with its own rules and validation) is
+  Module 05's job, not this one's.
+- **`price` is a schema-validated integer, never a float.** The rule
+  requires `data.price is int && data.price >= 100` (≥ ₹1 in paise) —
+  a request carrying a decimal/float price is rejected at the rule level,
+  independent of the client-side whole-rupee-only form validation.
+- **Verified against the real Firebase Local Emulator Suite, attacking the
+  rules directly via the SDK — not just exercised through the UI.** See
+  `firestore-tests/sellers.rules.test.ts` and
+  `firestore-tests/artworks.rules.test.ts` (64 tests combined with the
+  pre-existing `users.rules.test.ts`) — covering unauthenticated/forged/
+  cross-owner attempts, privilege escalation via the mirrored `users/{uid}`
+  document, and every documented status-transition boundary. Running all
+  three rules-test files together (new to Module 04 — previously there was
+  only one) surfaced a real test-infrastructure issue: they share one live
+  Firestore emulator/project, and each file's own `beforeEach` calls
+  `testEnv.clearFirestore()` (a whole-project wipe); run in parallel
+  (Vitest's default), one file's clear can wipe another's in-flight
+  fixtures mid-test. Fixed by setting `fileParallelism: false` in
+  `vitest.rules.config.ts` — a real, permanent characteristic of sharing one
+  emulator across files, not a one-off flake.
 
 ## Implemented in Module 03
 
@@ -83,6 +156,16 @@ customer profile self-service edits.
 
 ## Planned (not yet implemented)
 
+- **Seller application review UI.** Module 04 deliberately did not build an
+  Admin reviewer screen — `functions/src/promoteSeller.ts` (a local
+  operator script) is the only approval path today, exactly matching how
+  `ADMIN`/`SUPER_ADMIN` already work. A real in-app review flow (approve/
+  reject buttons, reviewer notes, an audit trail) belongs to the future
+  Admin Control Center module.
+- **Real Firebase Storage image upload for artworks.** `images` is a
+  schema field on `artworks/{artworkId}` today but is rule-enforced to stay
+  empty on every client write — `storage.rules` remains fully closed. This
+  is Module 05's job.
 - Sellers are not restricted from buying — role gating only restricts
   seller-studio and admin surfaces; cart/checkout rules are open to any
   authenticated user regardless of role.

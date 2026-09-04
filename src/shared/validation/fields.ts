@@ -52,3 +52,33 @@ export function emailField() {
       }
     })
 }
+
+/**
+ * A required whole-number field (price, inventory count, ...). Deliberately
+ * kept as a validated *string* — not `.transform(Number)`'d — so the form's
+ * managed value type never diverges from its schema's input type (a
+ * transform would need react-hook-form's separate input/output generics,
+ * which nothing else in this codebase uses yet); callers convert to a
+ * number once, at the point they actually build the write payload.
+ */
+export function integerField({ label, min }: { label: string; min: number }) {
+  return z
+    .string()
+    .trim()
+    .superRefine((value, ctx) => {
+      if (value.length === 0) {
+        ctx.addIssue({ code: 'custom', message: `${label} is required.` })
+        return
+      }
+      if (!/^\d+$/.test(value)) {
+        ctx.addIssue({ code: 'custom', message: `${label} must be a whole number.` })
+        return
+      }
+      if (Number(value) < min) {
+        ctx.addIssue({
+          code: 'custom',
+          message: min === 0 ? `${label} cannot be negative.` : `${label} must be at least ${min}.`,
+        })
+      }
+    })
+}

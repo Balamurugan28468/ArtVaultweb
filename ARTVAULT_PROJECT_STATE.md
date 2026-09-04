@@ -1,9 +1,12 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-02 — Pre-Module-04 validation & error-message
-hardening: **COMPLETE, owner-approved, and committed.** Owner manually
-reviewed and approved the full validation/error-message pass across Sign Up,
-Sign In, and Edit Profile before commit. Module 03 (Customer Account &
+_Last updated: 2026-09-04 — Email Link and Phone OTP authentication were
+evaluated, fully implemented, and real-browser/emulator verified, but were
+then intentionally deferred by owner decision and fully removed from the
+uncommitted working tree before any commit. Current authentication method:
+Email + Password only — see "Authentication methods — current scope" below.
+Pre-Module-04 validation & error-message hardening remains **COMPLETE,
+owner-approved, and committed** (`d5c1a18`). Module 03 (Customer Account &
 Profile Foundation) remains complete, owner-approved, and committed. Module
 02 remains complete, owner-approved, and committed (`77cee05`); Module 01
 remains complete and committed._
@@ -16,6 +19,25 @@ remains complete and committed._
 
 None in progress. Pre-Module-04 validation hardening is complete,
 owner-approved, and committed; Module 04 has not been started.
+
+## Authentication methods — current scope
+
+Email Link and Phone OTP authentication were evaluated but intentionally
+deferred by owner. Current authentication method: Email + Password. These
+methods may be implemented later if requested.
+
+A full working implementation of Email Link (passwordless) and Phone OTP
+sign-in — including a multi-method Sign In tab selector, the account-linking
+analysis (Firebase's default "one account per email" already covers
+Email Link/password overlap; Phone OTP does not, and was documented as a
+known gap rather than unsafely auto-merged), and a development-only
+emulator notice for each — was built, real-browser and emulator verified,
+and reported to the owner, but was **never committed**. Per this later
+instruction, it was fully removed from the working tree before any commit
+happened; the working tree was verified byte-identical to the prior
+approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
+only, exactly as approved in Module 01 and hardened in the validation pass
+above.
 
 ## Module 02 — final completion status
 

@@ -2,7 +2,7 @@
 
 _Last updated: 2026-09-05 — Module 04 (Seller Foundation & Artwork Draft
 Management): implementation, tests, and real-browser/emulator verification
-**complete, awaiting owner review — not yet committed.** Current
+**complete, owner-approved, and committed** (`d483994`). Current
 authentication method remains Email + Password only — see "Authentication
 methods — current scope" below. Pre-Module-04 validation & error-message
 hardening remains **COMPLETE, owner-approved, and committed** (`d5c1a18`).
@@ -17,8 +17,9 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 ## Current module
 
 **Module 04 — Seller Foundation & Artwork Draft Management: implementation
-complete, verified, awaiting owner review.** Not yet committed. See below
-for the full writeup.
+complete, verified, owner-approved, and committed** (`d483994`). Module 05
+(artwork image upload) has not been started. See below for the full
+writeup, and "Completed modules" for the checkpoint entry.
 
 ## Authentication methods — current scope
 
@@ -39,11 +40,11 @@ approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
 
-## Module 04 — Seller Foundation & Artwork Draft Management (COMPLETE, awaiting owner review)
+## Module 04 — Seller Foundation & Artwork Draft Management (COMPLETE, owner-approved, committed)
 
 **Status:** implementation, automated tests, Firestore rules tests, and
-real-browser/emulator verification all complete. **Not committed** —
-awaiting explicit owner review and approval per standing instruction.
+real-browser/emulator verification all complete. Owner-reviewed, approved,
+and committed as `d483994`.
 
 ### Scope
 
@@ -1297,6 +1298,18 @@ untouched.
   tests, and 155/155 real-browser checks across five viewports (1366×768
   through the 302×531 stress case). Review result: **PASS — owner
   approved**. Checkpoint commit: this pass's own commit (see `git log`).
+- **Module 04 — Seller Foundation & Artwork Draft Management:** real seller
+  application flow (`sellers/{uid}`), backend-authoritative promotion via
+  `functions/src/promoteSeller.ts` (operator script, mirrors
+  `setAdminClaim.ts`, never a deployed/callable endpoint), a `RequireRole`
+  Seller Studio guard, and DRAFT/SUBMITTED-only artwork draft CRUD
+  (`artworks/{artworkId}`) with integer-minor-unit pricing and a fully
+  server-enforced ownership/lifecycle/image-lock model. 282/282 unit/
+  component tests, 64/64 Firestore rules tests (21 pre-existing + 43 new),
+  5/5 Cloud Functions tests, and 57/57 real-browser/emulator checks across
+  the full viewport matrix. One real pre-existing bug found and fixed along
+  the way (`Toast` never auto-dismissed). Review result: **PASS — owner
+  approved**. Checkpoint commit: `d483994`.
 
 ## Pending modules (not started, order not yet committed)
 
@@ -1306,10 +1319,10 @@ Checkout/Payments, Orders, Reviews, Notifications, AI (analysis / assistant
 (including seller-application review UI), Audit Logs, Analytics, hardened
 Security Rules, Production Deployment. (Customer Account & Profile
 Foundation is Module 03, complete and committed; Seller Foundation &
-Artwork Draft Management is Module 04, implemented and awaiting owner
-review — see above. Artwork image upload via Firebase Storage — Module 05 —
-and a dedicated Inventory feature beyond the single `inventoryCount` field
-remain deferred. Avatar *upload* specifically also remains deferred to a
+Artwork Draft Management is Module 04, complete and committed — see above.
+Artwork image upload via Firebase Storage — Module 05 — and a dedicated
+Inventory feature beyond the single `inventoryCount` field remain deferred,
+not started. Avatar *upload* specifically also remains deferred to a
 future module.)
 
 ## Architecture decisions made so far

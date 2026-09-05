@@ -3,9 +3,10 @@
 _Last updated: 2026-09-05 — Module 04 Final Hardening & Firebase Emulator
 Persistence / Seller-Authorization Reconciliation: implementation, tests,
 and the **owner's own real Windows Ctrl+C manual restart verification** all
-**complete**, pending commit (this will be recorded as a new commit on top
-of `1f0deb7`) — see "Module 04 — Emulator Persistence & Seller-Authorization
-Reconciliation" below for the full write-up. Module 04 (Seller Foundation &
+**complete, verified, and committed** (`877f3ba`, full hash
+`877f3bab8e163fa9c0c7832a6fd05baa0d1523c4`, on top of `1f0deb7`) — see
+"Module 04 — Emulator Persistence & Seller-Authorization Reconciliation"
+below for the full write-up. Module 04 (Seller Foundation &
 Artwork Draft Management) core implementation, tests, real-browser/emulator
 verification, and the owner's own full manual acceptance walkthrough remain
 **complete and committed** (`d483994`, `1f8ca5a`, `1f0deb7`). Acceptance
@@ -28,11 +29,11 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 complete, verified, owner manually accepted end to end, and committed**
 (`d483994`, `1f8ca5a`, `1f0deb7`). A follow-up hardening pass — Firebase
 emulator persistence (single-instance protection, safe snapshot/export
-architecture) and seller-authorization reconciliation — is complete,
-real-owner restart-verified, and **pending commit** (see "Module 04 —
-Emulator Persistence & Seller-Authorization Reconciliation" below). Module 05
-(artwork image upload) has not been started. See below for the full writeup,
-and "Completed modules" for the checkpoint entry.
+architecture) and seller-authorization reconciliation — is **complete,
+verified, and committed** (`877f3ba`, see "Module 04 — Emulator Persistence
+& Seller-Authorization Reconciliation" below). Module 05 (artwork image
+upload) has not been started. See below for the full writeup, and
+"Completed modules" for the checkpoint entry.
 
 ## Authentication methods — current scope
 
@@ -315,13 +316,13 @@ no way to edit it back through the UI. **Owner manual acceptance: PASS.**
   suite with nothing else competing for CPU. `repair-missing-profile` exists
   specifically to recover any account caught by this while it was down.
 
-## Module 04 — Emulator Persistence & Seller-Authorization Reconciliation (COMPLETE, owner restart-verified, pending commit)
+## Module 04 — Emulator Persistence & Seller-Authorization Reconciliation (COMPLETE / VERIFIED / COMMITTED)
 
 **Status:** implementation, automated tests, and extensive real-emulator
 restart testing all complete. The owner then personally performed the real
 Windows Ctrl+C shutdown/restart workflow in their own terminal and confirmed
-**PASS**. Not yet committed — will be recorded as a new commit on top of
-`1f0deb7`.
+**PASS**. Committed as `877f3ba` (full hash
+`877f3bab8e163fa9c0c7832a6fd05baa0d1523c4`), on top of `1f0deb7`.
 
 ### Trigger
 
@@ -486,7 +487,16 @@ followed by process termination, which is an equivalent proof of the
 persistence mechanism but not a literal keypress. **The owner then
 personally performed the real Ctrl+C shutdown/restart workflow in their own
 terminal and confirmed PASS** — the one verification only the owner's own
-machine could provide, now done.
+machine could provide, now done. The owner's confirmation covered, on the
+real owner account, across the real restart:
+
+- Authentication persisted (still signed in, no re-login required).
+- SELLER authorization persisted (Auth claim, `users/{uid}.role`, and
+  `sellers/{uid}.status` all still `SELLER`/`APPROVED` after restart).
+- Seller Studio remained accessible (guard did not fall back to CUSTOMER).
+- The newly created DRAFT artwork persisted across the restart.
+- The emulator snapshot import/export worked correctly end to end (export
+  on shutdown, import on the next startup, no data loss or corruption).
 
 ### Tests
 
@@ -1626,6 +1636,18 @@ untouched.
   a real browser end to end. Review result: **PASS — owner manually
   accepted**. Checkpoint commits: `d483994`, `1f8ca5a`, and this closeout's
   own commit (see `git log`).
+- **Module 04 — Emulator Persistence & Seller-Authorization Reconciliation:**
+  hardening pass fixing the Vite-file-watcher-lock root cause of SELLER
+  authorization reverting to CUSTOMER after a restart, a PID-stamped
+  single-instance emulator guard, a safe snapshot/export/rollback
+  architecture, a trusted `reconcile-roles` operator script, and a
+  read-only `verify:emulator-state` diagnostic. Verified against the real
+  owner account across three full restart cycles, one real promotion, and a
+  post-promotion restart, then personally confirmed by the owner via a real
+  Windows Ctrl+C shutdown/restart (authentication, SELLER authorization,
+  Seller Studio access, DRAFT artwork persistence, and emulator
+  import/export all held). Review result: **PASS — owner restart-verified**.
+  Checkpoint commit: `877f3ba`.
 
 ## Pending modules (not started, order not yet committed)
 

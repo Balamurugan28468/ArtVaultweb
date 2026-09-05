@@ -26,5 +26,6 @@ export function isAccountError(value: unknown): value is AccountError {
 export type ProfileState =
   | { status: 'loading' }
   | { status: 'loaded'; profile: UserProfile }
+  | { status: 'provisioning' }
   | { status: 'missing' }
   | { status: 'error'; error: AccountError }

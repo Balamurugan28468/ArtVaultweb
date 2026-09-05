@@ -64,6 +64,13 @@ describe('AccountPage', () => {
     expect(screen.getByText('No profile found')).toBeInTheDocument()
   })
 
+  it('shows a distinct, non-alarming state while a just-created profile is still being provisioned', () => {
+    useUserProfile.mockReturnValue({ status: 'provisioning' })
+    renderAccountPage()
+    expect(screen.getByLabelText('Setting up your account')).toBeInTheDocument()
+    expect(screen.queryByText('No profile found')).not.toBeInTheDocument()
+  })
+
   it('renders the account header and future sections once the profile is loaded', () => {
     useUserProfile.mockReturnValue({ status: 'loaded', profile: PROFILE })
     renderAccountPage()

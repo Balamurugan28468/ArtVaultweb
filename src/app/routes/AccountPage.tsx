@@ -22,6 +22,16 @@ export function AccountPage() {
         <ErrorState title="Couldn't load your account" description={state.error.message} />
       )}
 
+      {state.status === 'provisioning' && (
+        <Card aria-busy="true" aria-label="Setting up your account" className="flex items-center gap-4 p-6">
+          <Skeleton className="h-14 w-14 rounded-full" />
+          <div className="flex flex-1 flex-col gap-2">
+            <p className="text-sm font-medium text-text-primary">Setting up your account…</p>
+            <p className="text-sm text-text-secondary">This should only take a moment.</p>
+          </div>
+        </Card>
+      )}
+
       {state.status === 'missing' && (
         <EmptyState
           title="No profile found"

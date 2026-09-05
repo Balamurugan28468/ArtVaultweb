@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "set-admin-claim": "tsc && node lib/setAdminClaim.js",
-    "promote-seller": "tsc && node lib/promoteSeller.js"
+    "promote-seller": "tsc && node lib/promoteSeller.js",
+    "repair-missing-profile": "tsc && node lib/repairMissingProfile.js"
   },
   "dependencies": {
     "firebase-admin": "^14.3.0",

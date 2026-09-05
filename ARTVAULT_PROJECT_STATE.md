@@ -1,8 +1,11 @@
 # ArtVault — Project State
 
 _Last updated: 2026-09-05 — Module 04 (Seller Foundation & Artwork Draft
-Management): implementation, tests, and real-browser/emulator verification
-**complete, owner-approved, and committed** (`d483994`). Current
+Management): implementation, tests, real-browser/emulator verification, and
+the **owner's own full manual acceptance walkthrough** all **complete and
+committed** (`d483994`, `1f8ca5a`, and this closeout commit). Acceptance
+testing surfaced and fixed two real pre-existing (Module 01) sign-up/
+profile-provisioning bugs — see the module write-up below. Current
 authentication method remains Email + Password only — see "Authentication
 methods — current scope" below. Pre-Module-04 validation & error-message
 hardening remains **COMPLETE, owner-approved, and committed** (`d5c1a18`).
@@ -17,9 +20,10 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 ## Current module
 
 **Module 04 — Seller Foundation & Artwork Draft Management: implementation
-complete, verified, owner-approved, and committed** (`d483994`). Module 05
-(artwork image upload) has not been started. See below for the full
-writeup, and "Completed modules" for the checkpoint entry.
+complete, verified, owner manually accepted end to end, and committed**
+(`d483994`, `1f8ca5a`, and this closeout commit). Module 05 (artwork image
+upload) has not been started. See below for the full writeup, and
+"Completed modules" for the checkpoint entry.
 
 ## Authentication methods — current scope
 
@@ -40,11 +44,14 @@ approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
 
-## Module 04 — Seller Foundation & Artwork Draft Management (COMPLETE, owner-approved, committed)
+## Module 04 — Seller Foundation & Artwork Draft Management (COMPLETE, owner manually accepted, committed)
 
 **Status:** implementation, automated tests, Firestore rules tests, and
-real-browser/emulator verification all complete. Owner-reviewed, approved,
-and committed as `d483994`.
+real-browser/emulator verification all complete. The owner then personally
+performed the full manual acceptance walkthrough in a real browser against
+the Local Emulator Suite and confirmed PASS. Committed as `d483994`
+(implementation), `1f8ca5a` (project-state correction), and this closeout
+commit (acceptance-testing regression fixes — see below).
 
 ### Scope
 
@@ -145,34 +152,44 @@ is in `docs/SECURITY.md`'s new "Implemented in Module 04" section.
 
 ### Tests
 
-- **Frontend suite: 282/282 passing (41 files)** — up from 161/25 at the
-  last approved commit. New coverage: `integerField` (shared validator),
-  seller/artwork schemas, seller/artwork repositories (mocked Firestore
-  SDK), `useSellerStatus`/`useApplyAsSeller`/`useSellerArtworks`/
+- **Frontend suite: 297/297 passing (43 files)** — up from 161/25 at the
+  last pre-Module-04 commit. New coverage: `integerField` (shared
+  validator), seller/artwork schemas, seller/artwork repositories (mocked
+  Firestore SDK), `useSellerStatus`/`useApplyAsSeller`/`useSellerArtworks`/
   `useArtwork`/`useCreateArtwork`/`useUpdateArtwork` hooks,
   `SellerApplicationForm`/`SellerStatusCard`/`ArtworkForm`/`ArtworkListItem`
   components, `RequireRole` guard, the updated `AccountSections`/
-  `AccountPage`/`useNavItems`, and a new `Toast` auto-dismiss test (see
-  "Real bug found and fixed" below).
+  `AccountPage`/`useNavItems`, a `Toast` auto-dismiss test, 4 real
+  lazy-route regression tests (`router.test.tsx`), the sign-up-race tests
+  (`profileReady.test.ts`/`authClient.test.ts`), and the
+  provisioning/orphan-profile tests (`useUserProfile.test.tsx`/
+  `AccountPage.test.tsx`) — see the subsections above.
 - **Firestore rules suite: 64/64 passing** — the pre-existing 21
   (`users.rules.test.ts`, unaffected) plus two new files,
   `sellers.rules.test.ts` (16) and `artworks.rules.test.ts` (27), attacking
   the rules directly via the SDK (forged uid/sellerId, cross-owner
   read/update/delete, privilege escalation via the mirrored `users/{uid}`
   doc, every status-transition boundary) rather than only exercising them
-  through the UI.
-- **Functions suite: 5/5 passing** — the pre-existing 2 (`index.test.ts`,
-  unaffected) plus 3 new (`promoteSeller.test.ts`): grants correctly,
-  refuses when no application exists, refuses to re-promote an
-  already-approved one.
+  through the UI. Unchanged and re-verified during the acceptance-testing
+  fixes above — no rule was touched.
+- **Functions suite: 9/9 passing** — the pre-existing 2 (`index.test.ts`)
+  plus 3 (`promoteSeller.test.ts`: grants correctly, refuses when no
+  application exists, refuses to re-promote an already-approved one) plus 4
+  new (`repairMissingProfile.test.ts`: repairs from the real Auth record
+  defaulting to `CUSTOMER`, refuses to touch an existing profile, normalizes
+  missing fields to null, never grants a non-`CUSTOMER` role).
 - **Real-browser verification (Playwright Chromium, Local Emulator Suite):
-  57/57 checks, 0 genuine console errors.** Full workflow: customer → apply
-  → PENDING → blocked from Seller Studio → operator-script promotion →
-  sign-out/sign-in → SELLER → create → edit → submit → SUBMITTED-locked →
-  a second seller confirmed unable to read or list the first seller's
-  artwork (Firestore permission-denied, mapped to a safe message) — plus
-  the full required viewport matrix (1366×768 down to 302×531) on every
-  new screen.
+  57/57 checks at initial implementation, plus a further 12/12 and two
+  independent 8/8 checks during acceptance-testing fixes, all 0 genuine
+  console errors.** Full workflow verified: customer → apply → PENDING →
+  blocked from Seller Studio → operator-script promotion → sign-out/sign-in
+  → SELLER → create → edit → submit → SUBMITTED-locked → a second seller
+  confirmed unable to read or list the first seller's artwork (Firestore
+  permission-denied, mapped to a safe message) — plus the full required
+  viewport matrix (1366×768 down to 302×531) on every new screen, plus a
+  from-scratch fresh-account sign-up/sign-out/sign-in/refresh cycle.
+- **Owner's own final manual acceptance pass in a real browser** — see
+  "Owner final manual acceptance" above. PASS.
 
 ### Real bugs found and fixed during this module (not introduced by it)
 
@@ -198,6 +215,77 @@ is in `docs/SECURITY.md`'s new "Implemented in Module 04" section.
   someone would have to remember. Module 03 never hit this because it was
   the only rules-test file that existed until now.
 
+### Auth/profile race and orphan-profile recovery (found during owner manual acceptance testing)
+
+Owner manual testing after the `d483994` commit surfaced two real, related
+problems in the pre-existing (Module 01) sign-up/profile-provisioning path —
+neither is Module 04 feature code, but both blocked genuine acceptance
+testing of Module 04's own flows and are fixed here as required regressions:
+
+- **Sign-up race:** `signUpWithEmail` (`src/features/auth/api/authClient.ts`)
+  wrote the submitted display name to `users/{uid}` right after
+  `waitForRoleClaim` resolved — an unrelated signal used only as a guess
+  that the `onUserCreate` trigger's own Firestore write had *probably* also
+  finished by then. It hadn't always. Fixed with a new
+  `waitForUserProfileDocument` (`src/features/auth/api/profileReady.ts`): a
+  real-time `onSnapshot` listener that waits on the actual precondition (the
+  document existing) rather than a proxy signal, a fixed delay, or polling —
+  with a 15s safety-net timeout that rejects (never silently swallows) a
+  genuine provisioning failure. Covered by
+  `profileReady.test.ts`/`authClient.test.ts` (6 tests).
+- **A real, reproduced Functions-emulator failure mode, not a code bug:**
+  investigating a hang while verifying the race fix live showed the local
+  Functions emulator had been failing to load `onUserCreate` for large
+  stretches of this session (`Failed to load function definition from
+  source... Timeout after 10000`) — its discovery worker was actually
+  finishing successfully, just after the CLI's hard-coded 10s window, almost
+  certainly due to sustained system load from many hours of concurrent
+  test/build/browser-automation runs. A clean restart with nothing else
+  competing for CPU loaded it correctly. This explains why a genuinely
+  **orphaned account** existed (a real Firebase Auth user with no matching
+  `users/{uid}` document, created during that window) and surfaced as a
+  misleading "No profile found" screen for the owner's own account.
+- **Orphan-profile recovery, done safely, not client-side:** since a client
+  can never be allowed to create `users/{uid}` itself (that's exactly what
+  the rule prevents), recovery needed a trusted path.
+  `functions/src/repairMissingProfile.ts` (new local operator script, never
+  deployed/callable — same pattern as `setAdminClaim.ts`/`promoteSeller.ts`)
+  reuses `handleUserCreate` — the exact tested logic the trigger itself
+  runs — sourced from the real Auth user record, refusing to act if a
+  profile already exists (idempotent, never a duplicate), and with no role
+  parameter at all, so it can never grant anything but the default
+  `CUSTOMER`. Run once against the owner's own orphaned account during
+  acceptance testing; verified directly via the Firestore emulator REST API.
+  Covered by `repairMissingProfile.test.ts` (4 tests).
+- **UI now distinguishes "still provisioning" from "genuinely missing":**
+  `useUserProfile`/`ProfileState` gained a `provisioning` status, computed
+  from the Auth user's real `metadata.creationTime` (never fabricated) — a
+  profile missing for an account created in the last 20s shows a calm
+  "Setting up your account…" state that self-heals the instant the
+  real-time listener sees the document arrive; older than that, the
+  existing honest "No profile found — try signing out and back in" state is
+  unchanged. A one-shot timer only ever downgrades that label once the
+  grace window closes — it never gates or retries the actual subscription.
+  Covered by 4 new `useUserProfile.test.tsx` tests and 1 new
+  `AccountPage.test.tsx` test.
+- Confirmed via a fresh, from-scratch real-browser/emulator run (not a
+  reused test account) that the full chain now holds without exception:
+  sign up → Auth user created → `users/{uid}` exists → correct `CUSTOMER`
+  role → correct display name shown immediately → survives refresh → sign
+  out → sign in → survives refresh again → zero console errors.
+
+### Owner final manual acceptance (real browser, Local Emulator Suite)
+
+Independently of all automated verification above, the owner personally
+walked the complete flow end to end and confirmed: seller promotion takes
+effect after sign-out/sign-in; Account shows the `SELLER` role; Seller
+Studio is reachable and survives navigation/refresh; Create Artwork
+enforces required-field validation; a valid artwork saves as `DRAFT` and
+its data persists correctly; a draft submits to `SUBMITTED` and stays
+`SUBMITTED` across refresh/navigation; opening a submitted artwork shows
+"This artwork has been submitted and can no longer be edited." and offers
+no way to edit it back through the UI. **Owner manual acceptance: PASS.**
+
 ### Known limitations (documented, not silently accepted)
 
 - No Admin-review UI — seller promotion is a local operator script only,
@@ -211,6 +299,12 @@ is in `docs/SECURITY.md`'s new "Implemented in Module 04" section.
   (seller identity is the same `uid` as the underlying `users/{uid}`
   account, not a separate identity), but the analogous risk — no in-app way
   to *revoke* SELLER — is out of scope for the same reason the review UI is.
+- The local Functions emulator's discovery step can time out under heavy
+  sustained concurrent load on this dev machine (see above) — a real
+  characteristic of this tooling/environment, not something a code change
+  fixes; if `onUserCreate` ever again fails to load, restart the emulator
+  suite with nothing else competing for CPU. `repair-missing-profile` exists
+  specifically to recover any account caught by this while it was down.
 
 ## Module 02 — final completion status
 
@@ -1304,12 +1398,22 @@ untouched.
   `setAdminClaim.ts`, never a deployed/callable endpoint), a `RequireRole`
   Seller Studio guard, and DRAFT/SUBMITTED-only artwork draft CRUD
   (`artworks/{artworkId}`) with integer-minor-unit pricing and a fully
-  server-enforced ownership/lifecycle/image-lock model. 282/282 unit/
-  component tests, 64/64 Firestore rules tests (21 pre-existing + 43 new),
-  5/5 Cloud Functions tests, and 57/57 real-browser/emulator checks across
-  the full viewport matrix. One real pre-existing bug found and fixed along
-  the way (`Toast` never auto-dismissed). Review result: **PASS — owner
-  approved**. Checkpoint commit: `d483994`.
+  server-enforced ownership/lifecycle/image-lock model. Owner manual
+  acceptance testing after the initial commit surfaced two real, pre-
+  existing (Module 01) bugs in the sign-up/profile-provisioning path — a
+  display-name write race against the `onUserCreate` trigger, and no safe
+  recovery for an account the trigger genuinely failed to provision — both
+  root-caused and fixed, with a new trusted `repair-missing-profile`
+  operator script for the latter (see the module write-up above for full
+  detail). 297/297 unit/component tests, 64/64 Firestore rules tests (21
+  pre-existing + 43 new), 9/9 Cloud Functions tests, and real-browser/
+  emulator verification at every stage including a final from-scratch
+  fresh-account run. One real pre-existing bug found and fixed along the
+  way during initial implementation (`Toast` never auto-dismissed). The
+  owner then personally completed the full manual acceptance walkthrough in
+  a real browser end to end. Review result: **PASS — owner manually
+  accepted**. Checkpoint commits: `d483994`, `1f8ca5a`, and this closeout's
+  own commit (see `git log`).
 
 ## Pending modules (not started, order not yet committed)
 

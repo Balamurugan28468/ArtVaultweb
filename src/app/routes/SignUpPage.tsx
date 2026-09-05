@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { BrandLogo } from '@/app/branding/BrandLogo'
@@ -6,11 +7,25 @@ import { Card } from '@/shared/ui'
 
 export function SignUpPage() {
   const navigate = useNavigate()
-  const { refreshRole } = useAuth()
+  const { status } = useAuth()
+  const [submitted, setSubmitted] = useState(false)
 
-  const handleSuccess = async () => {
-    await refreshRole()
-    navigate('/account')
+  // Navigating only once AuthProvider itself reports "authenticated" — the
+  // same status RequireAuth reads — rather than immediately once this
+  // form's own signUpWithEmail() call resolves, is what actually matters
+  // here: those are two independent completions (this form's own promise vs.
+  // AuthProvider's separate onAuthStateChanged-driven resolution), and
+  // navigating on the wrong one is a real race — arriving at /account before
+  // AuthProvider catches up made RequireAuth bounce straight back to
+  // /sign-in, even though sign-up had genuinely succeeded.
+  useEffect(() => {
+    if (submitted && status === 'authenticated') {
+      navigate('/account')
+    }
+  }, [submitted, status, navigate])
+
+  const handleSuccess = () => {
+    setSubmitted(true)
   }
 
   return (

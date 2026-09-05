@@ -21,10 +21,14 @@ export async function getCurrentRoleClaim(user: User, forceRefresh = false): Pro
  */
 export async function waitForRoleClaim(
   user: User,
-  { retries = 12, delayMs = 500 }: { retries?: number; delayMs?: number } = {},
+  { retries = 12, delayMs = 500, forceInitialRefresh = false }: {
+    retries?: number
+    delayMs?: number
+    forceInitialRefresh?: boolean
+  } = {},
 ): Promise<UserRole | null> {
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const role = await getCurrentRoleClaim(user, attempt > 0)
+    const role = await getCurrentRoleClaim(user, forceInitialRefresh || attempt > 0)
     if (role) return role
     if (attempt < retries) await sleep(delayMs)
   }

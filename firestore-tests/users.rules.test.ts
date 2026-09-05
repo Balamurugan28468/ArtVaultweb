@@ -79,6 +79,94 @@ describe('users/{uid} rules — document lifecycle', () => {
   })
 })
 
+// Coverage for ensureUserProfile.ts's client-triggered, idempotent
+// canonical-profile self-healing: a real, permanent fix for Firebase Auth
+// users existing with no matching users/{uid} document (previously only
+// ever fixable by a trusted operator script). These tests attack the rule
+// directly, the same way the recovery client would exercise it — no
+// document exists yet for the uid under test in this describe block.
+describe('users/{uid} rules — self-provisioning a missing profile (ensureUserProfile)', () => {
+  // The rules-unit-testing emulator's fake ID token only carries whatever
+  // claims are explicitly passed here — unlike a real Firebase ID token for
+  // an email/password account, which always includes `email` — so every
+  // context below supplies it explicitly to match production reality.
+  function daveContext(claims: Record<string, unknown> = {}) {
+    return testEnv.authenticatedContext('dave', { email: 'dave@example.com', ...claims }).firestore()
+  }
+
+  function newProfilePayload(overrides: Record<string, unknown> = {}) {
+    return {
+      uid: 'dave',
+      email: 'dave@example.com',
+      displayName: 'Dave',
+      photoURL: null,
+      role: 'CUSTOMER',
+      phoneNumber: null,
+      bio: null,
+      profileCompleted: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      ...overrides,
+    }
+  }
+
+  it('allows a user with no role claim yet to create their own missing profile as CUSTOMER', async () => {
+    await assertSucceeds(setDoc(doc(daveContext(), 'users/dave'), newProfilePayload()))
+  })
+
+  it('allows a user with a trusted SELLER claim to self-heal, preserving SELLER (never downgrading to CUSTOMER)', async () => {
+    await assertSucceeds(setDoc(doc(daveContext({ role: 'SELLER' }), 'users/dave'), newProfilePayload({ role: 'SELLER' })))
+  })
+
+  it('blocks a CUSTOMER (no claim) from self-creating a profile with role SELLER', async () => {
+    await assertFails(setDoc(doc(daveContext(), 'users/dave'), newProfilePayload({ role: 'SELLER' })))
+  })
+
+  it('blocks a SELLER from self-creating a profile with role ADMIN', async () => {
+    await assertFails(setDoc(doc(daveContext({ role: 'SELLER' }), 'users/dave'), newProfilePayload({ role: 'ADMIN' })))
+  })
+
+  it('blocks self-creation with a spoofed uid, even at the caller’s own document path', async () => {
+    await assertFails(setDoc(doc(daveContext(), 'users/dave'), newProfilePayload({ uid: 'mallory' })))
+  })
+
+  it('blocks self-creation with a spoofed email not matching the authenticated identity', async () => {
+    await assertFails(setDoc(doc(daveContext(), 'users/dave'), newProfilePayload({ email: 'mallory@example.com' })))
+  })
+
+  it('blocks self-creation with a non-null photoURL', async () => {
+    await assertFails(
+      setDoc(doc(daveContext(), 'users/dave'), newProfilePayload({ photoURL: 'https://evil.example/x.png' })),
+    )
+  })
+
+  it('blocks self-creation with profileCompleted already true', async () => {
+    await assertFails(setDoc(doc(daveContext(), 'users/dave'), newProfilePayload({ profileCompleted: true })))
+  })
+
+  it('blocks self-creation with a backdated createdAt (not a genuine server timestamp)', async () => {
+    await assertFails(setDoc(doc(daveContext(), 'users/dave'), newProfilePayload({ createdAt: 1 })))
+  })
+
+  it('blocks self-creation with an unsupported role value', async () => {
+    await assertFails(setDoc(doc(daveContext(), 'users/dave'), newProfilePayload({ role: 'SUPER_VILLAIN' })))
+  })
+
+  it('blocks an unauthenticated self-provisioning attempt', async () => {
+    const anonDb = testEnv.unauthenticatedContext().firestore()
+    await assertFails(setDoc(doc(anonDb, 'users/dave'), newProfilePayload()))
+  })
+
+  it("never lets this create path overwrite an existing profile — evaluated as update instead, and denied", async () => {
+    // alice/PROFILE already exists (seeded in beforeEach). Attempting a
+    // full-document "recreate" that changes role is denied by
+    // isValidProfileUpdate, not isValidUserCreate — Firestore treats any
+    // write to an existing document as an update regardless of intent.
+    const aliceDb = testEnv.authenticatedContext('alice').firestore()
+    await assertFails(setDoc(doc(aliceDb, 'users/alice'), newProfilePayload({ uid: 'alice', email: 'alice@example.com' })))
+  })
+})
+
 // Every allowed write below includes updatedAt: serverTimestamp(), matching
 // exactly what src/features/account/api/profileRepository.ts sends — the
 // rule requires updatedAt to equal request.time (i.e. genuinely

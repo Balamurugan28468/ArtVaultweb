@@ -19,10 +19,20 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 emulator-data/
+# The one rolling backup start-emulators.mjs's recovery logic keeps of the
+# previous ./emulator-data before swapping in a recovered export — same
+# category of local-only artifact.
+emulator-data.backup/
 # Transient staging directories firebase-tools' export can leave behind if
 # its own rename into emulator-data/ fails (see scripts/start-emulators.mjs
 # and docs/DEPLOYMENT.md) — same category of local-only artifact.
 firebase-export-*/
+# One-off manual "export current live state without touching canonical
+# ./emulator-data" snapshots (see docs/DEPLOYMENT.md) — same category.
+emulator-export-*/
+# PID-stamped single-instance guard for scripts/start-emulators.mjs —
+# coordination state, never persistence data.
+.emulator-launcher.lock
 
 # Local env files may hold real (non-emulator) Firebase config; never commit them.
 .env

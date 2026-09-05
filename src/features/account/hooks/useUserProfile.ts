@@ -3,17 +3,18 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import { subscribeUserProfile } from '../api/profileRepository'
 import type { ProfileState } from '../types'
 
-// A brand-new Firebase Auth account's users/{uid} document is created
-// asynchronously by the onUserCreate Cloud Function trigger. The sign-up
-// flow itself already waits for that document before ever navigating here
-// (see authClient.ts's waitForUserProfileDocument), so this grace window
-// only matters for edge cases outside that flow — e.g. a second tab opened
-// moments after sign-up, before the first tab's wait resolved, or the
-// trigger being unusually slow. Comfortably longer than that wait's own
-// 15s safety-net timeout, so an account created well before this window is
-// never mislabeled as "still setting up" — it gets the honest "missing"
-// state instead (see AccountPage).
-const PROVISIONING_GRACE_MS = 20_000
+// AuthProvider now guarantees users/{uid} exists (creating it itself via
+// ensureUserProfile if the onUserCreate Cloud Function hasn't, or never
+// will) before it ever exposes `status: 'authenticated'` — for sign-up,
+// normal sign-in, and persisted-session restoration alike. That guarantee
+// is what makes "missing" genuinely exceptional now, rather than a normal
+// transient state to wait out. This grace window is a much smaller,
+// purely defensive buffer for residual client-side cache/listener jitter
+// (e.g. Firestore's offline cache briefly reporting "not found" for a
+// document that already exists server-side) — not a substitute for that
+// guarantee, and not something this hook waits on by polling or retrying;
+// the realtime listener below is what actually detects the document.
+const PROVISIONING_GRACE_MS = 8_000
 
 /**
  * Owns exactly one realtime Firestore subscription for the signed-in user's

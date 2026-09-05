@@ -1,9 +1,18 @@
+import { Navigate } from 'react-router'
 import { SellerApplicationForm, SellerStatusCard, useSellerStatus } from '@/features/seller-studio'
 import { Card, ErrorState, PageHeader, Skeleton, useToast } from '@/shared/ui'
 
 export function SellerApplicationPage() {
   const state = useSellerStatus()
   const toast = useToast()
+
+  // An already-approved seller has nothing to apply for — a direct visit
+  // here (an old bookmark, a stale link) goes straight to Seller Studio
+  // rather than showing an application-flavored page at all. `replace`
+  // so it doesn't leave a dead "apply" entry in browser history.
+  if (state.status === 'approved') {
+    return <Navigate to="/seller-studio" replace />
+  }
 
   return (
     <section className="mx-auto flex max-w-lg flex-col gap-6">
@@ -27,9 +36,7 @@ export function SellerApplicationPage() {
         </Card>
       )}
 
-      {(state.status === 'pending' || state.status === 'approved') && (
-        <SellerStatusCard application={state.application} />
-      )}
+      {state.status === 'pending' && <SellerStatusCard application={state.application} />}
     </section>
   )
 }

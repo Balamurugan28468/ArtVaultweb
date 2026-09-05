@@ -53,6 +53,20 @@ owns which artwork) exactly the way Module 01 already established for
   is visible only to the seller who owns it; a public Marketplace read rule
   is added only when a Marketplace module actually exists to use it, never
   speculatively.
+- **Reading a genuinely nonexistent artwork is allowed for any signed-in
+  user, ahead of the ownership check** (`allow read: if isSignedIn() &&
+  (resource == null || isOwner(...))`), discovered as a real gap during
+  Module 04 final hardening: evaluating `resource.data.sellerId` when
+  `resource` doesn't exist fails rule evaluation the same way as "exists but
+  you don't own it," so a seller opening their own just-deleted artwork's
+  edit link got the exact same `permission-denied` — mapped to "You do not
+  have permission to do that." — as an actual cross-owner access attempt,
+  an actively misleading message for what is an ordinary, harmless flow.
+  `resource == null` is Firestore's standard idiom for a nonexistent
+  document; allowing it leaks nothing (there's no data on a document that
+  doesn't exist) and still requires being signed in at all, not fully
+  public. Reading an *existing* artwork still requires true ownership,
+  unchanged.
 - **`images` cannot be set by any client write, in create or update.**
   `create` requires `images.size() == 0`; every `update` branch requires
   `request.resource.data.images == resource.data.images` (unchanged). This

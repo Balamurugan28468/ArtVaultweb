@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import { AccountSections } from './AccountSections'
 
@@ -64,6 +64,27 @@ describe('AccountSections', () => {
 
     const link = screen.getByRole('link', { name: /seller studio/i })
     expect(link).toHaveAttribute('href', '/seller-studio')
+  })
+
+  it('an approved seller clicking the seller entry actually navigates to /seller-studio, never /seller/apply', () => {
+    useSellerStatus.mockReturnValue({
+      status: 'approved',
+      application: { businessName: 'Test Gallery' },
+    })
+    render(
+      <MemoryRouter initialEntries={['/account']}>
+        <Routes>
+          <Route path="/account" element={<AccountSections />} />
+          <Route path="/seller-studio" element={<p>Seller Studio page</p>} />
+          <Route path="/seller/apply" element={<p>Seller application page</p>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('link', { name: /seller studio/i }))
+
+    expect(screen.getByText('Seller Studio page')).toBeInTheDocument()
+    expect(screen.queryByText('Seller application page')).not.toBeInTheDocument()
   })
 
   it('shows a non-interactive placeholder while seller status is loading — never a premature link', () => {

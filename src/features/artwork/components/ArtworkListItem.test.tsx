@@ -1,9 +1,20 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Timestamp } from 'firebase/firestore'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ArtworkListItem } from './ArtworkListItem'
 import type { Artwork } from '../types'
+
+const deleteArtworkDraft = vi.fn()
+vi.mock('../api/artworkRepository', () => ({
+  deleteArtworkDraft: (...args: unknown[]) => deleteArtworkDraft(...args),
+  updateArtworkDraft: vi.fn(),
+  submitArtwork: vi.fn(),
+}))
+
+beforeEach(() => {
+  deleteArtworkDraft.mockReset()
+})
 
 const now = Timestamp.now()
 
@@ -58,5 +69,55 @@ describe('ArtworkListItem', () => {
       </MemoryRouter>,
     )
     expect(screen.getByText('Submitted')).toBeInTheDocument()
+  })
+
+  it('shows a "Delete draft" action for a DRAFT artwork', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'DRAFT' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('button', { name: /delete draft/i })).toBeInTheDocument()
+  })
+
+  it('shows no delete action for a SUBMITTED artwork', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'SUBMITTED' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByRole('button', { name: /delete draft/i })).not.toBeInTheDocument()
+  })
+
+  it('deletes the draft after confirming in the accessible dialog', async () => {
+    deleteArtworkDraft.mockResolvedValueOnce(undefined)
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork()} />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+    const dialog = await screen.findByRole('dialog', { name: /delete this draft/i })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /^delete draft$/i }))
+
+    await waitFor(() => expect(deleteArtworkDraft).toHaveBeenCalledWith('a1'))
+  })
+
+  it('leaves the draft unchanged when the confirmation is cancelled', async () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork()} />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+    await screen.findByRole('dialog', { name: /delete this draft/i })
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(deleteArtworkDraft).not.toHaveBeenCalled()
   })
 })

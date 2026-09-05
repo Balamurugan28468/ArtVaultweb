@@ -17,11 +17,15 @@ npm run emulators
 This wraps `firebase emulators:start` with `scripts/start-emulators.mjs`,
 which:
 
-- **Checks the Java runtime before doing anything else** (`java -version`,
-  or `%JAVA_HOME%\bin\java` first if `JAVA_HOME` is set) and refuses to
-  start — with a clear, actionable error, not a confusing Firebase-internal
-  failure — if it's not JDK 21+. See "Permanent Windows Java setup" below
-  if you hit this.
+- **Checks the Java runtime before doing anything else**, in order: (1)
+  `%JAVA_HOME%\bin\java`, if `JAVA_HOME` is set and points at a real
+  install; (2) bare `java` on `PATH`, in case it's already 21+; (3) a scan
+  of common Windows JDK install directories (Eclipse Adoptium, Oracle,
+  Microsoft, Corretto) for an already-installed JDK 21+ that just isn't
+  wired up via `JAVA_HOME`/`PATH` yet — reported, never installed. Refuses
+  to start — with a clear, actionable error, not a confusing
+  Firebase-internal failure — only if none of the three produce a JDK 21+.
+  See "Permanent Windows Java setup" below if you hit this.
 - **Auto-detects previously saved local data.** If `./emulator-data/`
   contains a prior export (from a clean shutdown of an earlier session), it
   imports it (`--import=./emulator-data`); otherwise it starts fresh. Either
@@ -57,6 +61,83 @@ npx firebase-tools emulators:start --only auth,firestore,functions
   environment-specific flakiness, not a functions code defect; stop it
   (Ctrl+C) and run `npm run emulators` again.
 
+## Daily local development workflow
+
+Both long-running processes are meant to be started once each morning and
+left running all day — not restarted between tasks, tests, or terminal
+sessions.
+
+**Terminal 1:**
+```bash
+npm run emulators
+```
+Leave it running. It imports `./emulator-data` from the previous session
+automatically (see below) and exports back to it on a clean shutdown.
+
+**Terminal 2:**
+```bash
+npm run dev
+```
+Leave it running too. Vite's dev server keeps Hot Module Replacement (HMR)
+live for the whole session — there's no need to restart it after editing
+code, only after editing `vite.config.ts`/`.env` itself.
+
+**During the day:** keep both terminals open. Running `npm run test`,
+`npm run test:rules`, `npm run build`, or `npm run lint` in a *third*
+terminal never touches either of the first two — none of them start, stop,
+or otherwise manage the dev server or emulator process (`test:rules`
+connects to whatever Firestore emulator is already running at `127.0.0.1:8080`
+and fails clearly, rather than trying to start one, if nothing is there).
+
+**End of day:**
+1. `Ctrl+C` in the dev server terminal.
+2. `Ctrl+C` in the emulator terminal, then **wait** for it to finish — it
+   prints `Stopping — waiting for Firebase to finish exporting to
+   ./emulator-data. Please wait...` and only returns control to the prompt
+   once that export has actually completed. Closing the terminal window or
+   force-killing the process before that finishes can leave `./emulator-data`
+   mid-write; Ctrl+C and waiting is the only way to guarantee a clean export.
+
+**If Windows sleeps or restarts:** both processes stop (there is no
+background-service mode) — after waking/rebooting, just run `npm run
+emulators` and `npm run dev` again in the same two terminals as a fresh
+morning start. `./emulator-data` still holds everything from the last clean
+shutdown before sleep, so nothing is lost as long as the emulator was
+stopped with Ctrl+C at some point before the sleep/restart (an abrupt sleep
+mid-session, without a preceding Ctrl+C, behaves like a crash — see below).
+
+**If port 5173 is already occupied:** `npm run dev` is configured with a
+fixed, non-negotiable port (`server.port: 5173, strictPort: true` in
+`vite.config.ts`) — it will refuse to start and print `Port 5173 is already
+in use` rather than silently starting on `5174`/`5175`. This is deliberate:
+a second dev server on a different port, with a browser tab still pointed at
+the first one, is a real, confusing failure mode this project has hit
+before (an old tab silently talking to a dev server that's about to be shut
+down, which then breaks page navigation once that server goes away with no
+visible error). If you see this error, something is already listening on
+5173 — most likely a dev server you forgot was running in another terminal
+or a background job. Find and stop that process rather than starting a
+second one; do not change the configured port to work around it.
+
+**Confirming both are actually healthy** (useful after a fresh start, or if
+something in the app seems stuck):
+```bash
+curl -s -o /dev/null -w "vite:%{http_code}\n" http://localhost:5173/
+curl -s -o /dev/null -w "auth:%{http_code}\n" http://127.0.0.1:9099
+curl -s -o /dev/null -w "firestore:%{http_code}\n" http://127.0.0.1:8080
+```
+All three should print `200`. The Emulator UI at `http://127.0.0.1:4000`
+also shows live Auth/Firestore state directly — useful for inspecting data
+without writing a script.
+
+**If something genuinely crashes** (rather than just being slow to start):
+neither `npm run dev` nor `npm run emulators` auto-restarts itself — a
+crashed process prints its failure and exits, leaving a clear signal in the
+terminal rather than silently respawning (an uncontrolled auto-respawn loop
+would hide a real, recurring problem instead of surfacing it). Read the
+error, fix the underlying cause if there is one, and start that one process
+again — the other one is unaffected and keeps running.
+
 ### Permanent Windows Java setup
 
 The Firestore Emulator requires a Java Runtime Environment, JDK 21+.
@@ -74,11 +155,15 @@ so no terminal session ever needs a temporary workaround again:
    differ — use your own).
 2. Open **"Edit environment variables for your account"** (search for it in
    the Start menu — this only changes your own user variables, no admin
-   rights needed).
-3. Under **User variables**, add or edit `JAVA_HOME` to point at that JDK
-   21+ install directory (the folder containing `bin\java.exe` — not the
-   `bin` folder itself).
-4. Under **User variables**, edit `Path` and add a new entry:
+   rights needed; a **System variable**, set via "Edit the system
+   environment variables" → "Environment Variables" → System variables,
+   works identically and is what this project's own dev machine actually
+   has configured — either scope is fine, as long as it's set permanently
+   rather than per-terminal).
+3. Under **User variables** (or **System variables**), add or edit
+   `JAVA_HOME` to point at that JDK 21+ install directory (the folder
+   containing `bin\java.exe` — not the `bin` folder itself).
+4. Under the same section, edit `Path` and add a new entry:
    `%JAVA_HOME%\bin` — then move it **above** any existing Java entries in
    the list (use the "Move Up" button until it's first among them). On a
    machine with several old Java installs, `Path` might currently look like

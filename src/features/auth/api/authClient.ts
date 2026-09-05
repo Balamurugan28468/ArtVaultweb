@@ -10,8 +10,7 @@ import {
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { auth, db } from '@/lib/firebase/config'
 import { toAuthErrorMessage } from './authErrors'
-import { waitForUserProfileDocument } from './profileReady'
-import { waitForRoleClaim } from './roleClaim'
+import { ensureUserProfile } from './ensureUserProfile'
 
 let persistenceReady: Promise<void> | null = null
 
@@ -37,21 +36,15 @@ export async function signUpWithEmail(input: SignUpInput): Promise<User> {
   try {
     const credential = await createUserWithEmailAndPassword(auth, input.email, input.password)
     await updateProfile(credential.user, { displayName: input.displayName })
-    // The onUserCreate trigger fires on account creation, before this
-    // updateProfile() call — Firebase Auth triggers never see a display
-    // name set only via a follow-up client call, so the Firestore profile
-    // document it creates always has displayName: null otherwise. Firestore
-    // rules already let a user set their own displayName, so the update
-    // below closes that gap directly — but the trigger's own Firestore
-    // write is asynchronous and not guaranteed to have landed yet, and an
-    // `update` against a document that doesn't exist yet is rejected by the
-    // rule itself (it can't evaluate the identity checks against a
-    // nonexistent `resource.data`). waitForUserProfileDocument waits on
-    // that actual precondition — not a fixed delay, not an unrelated proxy
-    // signal — so this is deterministic regardless of how long the trigger
-    // takes, and a genuine failure (the trigger never runs) throws instead
-    // of being silently swallowed.
-    await Promise.all([waitForRoleClaim(credential.user), waitForUserProfileDocument(credential.user.uid)])
+    // A brand-new account is always CUSTOMER — never a guess, never
+    // dependent on onUserCreate having run yet — so ensureUserProfile can
+    // guarantee the canonical document exists right now, synchronously with
+    // sign-up itself, instead of waiting on an out-of-band Cloud Function.
+    await ensureUserProfile(credential.user, { role: 'CUSTOMER', displayName: input.displayName })
+    // The onUserCreate trigger, if and when it runs, never sees a display
+    // name set only via the follow-up updateProfile() call above — closing
+    // that gap is a plain, always-allowed update now that ensureUserProfile
+    // has already guaranteed the document exists.
     await updateDoc(doc(db, 'users', credential.user.uid), {
       displayName: input.displayName,
       updatedAt: serverTimestamp(),

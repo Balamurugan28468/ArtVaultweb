@@ -7,8 +7,7 @@ const setPersistence = vi.fn()
 const updateDoc = vi.fn()
 const doc = vi.fn((...args: unknown[]) => ({ args }))
 const serverTimestamp = vi.fn(() => 'server-timestamp')
-const waitForRoleClaim = vi.fn()
-const waitForUserProfileDocument = vi.fn()
+const ensureUserProfile = vi.fn()
 const toAuthErrorMessage = vi.fn((error: unknown) => (error instanceof Error ? error.message : 'Something went wrong. Please try again.'))
 
 vi.mock('firebase/auth', () => ({
@@ -26,8 +25,7 @@ vi.mock('firebase/firestore', () => ({
 }))
 vi.mock('@/lib/firebase/config', () => ({ auth: {}, db: {} }))
 vi.mock('./authErrors', () => ({ toAuthErrorMessage: (error: unknown) => toAuthErrorMessage(error) }))
-vi.mock('./roleClaim', () => ({ waitForRoleClaim: (...args: unknown[]) => waitForRoleClaim(...args) }))
-vi.mock('./profileReady', () => ({ waitForUserProfileDocument: (...args: unknown[]) => waitForUserProfileDocument(...args) }))
+vi.mock('./ensureUserProfile', () => ({ ensureUserProfile: (...args: unknown[]) => ensureUserProfile(...args) }))
 
 const { signUpWithEmail } = await import('./authClient')
 
@@ -39,23 +37,23 @@ beforeEach(() => {
   setPersistence.mockReset().mockResolvedValue(undefined)
   updateDoc.mockReset()
   doc.mockClear()
-  waitForRoleClaim.mockReset().mockResolvedValue('CUSTOMER')
-  waitForUserProfileDocument.mockReset().mockResolvedValue(undefined)
+  ensureUserProfile.mockReset().mockResolvedValue(undefined)
   toAuthErrorMessage.mockClear()
 })
 
-// Regression coverage for a real race: the onUserCreate Cloud Function
-// trigger creates users/{uid} asynchronously, so a client write to that
-// document immediately after account creation can hit "update a document
-// that doesn't exist yet" and be denied by the rule itself. These tests
-// prove signUpWithEmail now waits on the real precondition before writing,
-// and that a genuine provisioning failure surfaces rather than being
-// swallowed.
+// Regression coverage for a real, now permanently-fixed architectural gap:
+// users/{uid} used to depend entirely on the asynchronous onUserCreate
+// Cloud Function trigger, which repeatedly failed to run on this project's
+// local Functions emulator under load. signUpWithEmail now calls
+// ensureUserProfile — a client-triggered, rules-enforced, idempotent
+// provisioning guarantee (see ensureUserProfile.ts/firestore.rules) — so
+// the canonical profile is guaranteed to exist synchronously with sign-up
+// itself, never dependent on an out-of-band trigger completing.
 describe('signUpWithEmail', () => {
-  it('waits for the profile document to exist before writing the display name', async () => {
+  it('guarantees the canonical profile exists (as CUSTOMER) before writing the display name', async () => {
     const callOrder: string[] = []
-    waitForUserProfileDocument.mockImplementationOnce(async () => {
-      callOrder.push('waited-for-profile-document')
+    ensureUserProfile.mockImplementationOnce(async () => {
+      callOrder.push('ensured-profile')
     })
     updateDoc.mockImplementationOnce(async () => {
       callOrder.push('updated-display-name')
@@ -63,8 +61,8 @@ describe('signUpWithEmail', () => {
 
     await signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })
 
-    expect(waitForUserProfileDocument).toHaveBeenCalledWith('alice')
-    expect(callOrder).toEqual(['waited-for-profile-document', 'updated-display-name'])
+    expect(ensureUserProfile).toHaveBeenCalledWith(fakeUser, { role: 'CUSTOMER', displayName: 'Alice' })
+    expect(callOrder).toEqual(['ensured-profile', 'updated-display-name'])
     expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
       displayName: 'Alice',
       updatedAt: 'server-timestamp',
@@ -72,13 +70,11 @@ describe('signUpWithEmail', () => {
   })
 
   it('propagates a genuine profile-provisioning failure instead of silently swallowing it', async () => {
-    waitForUserProfileDocument.mockRejectedValueOnce(
-      new Error('Timed out waiting for the account profile to be created.'),
-    )
+    ensureUserProfile.mockRejectedValueOnce(new Error('permission-denied'))
 
     await expect(
       signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' }),
-    ).rejects.toThrow('Timed out waiting for the account profile to be created.')
+    ).rejects.toThrow('permission-denied')
 
     expect(updateDoc).not.toHaveBeenCalled()
   })
@@ -88,5 +84,11 @@ describe('signUpWithEmail', () => {
 
     expect(updateDoc).toHaveBeenCalledTimes(1)
     expect(doc).toHaveBeenCalledWith({}, 'users', 'alice')
+  })
+
+  it('never requests a role other than CUSTOMER for a brand-new account', async () => {
+    await signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })
+
+    expect(ensureUserProfile).toHaveBeenCalledWith(fakeUser, expect.objectContaining({ role: 'CUSTOMER' }))
   })
 })

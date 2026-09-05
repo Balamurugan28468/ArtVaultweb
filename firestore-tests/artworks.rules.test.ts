@@ -162,6 +162,28 @@ describe('artworks/{artworkId} rules — read', () => {
   })
 })
 
+// Regression coverage: reading a genuinely nonexistent artwork must not
+// produce the same permission-denied error as reading one that exists but
+// belongs to someone else — that collapsed "deleted" and "forbidden" into
+// one indistinguishable, misleading message for a seller opening their own
+// just-deleted artwork's edit link.
+describe('artworks/{artworkId} rules — reading a nonexistent artwork', () => {
+  it('allows any signed-in user to read a nonexistent artwork (empty result, not denied)', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(getDoc(doc(aliceDb, 'artworks', 'does-not-exist')))
+  })
+
+  it('a customer reading a nonexistent artwork also succeeds with an empty result', async () => {
+    const customerDb = customerContext('mallory')
+    await assertSucceeds(getDoc(doc(customerDb, 'artworks', 'does-not-exist')))
+  })
+
+  it('still denies an unauthenticated read of a nonexistent artwork', async () => {
+    const anonDb = testEnv.unauthenticatedContext().firestore()
+    await assertFails(getDoc(doc(anonDb, 'artworks', 'does-not-exist')))
+  })
+})
+
 describe('artworks/{artworkId} rules — update while DRAFT', () => {
   let artworkId: string
 
@@ -274,5 +296,20 @@ describe('artworks/{artworkId} rules — delete', () => {
     })
     const bobDb = sellerContext('bob')
     await assertFails(deleteDoc(doc(bobDb, 'artworks', artworkId)))
+  })
+
+  it('blocks a CUSTOMER (no SELLER claim) from deleting any artwork, even their own uid as sellerId', async () => {
+    let artworkId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), { ...EXISTING_DRAFT, sellerId: 'mallory' })
+      artworkId = ref.id
+    })
+    const malloryDb = customerContext('mallory')
+    await assertFails(deleteDoc(doc(malloryDb, 'artworks', artworkId)))
+  })
+
+  it('blocks deleting a nonexistent artwork (safe failure, not a crash)', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(deleteDoc(doc(aliceDb, 'artworks', 'does-not-exist')))
   })
 })

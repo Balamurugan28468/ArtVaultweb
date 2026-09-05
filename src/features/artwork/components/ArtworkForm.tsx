@@ -3,6 +3,7 @@ import { ImageOff } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router'
+import { ConfirmDeleteDraftModal } from './ConfirmDeleteDraftModal'
 import { useCreateArtwork } from '../hooks/useCreateArtwork'
 import { useUpdateArtwork } from '../hooks/useUpdateArtwork'
 import { artworkDraftSchema, parseTags, type ArtworkDraftFormValues } from '../schemas'
@@ -38,6 +39,7 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
   const { create, status: createStatus } = useCreateArtwork()
   const { update, submit, remove, status: mutateStatus } = useUpdateArtwork()
   const [actionError, setActionError] = useState<string | null>(null)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
   const {
     register,
@@ -87,15 +89,15 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
     }
   }
 
-  const handleDiscard = async () => {
+  const handleConfirmDelete = async () => {
     if (!artwork) return
-    const confirmed = window.confirm('Discard this draft? This cannot be undone.')
-    if (!confirmed) return
     setActionError(null)
     try {
       await remove(artwork.id)
+      setConfirmDeleteOpen(false)
       navigate('/seller-studio/artworks')
     } catch (error) {
+      setConfirmDeleteOpen(false)
       setActionError(error instanceof Error ? error.message : 'Something went wrong. Please try again.')
     }
   }
@@ -139,7 +141,8 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
+    <>
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <label htmlFor="artwork-title" className="text-sm font-medium text-text-secondary">
           Title
@@ -280,12 +283,21 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
             <Button type="button" variant="secondary" onClick={handleSubmitForReview} disabled={busy}>
               Submit for review
             </Button>
-            <Button type="button" variant="ghost" onClick={handleDiscard} disabled={busy}>
+            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteOpen(true)} disabled={busy}>
               Discard draft
             </Button>
           </>
         )}
       </div>
-    </form>
+      </form>
+      {isEdit && (
+        <ConfirmDeleteDraftModal
+          open={confirmDeleteOpen}
+          onClose={() => setConfirmDeleteOpen(false)}
+          onConfirm={handleConfirmDelete}
+          busy={mutateStatus === 'saving'}
+        />
+      )}
+    </>
   )
 }

@@ -12,7 +12,9 @@
     "test": "vitest run",
     "set-admin-claim": "tsc && node lib/setAdminClaim.js",
     "promote-seller": "tsc && node lib/promoteSeller.js",
-    "repair-missing-profile": "tsc && node lib/repairMissingProfile.js"
+    "repair-missing-profile": "tsc && node lib/repairMissingProfile.js",
+    "reconcile-roles": "tsc && node lib/reconcileRoles.js",
+    "verify:emulator-state": "tsc && node lib/verifyEmulatorState.js"
   },
   "dependencies": {
     "firebase-admin": "^14.3.0",

@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
+import { useAuth } from '@/app/providers/AuthProvider'
 import { BrandLogo } from '@/app/branding/BrandLogo'
 import { SignInForm } from '@/features/auth'
 import { Card } from '@/shared/ui'
@@ -14,7 +16,21 @@ export function getRedirectPath(state: unknown): string {
 export function SignInPage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { status } = useAuth()
+  const [submitted, setSubmitted] = useState(false)
   const redirectTo = getRedirectPath(location.state)
+
+  // Navigating only once AuthProvider itself reports "authenticated" (the
+  // same status RequireAuth reads), not immediately once this form's own
+  // signInWithEmail() call resolves — those are two independent
+  // completions, and arriving at the destination before AuthProvider
+  // catches up made RequireAuth bounce straight back to /sign-in even
+  // though sign-in had genuinely succeeded.
+  useEffect(() => {
+    if (submitted && status === 'authenticated') {
+      navigate(redirectTo, { replace: true })
+    }
+  }, [submitted, status, navigate, redirectTo])
 
   return (
     <section className="relative mx-auto flex max-w-sm flex-col items-center py-6 sm:py-8">
@@ -26,7 +42,7 @@ export function SignInPage() {
       <Card className="mt-6 w-full border-t-2 border-t-accent-gold/40 p-4 sm:p-6">
         <h1 className="text-xl font-semibold text-text-primary">Sign in</h1>
         <div className="mt-4">
-          <SignInForm onSuccess={() => navigate(redirectTo, { replace: true })} />
+          <SignInForm onSuccess={() => setSubmitted(true)} />
         </div>
         <p className="mt-4 text-sm text-text-secondary">
           No account?{' '}

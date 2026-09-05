@@ -51,14 +51,57 @@ service cloud.firestore {
         incoming.updatedAt == request.time;
     }
 
-    // Created only by the onUserCreate Cloud Function (Admin SDK) right
-    // after sign-up — never directly by a client. A user may read and
-    // update their own profile, but only through isValidProfileUpdate()
+    // The only role a client can ever claim while creating its own profile:
+    // exactly the role already on its own authenticated ID token (custom
+    // claims are set exclusively by trusted Admin SDK code — onUserCreate,
+    // setAdminClaim.ts, promoteSeller.ts — and are cryptographically signed
+    // into the token, so a client can never forge or choose this value),
+    // or 'CUSTOMER' if no role claim exists yet. A CUSTOMER's token can
+    // only ever produce 'CUSTOMER' here; a SELLER's can only ever produce
+    // 'SELLER' — this is what makes client-triggered self-provisioning
+    // (see ensureUserProfile.ts) safe against privilege escalation.
+    function trustedCreateRole() {
+      return 'role' in request.auth.token ? request.auth.token.role : 'CUSTOMER';
+    }
+
+    // A client may create ONLY its own users/{uid} document (uid == path id
+    // == request.auth.uid, enforced by isOwner() below), and only in the
+    // canonical shape onUserCreate itself would have produced — every field
+    // the client might otherwise choose freely is independently re-derived
+    // here from the authenticated identity/token, never trusted from the
+    // request body. This exists so a client can safely self-heal a missing
+    // profile (see ensureUserProfile.ts) without onUserCreate being a
+    // single point of failure for a core account guarantee. Firestore's own
+    // create-vs-update semantics — a write is evaluated as `create` only
+    // when no document currently exists at this path, `update` otherwise —
+    // mean this rule branch can never be used to overwrite an existing
+    // profile; that path always goes through isValidProfileUpdate() above
+    // instead, however the write was made.
+    function isValidUserCreate(data) {
+      return
+        data.uid == request.auth.uid &&
+        data.email == request.auth.token.email &&
+        data.role == trustedCreateRole() &&
+        data.role in ['CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] &&
+        isValidOptionalString(data.displayName, 60) &&
+        data.photoURL == null &&
+        isValidOptionalString(data.phoneNumber, 20) &&
+        isValidOptionalString(data.bio, 280) &&
+        data.profileCompleted == false &&
+        data.createdAt == request.time &&
+        data.updatedAt == request.time;
+    }
+
+    // Created by the onUserCreate Cloud Function (Admin SDK, defense in
+    // depth) or by the owning client itself via the tightly-constrained
+    // create rule below (see ensureUserProfile.ts) — either way, exactly
+    // one canonical document, never a client-chosen shape. A user may read
+    // and update their own profile, but only through isValidProfileUpdate()
     // above; role/uid/email/createdAt/photoURL changes are structurally
     // impossible from the client, not just discouraged.
     match /users/{uid} {
       allow read: if isOwner(uid);
-      allow create: if false;
+      allow create: if isOwner(uid) && isValidUserCreate(request.resource.data);
       allow update: if isOwner(uid) && isValidProfileUpdate();
       allow delete: if false;
     }
@@ -129,7 +172,23 @@ service cloud.firestore {
       // No public Marketplace read path exists yet — added when that
       // module is built. For now, only the owning seller can read their
       // own artwork at all.
-      allow read: if isOwner(resource.data.sellerId);
+      //
+      // `resource == null` (a genuinely nonexistent document — the standard
+      // Firestore rules idiom for this) is allowed unconditionally for any
+      // signed-in user, ahead of the ownership check: a read against
+      // `resource.data.sellerId` when `resource` is null would otherwise
+      // fail rule evaluation entirely, denying the request the exact same
+      // way as "exists but you don't own it" — indistinguishable
+      // `permission-denied` errors from the client's own SDK either way.
+      // That collapsed "deleted" and "someone else's" into the same vague
+      // error message, which is actively wrong for a seller opening their
+      // own just-deleted artwork's edit link (a real, ordinary flow — see
+      // ArtworkFormPage.tsx's "Artwork not found" state and
+      // useArtwork.ts). Returning an empty (non-existent) snapshot for a
+      // nonexistent document leaks nothing — there's no data to leak — so
+      // this is safe for any authenticated user, not just an owner;
+      // reading an *existing* artwork still requires true ownership.
+      allow read: if isSignedIn() && (resource == null || isOwner(resource.data.sellerId));
 
       allow create: if
         hasRole('SELLER') &&
@@ -160,7 +219,7 @@ service cloud.firestore {
            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']))
         );
 
-      allow delete: if isOwner(resource.data.sellerId) && resource.data.status == 'DRAFT';
+      allow delete: if hasRole('SELLER') && isOwner(resource.data.sellerId) && resource.data.status == 'DRAFT';
     }
 
     // Deny-by-default foundation for every other collection. Each later

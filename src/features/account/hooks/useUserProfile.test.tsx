@@ -112,7 +112,7 @@ describe('useUserProfile', () => {
       expect(screen.getByText('status:provisioning')).toBeInTheDocument()
 
       act(() => {
-        vi.advanceTimersByTime(20_000)
+        vi.advanceTimersByTime(8_000)
       })
 
       expect(screen.getByText('status:missing')).toBeInTheDocument()

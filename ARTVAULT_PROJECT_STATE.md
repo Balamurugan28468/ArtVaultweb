@@ -1,9 +1,14 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-05 — Module 04 (Seller Foundation & Artwork Draft
-Management): implementation, tests, real-browser/emulator verification, and
-the **owner's own full manual acceptance walkthrough** all **complete and
-committed** (`d483994`, `1f8ca5a`, and this closeout commit). Acceptance
+_Last updated: 2026-09-05 — Module 04 Final Hardening & Firebase Emulator
+Persistence / Seller-Authorization Reconciliation: implementation, tests,
+and the **owner's own real Windows Ctrl+C manual restart verification** all
+**complete**, pending commit (this will be recorded as a new commit on top
+of `1f0deb7`) — see "Module 04 — Emulator Persistence & Seller-Authorization
+Reconciliation" below for the full write-up. Module 04 (Seller Foundation &
+Artwork Draft Management) core implementation, tests, real-browser/emulator
+verification, and the owner's own full manual acceptance walkthrough remain
+**complete and committed** (`d483994`, `1f8ca5a`, `1f0deb7`). Acceptance
 testing surfaced and fixed two real pre-existing (Module 01) sign-up/
 profile-provisioning bugs — see the module write-up below. Current
 authentication method remains Email + Password only — see "Authentication
@@ -21,9 +26,13 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 **Module 04 — Seller Foundation & Artwork Draft Management: implementation
 complete, verified, owner manually accepted end to end, and committed**
-(`d483994`, `1f8ca5a`, and this closeout commit). Module 05 (artwork image
-upload) has not been started. See below for the full writeup, and
-"Completed modules" for the checkpoint entry.
+(`d483994`, `1f8ca5a`, `1f0deb7`). A follow-up hardening pass — Firebase
+emulator persistence (single-instance protection, safe snapshot/export
+architecture) and seller-authorization reconciliation — is complete,
+real-owner restart-verified, and **pending commit** (see "Module 04 —
+Emulator Persistence & Seller-Authorization Reconciliation" below). Module 05
+(artwork image upload) has not been started. See below for the full writeup,
+and "Completed modules" for the checkpoint entry.
 
 ## Authentication methods — current scope
 
@@ -305,6 +314,209 @@ no way to edit it back through the UI. **Owner manual acceptance: PASS.**
   fixes; if `onUserCreate` ever again fails to load, restart the emulator
   suite with nothing else competing for CPU. `repair-missing-profile` exists
   specifically to recover any account caught by this while it was down.
+
+## Module 04 — Emulator Persistence & Seller-Authorization Reconciliation (COMPLETE, owner restart-verified, pending commit)
+
+**Status:** implementation, automated tests, and extensive real-emulator
+restart testing all complete. The owner then personally performed the real
+Windows Ctrl+C shutdown/restart workflow in their own terminal and confirmed
+**PASS**. Not yet committed — will be recorded as a new commit on top of
+`1f0deb7`.
+
+### Trigger
+
+After a real emulator/Vite restart, an account that had previously shown
+Auth claim `SELLER`, `users/{uid}.role` `SELLER`, and `sellers/{uid}.status`
+`APPROVED` (with a working Seller Studio) reverted to `CUSTOMER`. Restarting
+local dev tooling must never affect authorization — investigated to a real,
+evidenced root cause rather than patched around.
+
+### Root cause (proven, not guessed)
+
+Vite's dev-server file watcher held an open OS-level lock on `./emulator-data`
+for the entire time `npm run dev` was running — confirmed directly (a
+`Rename-Item` on `./emulator-data` failed while Vite was running and
+succeeded the instant it was stopped, with the emulator suite left running
+throughout). `firebase emulators:start --export-on-exit` replaces
+`./emulator-data` by removing it and renaming a freshly-written export into
+place; with Vite's lock held, that removal silently failed and the fresh
+export was stranded in an orphaned `firebase-export-<timestamp>/` directory
+instead of ever reaching `./emulator-data`. Under the exact "both processes
+running all day" workflow this project's own daily workflow calls for, no
+new emulator state could ever actually survive a restart — which is exactly
+why the SELLER promotion never carried forward.
+
+A second, real gap found while re-verifying this fix under this session's
+own testing: nothing prevented two emulator launchers from touching
+`./emulator-data` concurrently. This was directly observed (a second,
+unaware `npm run emulators` briefly ran alongside the one under test) and
+evidenced on disk by a snapshot whose Auth and Firestore export components
+had mismatched write times — proof it had been assembled from more than one
+export operation. No authorization data was ever actually lost from this,
+but it was a real latent risk, now closed (see below).
+
+### Fixes
+
+- **`vite.config.ts`** — `server.watch.ignored: ['**/emulator-data/**',
+  '**/firebase-export-*/**']`. Vite has no reason to watch local
+  Auth/Firestore/Storage snapshot data (never part of the app bundle); this
+  is the fix that matters for the owner's real daily Ctrl+C workflow.
+- **`scripts/start-emulators.mjs` — single-instance guard.** A PID-stamped
+  lock file (`.emulator-launcher.lock`, gitignored, never inside
+  `emulator-data` itself) is acquired before anything else runs. A second
+  launcher detecting a live holder exits immediately with a clear message,
+  touching no persistence, ports, or exports. A stale lock (left by a
+  process that crashed or was force-killed) is detected via a liveness check
+  and safely reclaimed. Verified with a real duplicate-launch attempt (
+  correctly refused) and two real stale-lock reclaims during actual restarts.
+- **`scripts/start-emulators.mjs` — safe snapshot/export architecture.**
+  Every startup that imports a previous export now first copies it to
+  `./emulator-data.backup` (a plain copy, never a move) *before* anything
+  this session does could replace it — so the last known-good generation
+  always exists on disk independent of whether this session's own eventual
+  export turns out corrupt. On shutdown, if the resulting export is
+  structurally incomplete (`isCompleteExport` — checks the metadata file,
+  the Auth accounts file, the Firestore metadata file, and, if present, a
+  recorded manifest hash), the backup is restored automatically rather than
+  leaving broken data as canonical; the recovery mtime comparison (added
+  earlier this session after a real bug was caught in its own verification —
+  comparing the export directory's own mtime could mistake a freshly
+  copied/restored old snapshot for the newest one) is based on the metadata
+  **file's** mtime specifically, immune to that. A SHA-256 generation-hash
+  manifest (`artvault-snapshot-manifest.json`) records that a completed
+  export's Auth and Firestore components genuinely belong to the same
+  generation; a later mismatch (tampering, partial external overwrite) is
+  detected on the next startup rather than silently imported. Verified: 13
+  isolated sandboxed scenarios covering missing/older/newer/incomplete
+  candidates and the directory-vs-file-mtime edge case specifically, plus a
+  real (naturally occurring, not simulated) child-exit event that produced a
+  valid, hash-matching manifest.
+- **`scripts/start-emulators.mjs` — readiness barrier + trusted
+  reconciliation on every startup.** After Firebase reports "All emulators
+  ready," the wrapper automatically runs `reconcile-roles` (below) against
+  the just-imported data and only then reports readiness to the terminal —
+  so a restored SELLER claim is guaranteed consistent before the app is ever
+  told it's safe to connect. Verified across every restart this session: the
+  correct account(s) reported `already-consistent`, and the PENDING owner
+  was correctly left untouched every time.
+- **`functions/src/reconcileRoles.ts`** (new, local operator script — never
+  deployed, never a callable, unreachable from any client). If
+  `sellers/{uid}.status == 'APPROVED'`, may restore the Auth `SELLER` claim
+  and/or the `users/{uid}.role` mirror (including recreating a missing
+  profile document, sourced from the real Auth record) — never anything but
+  the literal string `'SELLER'`, so ADMIN/SUPER_ADMIN can never be produced.
+  If the seller record is `PENDING` or missing, it is a no-op — never
+  invents approval, never promotes, never demotes. Idempotent (checked, not
+  just re-written). 9/9 tests, including one asserting the exact literal
+  `{role: 'SELLER'}` argument on every write.
+- **`functions/src/verifyEmulatorState.ts`** (new, read-only operator
+  script, `npm run verify:emulator-state`) — reports Auth/Firestore/seller/
+  artwork counts, approved-sellers-with-claim consistency, an optional
+  owner-specific section (Auth found/email/role, `users.role`,
+  `sellers.status`, artwork count), and the on-disk snapshot generation
+  hash. Never writes.
+- **`src/features/auth/api/ensureUserProfile.ts`** — audited: never
+  overwrites an existing profile regardless of what role is passed (a
+  structural no-op, not a convention); when recovering a missing profile, it
+  defers to Admin-SDK reconciliation rather than self-promoting if
+  `sellers/{uid}.status == 'APPROVED'` while the client's own token still
+  says CUSTOMER — the client never grants SELLER from Firestore in any case.
+- **`src/app/routes/SellerApplicationPage.tsx`** — an approved seller
+  visiting `/seller/apply` now redirects straight to `/seller-studio`
+  (`<Navigate replace />`) instead of showing a status card; a SELLER can
+  never re-apply.
+
+### Seller-authorization persistence invariant (verified, never violated)
+
+```
+PENDING seller:  Auth claim CUSTOMER · users/{uid}.role CUSTOMER · sellers/{uid}.status PENDING
+APPROVED seller: Auth claim SELLER   · users/{uid}.role SELLER   · sellers/{uid}.status APPROVED
+```
+
+The browser never grants SELLER from Firestore alone (`AuthProvider`/
+`ensureUserProfile` read only the unforgeable ID token claim for
+authorization); `users/{uid}.role` is a convenience mirror only, never
+trusted by rules or client code. The only path from PENDING to APPROVED is
+`functions/src/promoteSeller.ts` (unchanged, pre-existing); the only path
+that *restores* an already-APPROVED account's claim/mirror after data drift
+is `reconcileRoles.ts` above — neither can ever demote SELLER to CUSTOMER or
+invent approval.
+
+### Real owner restart verification
+
+Performed against the real owner account — UID `ppqIaap00MbYNY9RGDQmTwBb54bP`
+(`bm440946@gmail.com`) — never a substitute test account:
+
+- **Three full PENDING-state restart cycles** (export → full stop → restart
+  emulators + Vite → sign in): 11/11 checks each — same UID/email, Auth claim
+  still `CUSTOMER`, `users.role` still `CUSTOMER`, `sellers.status` still
+  `PENDING`, `reviewedAt` still null, UI showed the pending state, refresh
+  kept the session, zero console errors. Reconciliation correctly left the
+  PENDING owner untouched on every cycle.
+- **Real promotion, once,** via `promoteSeller.ts` on this exact UID: Auth
+  claim `SELLER`, `users.role` `SELLER`, `sellers.status` `APPROVED`,
+  `reviewedAt` populated, Seller Studio accessible, `/seller/apply` redirects
+  to `/seller-studio`.
+- **One additional clean restart after promotion:** same UID, claim still
+  `SELLER`, `users.role` still `SELLER`, `sellers.status` still `APPROVED`,
+  Seller Studio accessible, refresh kept SELLER, zero console errors —
+  re-confirmed a second time after a required Firestore-rules-test detour
+  (real data safely exported, moved aside, restored, and verified
+  byte-for-byte intact afterward).
+- **Owner artwork recovery result: NOT FOUND.** Searched read-only across
+  every available snapshot (`emulator-data`, `emulator-data.backup`, the
+  manually-captured `emulator-export-safe-<timestamp>` recovery evidence; no
+  stray `firebase-export-*` directories exist anywhere in the project) for
+  any artwork owned by the real owner UID. Zero in every snapshot checked.
+  The owner has never had an artwork recorded in any snapshot this
+  investigation could locate — nothing was fabricated or restored, because
+  there was nothing to restore.
+
+### Manual Windows Ctrl+C persistence verification (owner-confirmed)
+
+This session's own automated tooling has no attached Windows console, so a
+literal interactive Ctrl+C keypress could not be mechanically delivered to a
+backgrounded process from here (confirmed again this session via two
+independent methods — a `GenerateConsoleCtrlEvent`/`AttachConsole` attempt
+and a cross-process `SIGINT` signal both terminated the target without
+triggering its graceful-shutdown handler). Automated restart-cycle testing
+instead used `firebase emulators:export --force` — the identical underlying
+file-replacement/validation routine `--export-on-exit` calls internally —
+followed by process termination, which is an equivalent proof of the
+persistence mechanism but not a literal keypress. **The owner then
+personally performed the real Ctrl+C shutdown/restart workflow in their own
+terminal and confirmed PASS** — the one verification only the owner's own
+machine could provide, now done.
+
+### Tests
+
+- **Frontend:** 320/320 passing (46 files) — including `ensureUserProfile`'s
+  never-downgrade guarantee and the `/seller/apply` → `/seller-studio`
+  redirect (via real routing, not a mocked navigate).
+- **Functions:** 22/22 passing (5 files) — `reconcileRoles.test.ts` (9,
+  including the exact-literal-claim proof) and `verifyEmulatorState.test.ts`
+  (4, new, confirming it never calls a write method) alongside the
+  pre-existing suites.
+- **Firestore rules:** 82/82 passing — re-run against a disposable emulator
+  instance (real owner data exported, moved aside, restored, and re-verified
+  afterward) since the rules-test harness shares one live Firestore
+  project/emulator and wipes it in `beforeEach`.
+- **Build:** succeeds. **Typecheck/lint:** clean (pre-existing advisory
+  warnings only).
+
+### Known limitations
+
+- A literal interactive Ctrl+C could not be mechanically simulated from this
+  session's own tooling (see above) — mitigated entirely by the owner's own
+  real-terminal verification, which is now done and PASS.
+- The Functions emulator occasionally shows a transient "Cannot determine
+  backend specification. Timeout" reload warning under heavy concurrent
+  load; harmless (always recovers, `onUserCreate` always loads), pre-existing,
+  unrelated to this fix.
+- Vite-only restart independence relies on the mechanism proven with the
+  real owner account in a prior verification pass within this same body of
+  work, rather than a freshly re-isolated check in the owner's own final
+  restart test.
 
 ## Module 02 — final completion status
 

@@ -13,6 +13,13 @@ vi.mock('firebase-admin/firestore', () => ({
       if (name === 'users') return { doc: () => ({ get: usersGet, set: usersSet }) }
       throw new Error(`unexpected collection: ${name}`)
     },
+    // handleUserCreate (imported from ./index, called internally by
+    // repairMissingProfile) runs its own idempotent check-then-set inside a
+    // transaction — reuses the same usersGet/usersSet mocks, since it's
+    // operating on the same users/{uid} document repairMissingProfile
+    // already checked itself.
+    runTransaction: async (updateFunction: (tx: { get: typeof usersGet; set: typeof usersSet }) => Promise<void>) =>
+      updateFunction({ get: usersGet, set: usersSet }),
   }),
   FieldValue: { serverTimestamp: () => 'SERVER_TIMESTAMP' },
 }))
@@ -28,7 +35,7 @@ beforeEach(() => {
 
 describe('repairMissingProfile', () => {
   it('creates the missing profile document from the real Auth user record, defaulting to CUSTOMER', async () => {
-    usersGet.mockResolvedValueOnce({ exists: false })
+    usersGet.mockResolvedValue({ exists: false })
     getUser.mockResolvedValueOnce({ uid: 'alice', email: 'alice@example.com', displayName: 'Alice', photoURL: null })
 
     const result = await repairMissingProfile('alice')
@@ -36,12 +43,13 @@ describe('repairMissingProfile', () => {
     expect(result).toBe('repaired')
     expect(setCustomUserClaims).toHaveBeenCalledWith('alice', { role: 'CUSTOMER' })
     expect(usersSet).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ uid: 'alice', email: 'alice@example.com', displayName: 'Alice', role: 'CUSTOMER' }),
     )
   })
 
   it('refuses to touch an account whose profile already exists — idempotent, never overwrites or duplicates', async () => {
-    usersGet.mockResolvedValueOnce({ exists: true })
+    usersGet.mockResolvedValue({ exists: true })
 
     const result = await repairMissingProfile('bob')
 
@@ -52,21 +60,24 @@ describe('repairMissingProfile', () => {
   })
 
   it('normalizes a missing displayName/photoURL to null rather than undefined', async () => {
-    usersGet.mockResolvedValueOnce({ exists: false })
+    usersGet.mockResolvedValue({ exists: false })
     getUser.mockResolvedValueOnce({ uid: 'carol', email: 'carol@example.com' })
 
     await repairMissingProfile('carol')
 
-    expect(usersSet).toHaveBeenCalledWith(expect.objectContaining({ displayName: null, photoURL: null }))
+    expect(usersSet).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ displayName: null, photoURL: null }),
+    )
   })
 
   it('never grants a role other than the default CUSTOMER — no privilege escalation path', async () => {
-    usersGet.mockResolvedValueOnce({ exists: false })
+    usersGet.mockResolvedValue({ exists: false })
     getUser.mockResolvedValueOnce({ uid: 'dave', email: 'dave@example.com' })
 
     await repairMissingProfile('dave')
 
     expect(setCustomUserClaims).toHaveBeenCalledWith('dave', { role: 'CUSTOMER' })
-    expect(usersSet).toHaveBeenCalledWith(expect.objectContaining({ role: 'CUSTOMER' }))
+    expect(usersSet).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ role: 'CUSTOMER' }))
   })
 })

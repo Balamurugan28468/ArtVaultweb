@@ -182,22 +182,30 @@ describe('ArtworkForm — edit mode (DRAFT)', () => {
     expect(onSaved).toHaveBeenCalledWith('a1')
   })
 
-  it('discards the draft after confirmation', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+  it('shows an accessible confirmation dialog before discarding — never a native window.confirm', async () => {
     deleteArtworkDraft.mockResolvedValueOnce(undefined)
     renderForm({ artwork: buildArtwork() })
 
     fireEvent.click(screen.getByRole('button', { name: /discard draft/i }))
 
+    const dialog = await screen.findByRole('dialog', { name: /delete this draft/i })
+    expect(dialog).toHaveTextContent('This action cannot be undone.')
+    expect(deleteArtworkDraft).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /^delete draft$/i }))
+
     await waitFor(() => expect(deleteArtworkDraft).toHaveBeenCalledWith('a1'))
   })
 
-  it('does not discard without confirmation', () => {
-    vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+  it('does not discard when the confirmation dialog is cancelled', async () => {
     renderForm({ artwork: buildArtwork() })
 
     fireEvent.click(screen.getByRole('button', { name: /discard draft/i }))
+    await screen.findByRole('dialog', { name: /delete this draft/i })
 
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(deleteArtworkDraft).not.toHaveBeenCalled()
   })
 })

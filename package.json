@@ -10,6 +10,7 @@
     "lint": "oxlint",
     "test": "vitest",
     "test:rules": "vitest run --config vitest.rules.config.ts",
+    "verify:emulator-state": "npm --prefix functions run verify:emulator-state",
     "preview": "vite preview",
     "emulators": "node scripts/start-emulators.mjs"
   },

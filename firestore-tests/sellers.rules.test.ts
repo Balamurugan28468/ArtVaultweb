@@ -142,6 +142,14 @@ describe('sellers/{uid} rules — no client modification after submission', () =
     await assertFails(setDoc(doc(aliceDb, 'sellers/alice'), validApplication({ businessName: 'New Name' })))
   })
 
+  it('blocks a duplicate/re-application attempt once already APPROVED', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'sellers/alice'), { ...EXISTING_APPLICATION, status: 'APPROVED' })
+    })
+    const aliceDb = testEnv.authenticatedContext('alice', { role: 'SELLER' }).firestore()
+    await assertFails(setDoc(doc(aliceDb, 'sellers/alice'), validApplication({ businessName: 'New Name' })))
+  })
+
   it('blocks the applicant from deleting their own application', async () => {
     const aliceDb = testEnv.authenticatedContext('alice').firestore()
     await assertFails(deleteDoc(doc(aliceDb, 'sellers/alice')))

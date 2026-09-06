@@ -79,6 +79,8 @@ function mapToArtwork(id: string, data: Record<string, unknown>): Artwork | null
     images: mapToArtworkImages(data.images),
     inventoryCount: typeof data.inventoryCount === 'number' ? data.inventoryCount : 0,
     status: data.status,
+    reviewedAt: data.reviewedAt instanceof Timestamp ? data.reviewedAt : null,
+    rejectionReason: typeof data.rejectionReason === 'string' ? data.rejectionReason : null,
     createdAt: data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.now(),
     updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : Timestamp.now(),
   }
@@ -97,6 +99,34 @@ export function subscribeSellerArtworks(
   onError: (error: ArtworkError) => void,
 ): Unsubscribe {
   const q = query(artworksCollection(), where('sellerId', '==', sellerId))
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const artworks = snapshot.docs
+        .map((docSnapshot) => mapToArtwork(docSnapshot.id, docSnapshot.data()))
+        .filter((artwork): artwork is Artwork => artwork !== null)
+        .sort((a, b) => b.updatedAt.toMillis() - a.updatedAt.toMillis())
+      onData(artworks)
+    },
+    (error) => onError(toArtworkError(error)),
+  )
+}
+
+/**
+ * An artist's real, publicly-visible catalog — Module 07's own query,
+ * consumed by the public artist page (never by Seller Studio, which uses
+ * subscribeSellerArtworks above to see everything regardless of status).
+ * `sellerId == X && status == 'PUBLISHED'` is two equality filters on
+ * different fields, which Firestore serves from its automatic single-field
+ * indexes without needing a composite index. Public — works whether or not
+ * anyone is signed in (see firestore.rules' additive PUBLISHED-read branch).
+ */
+export function subscribePublishedArtworks(
+  sellerId: string,
+  onData: (artworks: Artwork[]) => void,
+  onError: (error: ArtworkError) => void,
+): Unsubscribe {
+  const q = query(artworksCollection(), where('sellerId', '==', sellerId), where('status', '==', 'PUBLISHED'))
   return onSnapshot(
     q,
     (snapshot) => {

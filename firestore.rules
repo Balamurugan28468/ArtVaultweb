@@ -266,13 +266,22 @@ service cloud.firestore {
         data.inventoryCount is int && data.inventoryCount >= 0;
     }
 
-    // Module 04 — Artwork Draft Management. Only DRAFT and SUBMITTED exist
-    // yet (see docs/DATABASE.md) — no other status value is ever accepted
-    // by create or update, below.
+    // Module 04 — Artwork Draft Management; Module 07 — Moderation &
+    // Publishing. DRAFT, SUBMITTED, PUBLISHED, REJECTED exist (see
+    // docs/DATABASE.md) — no other status value is ever accepted by create
+    // or update, below.
     match /artworks/{artworkId} {
-      // No public Marketplace read path exists yet — added when that
-      // module is built. For now, only the owning seller can read their
-      // own artwork at all.
+      // Module 07's own addition, purely additive: a PUBLISHED artwork is
+      // readable by anyone at all, signed in or not — ArtVault's first
+      // public artwork read path, and the only status this applies to.
+      // DRAFT/SUBMITTED/REJECTED are exactly as private as before this
+      // module: still owner-only, via the second branch below, completely
+      // unchanged from Module 04. No Marketplace-style "browse everyone's
+      // published art" query is enabled by this rule alone — it only ever
+      // grants access to documents a caller's own query or link already
+      // names (e.g. one seller's own PUBLISHED artworks, per
+      // subscribePublishedArtworks) — that broader browsing surface is a
+      // later module's job.
       //
       // `resource == null` (a genuinely nonexistent document — the standard
       // Firestore rules idiom for this) is allowed unconditionally for any
@@ -288,8 +297,11 @@ service cloud.firestore {
       // useArtwork.ts). Returning an empty (non-existent) snapshot for a
       // nonexistent document leaks nothing — there's no data to leak — so
       // this is safe for any authenticated user, not just an owner;
-      // reading an *existing* artwork still requires true ownership.
-      allow read: if isSignedIn() && (resource == null || isOwner(resource.data.sellerId));
+      // reading an *existing*, non-PUBLISHED artwork still requires true
+      // ownership.
+      allow read: if
+        (resource != null && resource.data.status == 'PUBLISHED') ||
+        (isSignedIn() && (resource == null || isOwner(resource.data.sellerId)));
 
       allow create: if
         hasRole('SELLER') &&
@@ -305,7 +317,13 @@ service cloud.firestore {
       // SUBMITTED with no other field touched. A SUBMITTED artwork can
       // never be updated at all (neither branch's `resource.data.status`
       // guard matches it) — covers "locked once submitted" and
-      // "SUBMITTED -> DRAFT: denied" together, not as separate checks.
+      // "SUBMITTED -> DRAFT: denied" together, not as separate checks. This
+      // is also, unchanged, exactly what makes SUBMITTED -> PUBLISHED and
+      // SUBMITTED -> REJECTED (Module 07) structurally impossible from a
+      // client: no branch here ever matches a SUBMITTED (or PUBLISHED, or
+      // REJECTED) starting status at all, for any target status — the only
+      // way either transition ever happens is functions/src/
+      // publishArtwork.ts's Admin SDK write, which bypasses rules entirely.
       allow update: if
         isOwner(resource.data.sellerId) &&
         request.resource.data.sellerId == resource.data.sellerId &&
@@ -314,7 +332,18 @@ service cloud.firestore {
           (resource.data.status == 'DRAFT' &&
            request.resource.data.status == 'DRAFT' &&
            isValidArtworkFields(request.resource.data) &&
-           isValidArtworkImages(request.resource.data.images, resource.data.sellerId, artworkId)) ||
+           isValidArtworkImages(request.resource.data.images, resource.data.sellerId, artworkId) &&
+           // A real gap this closes (found by Module 07's own rules tests,
+           // not by inspection): isValidArtworkFields() only *positively*
+           // checks the fields it names — without this hasOnly(), a client
+           // could sneak an extra, unlisted field (e.g. reviewedAt,
+           // rejectionReason — Module 07's own new fields) into an
+           // otherwise-ordinary DRAFT edit, since nothing here previously
+           // rejected keys it simply never looked at. Matches the same
+           // allow-list discipline the submit branch below (and
+           // users/{uid}'s own update rule, Module 03) already apply.
+           request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['title', 'description', 'price', 'category', 'tags', 'images', 'inventoryCount', 'updatedAt'])) ||
           (resource.data.status == 'DRAFT' &&
            request.resource.data.status == 'SUBMITTED' &&
            request.resource.data.images == resource.data.images &&

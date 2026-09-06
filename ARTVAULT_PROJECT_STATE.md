@@ -1,6 +1,19 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-06 — Module 06 (Artist Profiles) — ArtVault's first
+_Last updated: 2026-09-06 — Module 07 (Artwork Moderation & Publishing) —
+ArtVault's first genuine public artwork lifecycle: two new artwork statuses
+(`PUBLISHED`, `REJECTED`), a trusted Admin-SDK-only operator script
+(`functions/src/publishArtwork.ts`) as the sole path from `SUBMITTED` to
+either, a new narrowly-scoped public read path on `artworks/{artworkId}`,
+and Module 06's public artist page now querying and rendering real
+`PUBLISHED` artwork instead of a static empty state — **implementation,
+automated tests (including a real pre-existing security gap found and
+closed by this module's own new tests), and real end-to-end verification
+(real owner account, real Playwright-driven UI submit, real trusted-CLI
+publish/reject, real signed-out public-page checks, and a real emulator
+restart) all complete — pending owner review and explicit commit
+approval**; see "Module 07 — Artwork Moderation & Publishing" below for the
+full write-up. Module 06 (Artist Profiles) — ArtVault's first
 public-facing feature: a public `artists/{artistId}` projection, a public
 `/artists/:artistId` page, and a Seller Studio surface for managing it —
 **implementation, tests, real-emulator verification, and the owner's own
@@ -39,28 +52,35 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 06 — Artist Profiles: implementation complete, verified, owner
-manually accepted end to end — pending commit approval only.** A public
-`artists/{artistId}` projection (ArtVault's first unauthenticated-readable
-Firestore collection), a public `/artists/:artistId` page, and a Seller
-Studio surface (`/seller-studio/profile`) for the approved seller to
-manage their public `displayName`/`bio`. The document is only ever created
-by the trusted `promoteSeller.ts`/`reconcileRoles.ts` operator scripts —
-never by a client — and the real owner account (approved before this
-module existed) was automatically backfilled a real profile by
-`reconcileRoles.ts` on the very first restart after this module's code
-landed, verified via the Admin SDK and a real signed-out browser session.
-A real signed-out/incognito route regression was reported during the
-owner's first manual pass, root-caused, could not be reproduced against
-the current code by an exhaustive 11-scenario live re-test, and the owner's
-own retest then confirmed PASS — see "Module 06 — Artist Profiles" below
-for the full writeup. Module 05
-(Artwork Media/Image Upload & Emulator Lifecycle Hardening: `3265194`) and
-Module 04 (Seller Foundation & Artwork Draft Management: `d483994`,
-`1f8ca5a`, `1f0deb7`; Emulator Persistence & Seller-Authorization
-Reconciliation: `877f3ba`) remain complete, verified, and committed.
-Module 07 has not been started. See "Completed modules" for the checkpoint
-entry once Module 06 itself is committed.
+**Module 07 — Artwork Moderation & Publishing: implementation, automated
+tests, and real end-to-end verification complete — pending owner review
+and explicit commit approval.** Extends the artwork lifecycle by exactly
+two states (`PUBLISHED`, `REJECTED`) beyond Module 04's `DRAFT`/`SUBMITTED`,
+with `SUBMITTED → PUBLISHED`/`SUBMITTED → REJECTED` performed exclusively
+by a new trusted, Admin-SDK-only operator script
+(`functions/src/publishArtwork.ts`, same family as `promoteSeller.ts`) —
+never client-reachable, never a self-service in-app path. `PUBLISHED`
+artworks gain ArtVault's first public read path on `artworks/{artworkId}`
+itself (additive, one new `allow read` branch; `DRAFT`/`SUBMITTED`/
+`REJECTED` remain exactly as private as before). Module 06's public artist
+page now calls a real `subscribePublishedArtworks` query instead of always
+showing the static empty state. Writing this module's own security tests
+surfaced and closed a real pre-existing gap: an ordinary `DRAFT` edit had
+no `hasOnly()` restricting which fields a client could touch, so a client
+could have smuggled a forged `reviewedAt` into an otherwise-ordinary edit —
+fixed with the same allow-list discipline already used elsewhere in
+`firestore.rules`. Verified against the real owner's own account end to
+end (real Playwright-driven "Submit for review" click, real trusted-CLI
+publish, real signed-out public-page check, real emulator restart) and
+against a disposable test-fixture account for the REJECTED path (never the
+owner's own artwork). See "Module 07 — Artwork Moderation & Publishing"
+below for the full write-up. Module 06 (Artist Profiles: pending commit),
+Module 05 (Artwork Media/Image Upload & Emulator Lifecycle Hardening:
+`3265194`), and Module 04 (Seller Foundation & Artwork Draft Management:
+`d483994`, `1f8ca5a`, `1f0deb7`; Emulator Persistence & Seller-Authorization
+Reconciliation: `877f3ba`) remain complete, verified. Module 08 has not
+been started. See "Completed modules" for the checkpoint entries once
+Modules 06 and 07 are committed.
 
 ## Authentication methods — current scope
 
@@ -80,6 +100,182 @@ happened; the working tree was verified byte-identical to the prior
 approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
+
+## Module 07 — Artwork Moderation & Publishing (COMPLETE, pending owner review and commit approval)
+
+**Status:** implementation, automated tests (frontend unit/component,
+Firestore rules, Cloud Functions), and real end-to-end verification via the
+Firebase Local Emulator Suite and a real browser (Playwright) all complete.
+Not yet committed — waiting on the owner's own review and explicit commit
+approval, exactly as every prior module.
+
+### Objective and scope decision
+
+A scope-discovery pass reviewed every remaining pending feature
+(Marketplace, Search, Wishlist/Likes/Follows, Cart/Checkout/Orders,
+Payments, Auctions, AI analysis, Recommendations, AR, an Admin Control
+Center) and found the same dependency in each: all of them need a genuine
+public artwork state that does not yet exist. The owner approved the
+narrowest module that removes that blocker: extend the lifecycle by
+exactly two states — `PUBLISHED` and `REJECTED` — and build the trusted
+mechanism that transitions an artwork into either, without building
+Marketplace browsing/search, Wishlist/Likes/Follows/Sharing, Cart/Checkout/
+Orders, Payments, Auctions, AI analysis/Recommendations, AR, or any
+Admin Control Center UI — all of those remain later modules' work.
+`PENDING_REVIEW` was explicitly rejected as a third new state: `SUBMITTED`
+already means "awaiting trusted review," so a distinct `PENDING_REVIEW`
+without a genuinely separate transition would only duplicate that meaning.
+Every commerce/auction/AI/admin lifecycle state
+(`AI_PROCESSING`/`AVAILABLE`/`RESERVED`/`IN_AUCTION`/`SOLD`/
+`AUCTION_SOLD`/`SUSPENDED`/`CANCELLED`) remains deferred to whichever
+future module actually owns its real transition.
+
+### What was built
+
+- **Lifecycle extension** — `src/features/artwork/types.ts`:
+  `ARTWORK_STATUSES` becomes `['DRAFT', 'SUBMITTED', 'PUBLISHED',
+  'REJECTED']`; `Artwork` gains `reviewedAt: Timestamp | null` and
+  `rejectionReason: string | null`, both written only by the trusted
+  operator script below. See `docs/DATABASE.md` for the full field
+  reference and the permitted-transition table.
+- **`functions/src/publishArtwork.ts`** — a new local, Admin-SDK-only,
+  never-deployed operator script (same family as `promoteSeller.ts`).
+  `decideArtworkByArtworkId(artworkId, decision, options)` re-fetches the
+  artwork, throws unless its current `status` is exactly `'SUBMITTED'`
+  (rejects invalid transitions; never silently no-ops or overwrites an
+  already-decided artwork), then writes only
+  `status`/`reviewedAt`/`rejectionReason`/`updatedAt` — every other field
+  (`sellerId`, `title`, `price`, `images`, ...) is left untouched. A CLI
+  entry point (`npm run publish-artwork -- <artworkId> publish|reject
+  [reason]`) is the only way the project owner ever invokes it; there is no
+  self-service or in-app path, and no temporary client-side reviewer/admin
+  UI was built. 10 new tests in `functions/src/publishArtwork.test.ts`
+  cover both transitions, both rejection paths (missing artwork, wrong
+  starting status), and confirm untouched fields stay untouched.
+- **`firestore.rules`** — one additive `allow read` branch:
+  `resource.data.status == 'PUBLISHED'` ORed ahead of the existing
+  signed-in-owner branch. No existing `allow update`/`allow delete` branch
+  matches a non-`DRAFT` status, so `SUBMITTED → PUBLISHED`/`REJECTED` was
+  already structurally client-unreachable before this change — the module
+  did not need to add any new denial, only the one new read grant. While
+  writing this module's security tests, a real pre-existing gap was found
+  in the `DRAFT`-edit `allow update` branch: it validated named fields via
+  `isValidArtworkFields()` but never restricted the update to *only* those
+  fields via `hasOnly()`, so a client editing a `DRAFT` artwork could have
+  smuggled in an unrelated field (e.g. a forged `reviewedAt`) in the same
+  write. Fixed by adding the same `diff(...).affectedKeys().hasOnly([...])`
+  discipline already used elsewhere in this file. `firestore-tests/
+  artworks.rules.test.ts` grew from 113 to 131 passing tests, covering:
+  `PUBLISHED` readable by a signed-out visitor/authenticated non-owner/
+  owner; `REJECTED` unreadable by anyone but the owner; `DRAFT`/`SUBMITTED`
+  regression checks; the field-forgery gap (now closed); and confirmation
+  that every Module 04/05 test still passes unchanged.
+- **`src/features/artwork/api/artworkRepository.ts`** — `mapToArtwork` now
+  parses `reviewedAt`/`rejectionReason` (defaulting to `null`); a new
+  `subscribePublishedArtworks(sellerId, onData, onError)` queries
+  `sellerId == X && status == 'PUBLISHED'` (two equality filters on
+  different fields — no new composite index required) and sorts results
+  client-side, mirroring the existing `subscribeArtwork`/
+  `subscribeSellerArtworks` pattern exactly.
+- **`usePublishedArtworks`, `PublicArtworkCard`, `PublicArtworkGrid`** —
+  new read-only components/hook in `src/features/artwork`, deliberately
+  separate from the owner-facing `ArtworkListItem`/`ArtworkList` (which
+  show Draft/Submitted badges and a Delete action) so no owner-only control
+  can ever leak onto a public surface — the same discipline already
+  established for `PublicArtistHeader` vs. the seller-facing profile editor
+  in Module 06.
+- **`src/features/artist-profile/components/PublicArtistArtworks.tsx`** —
+  rewritten from a static "no public artworks yet" placeholder to
+  `<PublicArtworkGrid sellerId={artistId} />`, wired to the real `artistId`
+  from `ArtistProfilePage.tsx`. The honest empty state is preserved for a
+  seller with zero `PUBLISHED` artworks — nothing about Module 06's public
+  page contract changed except that it now has real data to show.
+- **Documentation** — `docs/DATABASE.md` and `docs/SECURITY.md` updated
+  with the full four-state lifecycle definition, the permitted-transition
+  table, the trusted operator mechanism, the closed field-forgery gap, and
+  the deliberately-deferred future states; this file.
+
+### Testing
+
+- `functions`: 37/37 passing (6 test files), including the new 10-test
+  `publishArtwork.test.ts`.
+- Firestore rules (`npm run test:rules`, real Firebase Local Emulator
+  Suite): 131/131 passing (up from 113 before this module), run against a
+  throwaway import via the established protect/test/restore cycle — the
+  real owner's emulator data was exported, moved aside, verified
+  byte-identical after the test run, and restored.
+- Full frontend suite (`npx vitest run`): 415/415 passing across 61 test
+  files. A first run under simultaneous CPU load from a concurrent
+  `functions` test run showed 3 failures confined to
+  `src/app/routes/router.test.tsx` (a `findByRole` timeout); that file
+  passes 5/5 in isolation, and a clean standalone re-run of the full suite
+  passed 415/415 — confirmed a load-induced flake, not a Module 07
+  regression.
+- `npm run typecheck`, `npm run build` (production build via `tsc -b &&
+  vite build`), `npm run lint` (0 errors; only pre-existing warning
+  patterns already present elsewhere in the codebase, including one
+  instance of the same `set-state-in-effect` pattern already used by
+  `useArtwork.ts`/`useSellerArtworks.ts`/`useSellerStatus.ts`), and
+  `npm run test:scripts` (47/47, launcher/emulator guard tests — unaffected,
+  since this module touched no `scripts/` files) all pass.
+- `git diff --check`: exit 0 — only pre-existing LF/CRLF `core.autocrlf`
+  warnings, no real whitespace errors.
+
+### Real owner/fixture verification (Firebase Local Emulator Suite + real browser)
+
+Performed against the real owner's own account (`bm440946@gmail.com`) end
+to end, never simulated or fabricated:
+
+1. Identified the real owner's existing `DRAFT` artwork ("3d",
+   `YwQq21fkz2gWsrirfOsq`) and recorded its fields and both real Storage
+   image sizes (840,093 and 1,163,918 bytes) before any transition.
+2. Signed in as the real owner via Playwright (real emulator-only
+   credentials recovered from the Auth emulator's own export) and clicked
+   the real "Submit for review" button in the real Seller Studio UI —
+   `DRAFT → SUBMITTED` was a genuine UI action, not a script-based
+   Firestore write.
+3. Ran the real trusted CLI (`npm run publish-artwork -- YwQq21fkz2gWsrirfOsq
+   publish`) to transition `SUBMITTED → PUBLISHED`.
+4. Verified via the Admin SDK: `status: 'PUBLISHED'`, `reviewedAt` set,
+   `sellerId`/`title`/`price`/`images` all unchanged.
+5. Opened `/artists/ppqIaap00MbYNY9RGDQmTwBb54bP` in a fresh, genuinely
+   signed-out Playwright browser context: the real artwork title "3d" and
+   real price ₹5000 now render, "No public artworks yet" no longer does,
+   zero console errors — confirmed both by console assertions and a
+   full-page screenshot.
+6. Verified persistence across a **real** emulator restart: the emulator
+   process was independently restarted (auto-importing from
+   `./emulator-data`), and a post-restart Admin SDK check confirmed
+   `status: 'PUBLISHED'`, `reviewedAt` still set, and both Storage images
+   still present at their exact original byte sizes.
+
+For the `REJECTED` path, the owner's own "3d" artwork was deliberately not
+used (per instruction, to avoid destroying the only important owner test
+artwork). Instead, a pre-existing disposable emulator test fixture — a
+synthetic seller account (`persist-restart-*@example.com`, uid
+`IzqUZ7XLlvki9ZlveTbVuw0MpUfn`, created for an earlier module's persistence
+testing, not a real user) and its `DRAFT` artwork ("Persisted Artwork") —
+was used: submitted for review via the real UI as that fixture seller,
+rejected via the real trusted CLI
+(`npm run publish-artwork -- lq6fV8aj202AW2u77jn5 reject "Does not meet
+quality guidelines"`), confirmed via the Admin SDK
+(`status: 'REJECTED'`, `rejectionReason` set, `sellerId`/`title`
+unchanged), and confirmed via a fresh signed-out Playwright session that
+`/artists/IzqUZ7XLlvki9ZlveTbVuw0MpUfn` still shows "No public artworks
+yet" and leaks neither the rejected title nor the rejection reason text.
+
+### Known limitations / deliberately deferred
+
+- No Marketplace browsing/search across all sellers' `PUBLISHED` artworks
+  — the only public read path built is the single-seller query the public
+  artist page uses.
+- No in-app reviewer/admin UI of any kind — the trusted CLI is the only
+  mechanism, exactly as scoped.
+- No `PUBLISHED → *` or `REJECTED → *` transition (unpublishing,
+  re-submitting a rejected artwork) — not needed by anything that exists
+  yet.
+- Every commerce/auction/AI/admin lifecycle state remains unimplemented,
+  deliberately, per the scope decision above.
 
 ## Module 06 — Artist Profiles (COMPLETE, owner manually accepted, pending commit)
 

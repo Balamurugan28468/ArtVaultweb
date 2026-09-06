@@ -3,6 +3,7 @@ export {
   deleteArtworkDraft,
   mutateArtworkImages,
   subscribeArtwork,
+  subscribePublishedArtworks,
   subscribeSellerArtworks,
   submitArtwork,
   toArtworkError,
@@ -21,9 +22,12 @@ export { ArtworkForm } from './components/ArtworkForm'
 export { ArtworkImageManager } from './components/ArtworkImageManager'
 export { ArtworkList } from './components/ArtworkList'
 export { ArtworkListItem } from './components/ArtworkListItem'
+export { PublicArtworkCard } from './components/PublicArtworkCard'
+export { PublicArtworkGrid } from './components/PublicArtworkGrid'
 export { useArtwork } from './hooks/useArtwork'
 export { useArtworkImages, type PendingArtworkImage } from './hooks/useArtworkImages'
 export { useCreateArtwork, type CreateStatus } from './hooks/useCreateArtwork'
+export { usePublishedArtworks } from './hooks/usePublishedArtworks'
 export { useSellerArtworks } from './hooks/useSellerArtworks'
 export { useUpdateArtwork, type UpdateStatus } from './hooks/useUpdateArtwork'
 export {

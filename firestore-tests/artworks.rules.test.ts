@@ -46,6 +46,8 @@ const EXISTING_DRAFT = {
 }
 
 const EXISTING_SUBMITTED = { ...EXISTING_DRAFT, status: 'SUBMITTED' }
+const EXISTING_PUBLISHED = { ...EXISTING_DRAFT, status: 'PUBLISHED', reviewedAt: 2, rejectionReason: null }
+const EXISTING_REJECTED = { ...EXISTING_DRAFT, status: 'REJECTED', reviewedAt: 2, rejectionReason: 'blurry photos' }
 
 beforeAll(async () => {
   testEnv = await initializeTestEnvironment({
@@ -105,9 +107,19 @@ describe('artworks/{artworkId} rules — create', () => {
     await assertFails(addDoc(collection(aliceDb, 'artworks'), validArtwork({ status: 'SUBMITTED' })))
   })
 
-  it('blocks creating with an unsupported/unsanctioned status value', async () => {
+  it('blocks creating directly as PUBLISHED — even a genuinely valid status now, it is never a legal create-time value', async () => {
     const aliceDb = sellerContext('alice')
     await assertFails(addDoc(collection(aliceDb, 'artworks'), validArtwork({ status: 'PUBLISHED' })))
+  })
+
+  it('blocks creating directly as REJECTED', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(addDoc(collection(aliceDb, 'artworks'), validArtwork({ status: 'REJECTED' })))
+  })
+
+  it('blocks creating with a genuinely unsupported/unsanctioned status value', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(addDoc(collection(aliceDb, 'artworks'), validArtwork({ status: 'NOT_A_REAL_STATUS' })))
   })
 
   it('blocks an invalid category', async () => {
@@ -400,6 +412,148 @@ describe('artworks/{artworkId} rules — SUBMITTED is locked', () => {
         updatedAt: serverTimestamp(),
       }),
     )
+  })
+})
+
+describe('artworks/{artworkId} rules — PUBLISHED is publicly readable (Module 07)', () => {
+  let artworkId: string
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_PUBLISHED)
+      artworkId = ref.id
+    })
+  })
+
+  it('lets a signed-out visitor read a PUBLISHED artwork', async () => {
+    const anonDb = testEnv.unauthenticatedContext().firestore()
+    await assertSucceeds(getDoc(doc(anonDb, 'artworks', artworkId)))
+  })
+
+  it('lets an authenticated non-owner (customer) read a PUBLISHED artwork', async () => {
+    const customerDb = testEnv.authenticatedContext('mallory', { role: 'CUSTOMER' }).firestore()
+    await assertSucceeds(getDoc(doc(customerDb, 'artworks', artworkId)))
+  })
+
+  it('lets another seller (non-owner) read a PUBLISHED artwork', async () => {
+    const bobDb = sellerContext('bob')
+    await assertSucceeds(getDoc(doc(bobDb, 'artworks', artworkId)))
+  })
+
+  it('lets the owning seller read their own PUBLISHED artwork', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(getDoc(doc(aliceDb, 'artworks', artworkId)))
+  })
+
+  it('client cannot directly transition SUBMITTED -> PUBLISHED', async () => {
+    let submittedId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_SUBMITTED)
+      submittedId = ref.id
+    })
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', submittedId), { status: 'PUBLISHED', updatedAt: serverTimestamp() }),
+    )
+  })
+
+  it('client cannot forge reviewedAt/rejectionReason on an ordinary DRAFT edit', async () => {
+    let draftId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_DRAFT)
+      draftId = ref.id
+    })
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', draftId), {
+        title: 'Edited',
+        reviewedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+
+  it('once PUBLISHED, ordinary field edits by the owner are still blocked (locked, same as SUBMITTED)', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { title: 'Edited', updatedAt: serverTimestamp() }))
+  })
+
+  it('once PUBLISHED, the owner cannot delete it', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
+  })
+})
+
+describe('artworks/{artworkId} rules — REJECTED stays private (Module 07)', () => {
+  let artworkId: string
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_REJECTED)
+      artworkId = ref.id
+    })
+  })
+
+  it('a signed-out visitor cannot read a REJECTED artwork', async () => {
+    const anonDb = testEnv.unauthenticatedContext().firestore()
+    await assertFails(getDoc(doc(anonDb, 'artworks', artworkId)))
+  })
+
+  it('a non-owner cannot read a REJECTED artwork', async () => {
+    const bobDb = sellerContext('bob')
+    await assertFails(getDoc(doc(bobDb, 'artworks', artworkId)))
+  })
+
+  it('the owning seller CAN still read their own REJECTED artwork (private, not hidden from its owner)', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(getDoc(doc(aliceDb, 'artworks', artworkId)))
+  })
+
+  it('client cannot directly transition SUBMITTED -> REJECTED', async () => {
+    let submittedId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_SUBMITTED)
+      submittedId = ref.id
+    })
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', submittedId), { status: 'REJECTED', updatedAt: serverTimestamp() }),
+    )
+  })
+
+  it('once REJECTED, the owner cannot edit it back to DRAFT or resubmit it', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { status: 'DRAFT', updatedAt: serverTimestamp() }))
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { status: 'SUBMITTED', updatedAt: serverTimestamp() }))
+  })
+
+  it('once REJECTED, the owner cannot delete it', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
+  })
+})
+
+describe('artworks/{artworkId} rules — DRAFT stays private (Module 07 regression check)', () => {
+  it('a signed-out visitor cannot read a DRAFT artwork', async () => {
+    let artworkId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_DRAFT)
+      artworkId = ref.id
+    })
+    const anonDb = testEnv.unauthenticatedContext().firestore()
+    await assertFails(getDoc(doc(anonDb, 'artworks', artworkId)))
+  })
+})
+
+describe('artworks/{artworkId} rules — SUBMITTED stays private (Module 07 regression check)', () => {
+  it('a signed-out visitor cannot read a SUBMITTED artwork', async () => {
+    let artworkId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_SUBMITTED)
+      artworkId = ref.id
+    })
+    const anonDb = testEnv.unauthenticatedContext().firestore()
+    await assertFails(getDoc(doc(anonDb, 'artworks', artworkId)))
   })
 })
 

@@ -99,7 +99,7 @@ custom claim and mirrors `role: 'SELLER'` onto `users/{uid}`. See
 `docs/SECURITY.md` for the full rationale, including why a formal
 Admin-reviewer UI was deliberately not built yet.
 
-## `artworks/{artworkId}` (implemented in Module 04 — DRAFT/SUBMITTED only)
+## `artworks/{artworkId}` (DRAFT/SUBMITTED from Module 04; PUBLISHED/REJECTED added in Module 07)
 
 ```
 sellerId: string          == the owning seller's auth uid; immutable after create
@@ -110,27 +110,73 @@ category: string            one of a small fixed set (painting | sculpture | pho
 tags: string[]              up to 10 tags, 30 chars each — a small bounded list, not an unbounded relationship
 images: ArtworkImage[]      up to 6 (see below) — real Storage-backed uploads (Module 05)
 inventoryCount: number      integer >= 0
-status: 'DRAFT' | 'SUBMITTED'
+status: 'DRAFT' | 'SUBMITTED' | 'PUBLISHED' | 'REJECTED'
+reviewedAt: Timestamp | null      server timestamp set the moment a trusted reviewer decides; null until then
+rejectionReason: string | null    operator-supplied free text, only ever set alongside REJECTED; null otherwise
 createdAt: Timestamp (server)
 updatedAt: Timestamp (server)
 ```
 
-Only the first two states of the eventual lifecycle
-(`DRAFT → SUBMITTED → PENDING_REVIEW → APPROVED → PUBLISHED → ...`) exist
-yet — every later state needs a reviewer or a Marketplace that doesn't exist
-yet, and Module 04 deliberately doesn't build a status nothing can ever act
-on or leave. A `SELLER` may `create` their own artwork (`sellerId` must
-equal their own uid, `status` forced to `'DRAFT'`, `images` forced empty —
-photos can only be added once the artwork exists, see below). While
-`DRAFT`, the owner may freely edit ordinary fields (including `images`), or
-submit (`DRAFT → SUBMITTED`, touching only `status`/`updatedAt` — no other
-field, including `images`, may change in that same write) or delete. **Once
+Four lifecycle states exist so far:
+
+- **`DRAFT`** — seller-owned work in progress; private (visible only to the
+  owning seller).
+- **`SUBMITTED`** — submitted for trusted review; private (visible only to
+  the owning seller — not to any reviewer via a UI, since none exists yet;
+  the trusted operator script reads it directly via the Admin SDK, which
+  bypasses `firestore.rules` entirely).
+- **`PUBLISHED`** — approved for public visibility; publicly readable by
+  anyone, signed in or not.
+- **`REJECTED`** — review failed; private (visible only to the owning
+  seller, same as `DRAFT`/`SUBMITTED`).
+
+Permitted transitions: `DRAFT → SUBMITTED` (client-initiated, by the owning
+seller); `SUBMITTED → PUBLISHED` and `SUBMITTED → REJECTED` (trusted-operator-
+only, see below — never client-initiated). There is deliberately no
+`PUBLISHED → *` or `REJECTED → *` transition yet (e.g. re-submitting a
+rejected artwork, or unpublishing one) — those belong to whichever future
+module actually needs them. `PENDING_REVIEW` was deliberately not
+introduced as a separate state: `SUBMITTED` already means "awaiting trusted
+review," so a distinct `PENDING_REVIEW` would only duplicate that meaning.
+Every state past `PUBLISHED`/`REJECTED` in the eventual full lifecycle
+(commerce states like `AVAILABLE`/`RESERVED`/`SOLD`, auction states, AI
+processing, admin suspension/cancellation) remains deferred to the modules
+that actually own their transitions — Module 07 deliberately does not
+introduce any of them.
+
+A `SELLER` may `create` their own artwork (`sellerId` must equal their own
+uid, `status` forced to `'DRAFT'`, `images` forced empty — photos can only
+be added once the artwork exists, see below). While `DRAFT`, the owner may
+freely edit an explicit allow-list of ordinary fields (title, description,
+price, category, tags, images, inventoryCount, updatedAt — enforced via a
+`diff(...).affectedKeys().hasOnly([...])` check, so no other field, e.g.
+`reviewedAt`, can be smuggled into an ordinary edit), or submit
+(`DRAFT → SUBMITTED`, touching only `status`/`updatedAt` — no other field,
+including `images`, may change in that same write) or delete. **Once
 `SUBMITTED`, the document is locked from ordinary seller edits entirely** —
 no field, including reverting back to `DRAFT`, can be changed by the
-client; only the owning seller may even `read` it (no public Marketplace
-read path exists yet — see below). `ar: {...}` is deliberately not part of
-this document yet — added by the AR module per `docs/AR_ARCHITECTURE.md`
-once it exists.
+client. The owning seller may always `read` their own artwork regardless of
+status; the public may additionally `read` it once (and only once) its
+`status` is `PUBLISHED` — see "Artwork visibility" under `artists/{artistId}`
+below. `ar: {...}` is deliberately not part of this document yet — added by
+the AR module per `docs/AR_ARCHITECTURE.md` once it exists.
+
+### Trusted publishing/rejection mechanism (Module 07)
+
+`SUBMITTED → PUBLISHED` and `SUBMITTED → REJECTED` are performed exclusively
+by `functions/src/publishArtwork.ts` — a local, Admin-SDK-only operator
+script in the same family as `functions/src/promoteSeller.ts`. It is never
+deployed and never reachable by any client or callable endpoint; it is run
+directly by the project owner (`npm run publish-artwork -- <artworkId>
+publish|reject [reason]`). Before writing anything it re-fetches the
+artwork and throws unless its current `status` is exactly `'SUBMITTED'` —
+it never re-publishes/re-rejects an already-decided artwork and never
+touches a `DRAFT` one. Its update touches only `status`, `reviewedAt`,
+`rejectionReason`, and `updatedAt` (via server timestamps for the first and
+last) — every other field, including `sellerId`, `title`, `price`, and
+`images`, is left completely untouched. This mirrors exactly how seller
+approval already works: no self-service or in-app path exists, and no
+temporary client-side reviewer/admin UI was built to support it.
 
 ### `images` — artwork photos (Module 05)
 
@@ -163,9 +209,12 @@ ever converts to/from a whole-rupee display value, and only whole-rupee
 amounts are accepted from a seller in Module 04 (no paise-level/decimal
 pricing input yet — a documented, deliberate simplification).
 
-No public read path exists for `artworks/{artworkId}` yet — that's the
-Marketplace module's job, once one is actually built to consume it; until
-then, an artwork (`DRAFT` or `SUBMITTED`) is visible only to its own seller.
+A narrow public read path exists for `artworks/{artworkId}` as of Module 07:
+an artwork whose `status` is `PUBLISHED` is readable by anyone. `DRAFT`,
+`SUBMITTED`, and `REJECTED` remain visible only to their own seller. Public
+*browsing/search* across all published artworks (a Marketplace) is not part
+of this — that's a future module's job; the only public read path built so
+far is the per-seller query the public artist page uses (see below).
 
 ## `artists/{artistId}` (implemented in Module 06 — public projection)
 
@@ -222,20 +271,24 @@ allow-list — see `docs/SECURITY.md`), the same self-service pattern
 Module 03 established for `users/{uid}`'s editable fields. `uid` and
 `createdAt` are immutable from the client forever.
 
-### Artwork visibility boundary — deliberately not opened by this module
+### Artwork visibility on the public artist page (Module 07)
 
-Module 06 does **not** add any public read path for `artworks/{artworkId}`.
-`DRAFT` and `SUBMITTED` remain the only two lifecycle states that exist
-(see above), and neither represents a genuinely *public* state — `SUBMITTED`
-means "locked, awaiting a reviewer/Marketplace that doesn't exist yet," not
-"published." Opening artwork reads on the strength of `SUBMITTED` alone
-would have been exactly the kind of silent scope/security expansion this
-module was scoped to avoid. The public artist page therefore always shows
-an honest "no public artworks yet" empty state (see
-`src/features/artist-profile/components/PublicArtistArtworks.tsx`) — no
-Firestore read against `artworks` happens from that page at all. A real
-public artwork lifecycle state (e.g. `PUBLISHED`) and the query/rule that
-serves it are the Marketplace/Publishing module's job.
+The public artist page (`/artists/{artistId}`,
+`src/features/artist-profile/components/PublicArtistArtworks.tsx`) queries
+`artworks` for `sellerId == artistId && status == 'PUBLISHED'`
+(`subscribePublishedArtworks` in
+`src/features/artwork/api/artworkRepository.ts`) and renders the results
+with `PublicArtworkCard`/`PublicArtworkGrid` — components deliberately kept
+separate from the owner-facing `ArtworkListItem`/`ArtworkList` so no
+owner-only control (edit, delete, a status badge) can ever leak onto a
+public page. `DRAFT`, `SUBMITTED`, and `REJECTED` artworks are structurally
+excluded by the query itself, not filtered client-side after the fact, and
+the page still shows the same honest "no public artworks yet" empty state
+from Module 06 when a seller has zero `PUBLISHED` artworks. Two equality
+filters on different fields (`sellerId`, `status`) do not require a
+Firestore composite index. Public *browsing/search* across all sellers'
+published artworks (a Marketplace) remains a future module's job — this
+query is scoped to one seller at a time, matching the page it serves.
 
 ## Guiding rule: no unbounded arrays
 

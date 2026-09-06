@@ -28,6 +28,7 @@ const {
   deleteArtworkDraft,
   mutateArtworkImages,
   subscribeArtwork,
+  subscribePublishedArtworks,
   subscribeSellerArtworks,
   submitArtwork,
   toArtworkError,
@@ -156,6 +157,103 @@ describe('subscribeArtwork', () => {
     })
     subscribeArtwork('a1', onData, vi.fn())
     expect(onData).toHaveBeenCalledWith(null)
+  })
+
+  it('recognizes PUBLISHED and REJECTED as valid statuses (Module 07)', () => {
+    const onData = vi.fn()
+    const reviewedAt = Timestamp.fromMillis(1000)
+    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
+      successCallback({
+        id: 'a1',
+        exists: () => true,
+        data: () => ({
+          sellerId: 'alice',
+          status: 'REJECTED',
+          reviewedAt,
+          rejectionReason: 'blurry photos',
+        }),
+      })
+      return vi.fn()
+    })
+    subscribeArtwork('a1', onData, vi.fn())
+    expect(onData).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'REJECTED', reviewedAt, rejectionReason: 'blurry photos' }),
+    )
+  })
+
+  it('defaults reviewedAt/rejectionReason to null when absent (e.g. a DRAFT/SUBMITTED artwork never reviewed)', () => {
+    const onData = vi.fn()
+    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
+      successCallback({ id: 'a1', exists: () => true, data: () => ({ sellerId: 'alice', status: 'SUBMITTED' }) })
+      return vi.fn()
+    })
+    subscribeArtwork('a1', onData, vi.fn())
+    expect(onData).toHaveBeenCalledWith(expect.objectContaining({ reviewedAt: null, rejectionReason: null }))
+  })
+})
+
+describe('subscribePublishedArtworks', () => {
+  it('queries by sellerId and PUBLISHED status, and maps/sorts the results', () => {
+    const older = Timestamp.fromMillis(1000)
+    const newer = Timestamp.fromMillis(2000)
+    const onData = vi.fn()
+
+    onSnapshot.mockImplementationOnce((_query, successCallback: (snap: unknown) => void) => {
+      successCallback({
+        docs: [
+          {
+            id: 'old',
+            data: () => ({
+              sellerId: 'alice',
+              title: 'Old',
+              description: 'd',
+              price: 100,
+              category: 'painting',
+              tags: [],
+              images: [],
+              inventoryCount: 1,
+              status: 'PUBLISHED',
+              createdAt: older,
+              updatedAt: older,
+            }),
+          },
+          {
+            id: 'new',
+            data: () => ({
+              sellerId: 'alice',
+              title: 'New',
+              description: 'd',
+              price: 200,
+              category: 'painting',
+              tags: [],
+              images: [],
+              inventoryCount: 1,
+              status: 'PUBLISHED',
+              createdAt: newer,
+              updatedAt: newer,
+            }),
+          },
+        ],
+      })
+      return vi.fn()
+    })
+
+    subscribePublishedArtworks('alice', onData, vi.fn())
+
+    expect(where).toHaveBeenCalledWith('sellerId', '==', 'alice')
+    expect(where).toHaveBeenCalledWith('status', '==', 'PUBLISHED')
+    const artworks = onData.mock.calls[0][0]
+    expect(artworks.map((a: { id: string }) => a.id)).toEqual(['new', 'old'])
+  })
+
+  it('filters out documents that fail to map (defensive against malformed data)', () => {
+    const onData = vi.fn()
+    onSnapshot.mockImplementationOnce((_query, successCallback: (snap: unknown) => void) => {
+      successCallback({ docs: [{ id: 'bad', data: () => ({ status: 'NOT_REAL' }) }] })
+      return vi.fn()
+    })
+    subscribePublishedArtworks('alice', onData, vi.fn())
+    expect(onData).toHaveBeenCalledWith([])
   })
 })
 

@@ -1,20 +1,80 @@
 # ArtVault — Security Architecture
 
 **Status: foundation + authentication + customer account + seller/artwork
-foundation + artwork media + public artist profiles.** Module 00 shipped a
-deny-by-default rules skeleton. Module 01 added the first real rule, the
-first Cloud Function, and the real role model described below. Module 03
-hardens that rule into a genuine field-level allow-list for customer
-profile self-service edits. Module 04 adds `sellers/{uid}` and
-`artworks/{artworkId}`, both backend-authoritative about the one thing that
-actually matters (who may become a SELLER, who owns which artwork) exactly
-the way Module 01 already established for `ADMIN`/`SUPER_ADMIN`. Module 05
-opens `storage.rules` for the first time, scoped to exactly the artwork
-photos an already-verified SELLER may touch. Module 06 opens
-`firestore.rules` to an unauthenticated public read for the first time,
-scoped to a deliberately narrow, physically separate public projection
-(`artists/{artistId}`) that structurally cannot expose anything from the
-private `sellers/{uid}` record it's derived from.
+foundation + artwork media + public artist profiles + artwork moderation &
+publishing.** Module 00 shipped a deny-by-default rules skeleton. Module 01
+added the first real rule, the first Cloud Function, and the real role
+model described below. Module 03 hardens that rule into a genuine
+field-level allow-list for customer profile self-service edits. Module 04
+adds `sellers/{uid}` and `artworks/{artworkId}`, both backend-authoritative
+about the one thing that actually matters (who may become a SELLER, who
+owns which artwork) exactly the way Module 01 already established for
+`ADMIN`/`SUPER_ADMIN`. Module 05 opens `storage.rules` for the first time,
+scoped to exactly the artwork photos an already-verified SELLER may touch.
+Module 06 opens `firestore.rules` to an unauthenticated public read for the
+first time, scoped to a deliberately narrow, physically separate public
+projection (`artists/{artistId}`) that structurally cannot expose anything
+from the private `sellers/{uid}` record it's derived from. Module 07 opens
+the first unauthenticated public read path onto `artworks/{artworkId}`
+itself, scoped to exactly one status value, and closes a real pre-existing
+field-forgery gap found while writing this module's own security tests.
+
+## Implemented in Module 07
+
+- **`artworks/{artworkId}` gains its first public read path, additively.**
+  `allow read` now ORs in `resource.data.status == 'PUBLISHED'` ahead of the
+  existing signed-in-owner branch — a one-line rule change made possible by
+  the fact that every existing `allow update`/`allow delete` branch already
+  required `resource.data.status == 'DRAFT'`, so a `SUBMITTED`, `PUBLISHED`,
+  or `REJECTED` artwork was already structurally immutable to any client,
+  for free, before this module touched anything. `DRAFT`, `SUBMITTED`, and
+  `REJECTED` remain exactly as private as before — visible only to
+  `isOwner(resource.data.sellerId)` — and no existing owner/security
+  guarantee from Modules 04-06 was weakened to make this change.
+- **`SUBMITTED → PUBLISHED`/`SUBMITTED → REJECTED` are structurally
+  client-unreachable**, not merely undocumented. No `allow update` branch
+  in `firestore.rules` matches a document whose current `status` is
+  `SUBMITTED` (the only update branches require `status == 'DRAFT'`), so
+  there is no rule path a forged client request could exploit to move an
+  artwork out of `SUBMITTED` — the only writer capable of it is the trusted
+  operator script below, which bypasses `firestore.rules` entirely via the
+  Admin SDK.
+- **`functions/src/publishArtwork.ts`** — a local, Admin-SDK-only, never-
+  deployed, never-client-reachable operator script (same family as
+  `functions/src/promoteSeller.ts`) is the sole path from `SUBMITTED` to
+  `PUBLISHED` or `REJECTED`. It re-fetches the artwork and throws unless its
+  current `status` is exactly `'SUBMITTED'` (rejects invalid transitions,
+  never silently no-ops or overwrites), then writes only
+  `status`/`reviewedAt`/`rejectionReason`/`updatedAt` via server timestamps
+  — `sellerId`, `title`, `price`, `images`, and every other field are left
+  completely untouched. See `docs/DATABASE.md` for the full transition
+  table and CLI usage.
+- **Closed a real pre-existing field-forgery gap in the `DRAFT`-edit
+  branch**, found by this module's own new security tests rather than by
+  inspection. Before this module, an ordinary `DRAFT` edit was validated
+  only by `isValidArtworkFields()` (positive validation of the *named*
+  fields), with no `hasOnly()` restricting the update to *only* those
+  fields — so a client editing a `DRAFT` artwork could smuggle an
+  unrelated, unlisted field (e.g. a forged `reviewedAt`) into the same
+  write. Fixed by adding
+  `request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+  'title', 'description', 'price', 'category', 'tags', 'images',
+  'inventoryCount', 'updatedAt'])` to that branch — the same allow-list
+  discipline `users/{uid}` (Module 03) and the images-update and
+  `DRAFT → SUBMITTED` branches (Modules 04-05) already used. Every
+  pre-existing test for ordinary `DRAFT` edits still passes unchanged,
+  since none of them ever touched a field outside this list.
+- **Verified against the real Firebase Local Emulator Suite** — new tests
+  added to `firestore-tests/artworks.rules.test.ts` (bringing that file to
+  131 passing tests, up from 113): a `PUBLISHED` artwork is readable by a
+  signed-out visitor, an authenticated non-owner, and the owner; a
+  `REJECTED` artwork is unreadable by anyone but its owner; `DRAFT` and
+  `SUBMITTED` regression checks confirm both remain exactly as private as
+  before; a client cannot directly write `status: 'PUBLISHED'` or
+  `status: 'REJECTED'` from any reachable branch; a client cannot forge
+  `reviewedAt`/`rejectionReason` on an ordinary `DRAFT` edit (the gap
+  above, confirmed fixed); and existing seller-ownership and Module 04/05/06
+  tests remain passing unchanged.
 
 ## Implemented in Module 06
 

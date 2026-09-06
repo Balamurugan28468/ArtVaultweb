@@ -35,7 +35,7 @@ export function ArtistProfilePage() {
       {profileState.status === 'loaded' && (
         <>
           <PublicArtistHeader profile={profileState.profile} />
-          <PublicArtistArtworks />
+          <PublicArtistArtworks artistId={profileState.profile.uid} />
         </>
       )}
     </section>

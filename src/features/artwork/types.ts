@@ -1,10 +1,17 @@
 import type { Timestamp } from 'firebase/firestore'
 
-// Module 04 deliberately implements only the first two states of the full
-// artwork lifecycle — PENDING_REVIEW/APPROVED/PUBLISHED/etc. all need a
-// reviewer or marketplace that doesn't exist yet, and a status nothing can
-// ever leave is worse than not having it. See docs/DATABASE.md.
-export const ARTWORK_STATUSES = ['DRAFT', 'SUBMITTED'] as const
+// Module 04 implemented the first two states (DRAFT/SUBMITTED — a seller's
+// own private editing lifecycle). Module 07 adds the two outcomes of
+// trusted review: PUBLISHED (the first genuinely public artwork state) and
+// REJECTED. Deliberately not added yet: PENDING_REVIEW (redundant with
+// what SUBMITTED already means — "locked, awaiting review" — without a
+// genuinely separate transition to justify a second state for the same
+// thing), and every commerce/auction/AI/admin-enforcement state
+// (AVAILABLE/RESERVED/SOLD, IN_AUCTION/AUCTION_SOLD, AI_PROCESSING,
+// SUSPENDED/CANCELLED) — each belongs to a module that doesn't exist yet
+// and could never transition an artwork out of it, which is worse than not
+// having the state at all. See docs/DATABASE.md.
+export const ARTWORK_STATUSES = ['DRAFT', 'SUBMITTED', 'PUBLISHED', 'REJECTED'] as const
 
 export type ArtworkStatus = (typeof ARTWORK_STATUSES)[number]
 
@@ -66,6 +73,11 @@ export interface ArtworkImage {
  * Storage-backed uploads (Module 05) once the artwork exists — it can only
  * ever be non-empty after the artwork's initial DRAFT creation (see
  * firestore.rules), and is locked the instant the artwork is SUBMITTED.
+ * `reviewedAt`/`rejectionReason` are set only by the trusted
+ * `functions/src/publishArtwork.ts` operator script (Module 07) — never by
+ * a client — the moment a SUBMITTED artwork is published or rejected;
+ * `null` until then, and `rejectionReason` stays `null` for a published
+ * artwork too.
  */
 export interface Artwork {
   id: string
@@ -78,6 +90,8 @@ export interface Artwork {
   images: ArtworkImage[]
   inventoryCount: number
   status: ArtworkStatus
+  reviewedAt: Timestamp | null
+  rejectionReason: string | null
   createdAt: Timestamp
   updatedAt: Timestamp
 }

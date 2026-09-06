@@ -10,6 +10,8 @@
     "lint": "oxlint",
     "test": "vitest",
     "test:rules": "vitest run --config vitest.rules.config.ts",
+    "test:storage-rules": "vitest run --config vitest.storage-rules.config.ts",
+    "test:scripts": "vitest run --config vitest.scripts.config.ts",
     "verify:emulator-state": "npm --prefix functions run verify:emulator-state",
     "preview": "vite preview",
     "emulators": "node scripts/start-emulators.mjs"

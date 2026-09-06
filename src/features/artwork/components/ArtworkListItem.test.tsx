@@ -12,6 +12,13 @@ vi.mock('../api/artworkRepository', () => ({
   submitArtwork: vi.fn(),
 }))
 
+// useUpdateArtwork's remove() also best-effort deletes each image's Storage
+// object before deleting the draft (Module 05) — stubbed out here since
+// these fixtures have no images and this file isn't exercising that path.
+vi.mock('../api/artworkImageStorage', () => ({
+  deleteArtworkImageObject: vi.fn().mockResolvedValue(undefined),
+}))
+
 beforeEach(() => {
   deleteArtworkDraft.mockReset()
 })

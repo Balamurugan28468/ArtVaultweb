@@ -106,7 +106,7 @@ description: string        10-2000 chars
 price: number               integer minor currency units (paise — price in ₹ × 100), never a float
 category: string            one of a small fixed set (painting | sculpture | photography | digital | other)
 tags: string[]              up to 10 tags, 30 chars each — a small bounded list, not an unbounded relationship
-images: string[]            always [] in Module 04 — Storage-backed upload is Module 05
+images: ArtworkImage[]      up to 6 (see below) — real Storage-backed uploads (Module 05)
 inventoryCount: number      integer >= 0
 status: 'DRAFT' | 'SUBMITTED'
 createdAt: Timestamp (server)
@@ -118,15 +118,41 @@ Only the first two states of the eventual lifecycle
 yet — every later state needs a reviewer or a Marketplace that doesn't exist
 yet, and Module 04 deliberately doesn't build a status nothing can ever act
 on or leave. A `SELLER` may `create` their own artwork (`sellerId` must
-equal their own uid, `status` forced to `'DRAFT'`, `images` forced empty).
-While `DRAFT`, the owner may freely edit ordinary fields, or submit
-(`DRAFT → SUBMITTED`, touching only `status`/`updatedAt` — no other field
-may change in that same write) or delete. **Once `SUBMITTED`, the document
-is locked from ordinary seller edits entirely** — no field, including
-reverting back to `DRAFT`, can be changed by the client; only the owning
-seller may even `read` it (no public Marketplace read path exists yet — see
-below). `ar: {...}` is deliberately not part of this document yet — added
-by the AR module per `docs/AR_ARCHITECTURE.md` once it exists.
+equal their own uid, `status` forced to `'DRAFT'`, `images` forced empty —
+photos can only be added once the artwork exists, see below). While
+`DRAFT`, the owner may freely edit ordinary fields (including `images`), or
+submit (`DRAFT → SUBMITTED`, touching only `status`/`updatedAt` — no other
+field, including `images`, may change in that same write) or delete. **Once
+`SUBMITTED`, the document is locked from ordinary seller edits entirely** —
+no field, including reverting back to `DRAFT`, can be changed by the
+client; only the owning seller may even `read` it (no public Marketplace
+read path exists yet — see below). `ar: {...}` is deliberately not part of
+this document yet — added by the AR module per `docs/AR_ARCHITECTURE.md`
+once it exists.
+
+### `images` — artwork photos (Module 05)
+
+```
+id: string            filename incl. extension, e.g. "3f9c...-a1b2.jpg"
+path: string           "artworks/{sellerId}/{artworkId}/{id}" — the real Cloud Storage object
+url: string             a download URL resolved once at upload time
+order: number          display position; a sort key only, never assumed unique/contiguous
+contentType: string    one of image/jpeg | image/png | image/webp
+size: number           bytes; ≤ 10 MB
+```
+
+Up to 6 per artwork. `path` is pinned by `firestore.rules` to exactly the
+owner-scoped location a real upload for *this* artwork could ever produce
+(`artworks/{sellerId}/{artworkId}/{id}`, matching the auth uid on the
+document and the path segment of the document itself) — a client can never
+point an artwork at another seller's photo, another artwork's photo, or an
+arbitrary external URL by writing Firestore metadata alone, the same
+"never trust Firestore alone" principle Module 04 applies to authorization.
+The real bytes live only in Cloud Storage; `storage.rules` independently
+re-enforces the owner/role/lifecycle/content-type/size constraints on the
+actual object, since Firestore metadata and the Storage object are written
+through two independent services with no shared transaction between them.
+See `docs/SECURITY.md` for the full rule text and rationale.
 
 `price` is stored as an integer number of minor currency units (paise) so
 it can never accumulate floating-point rounding error; the seller-facing UI

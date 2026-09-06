@@ -1,10 +1,72 @@
 rules_version = '2';
 
-// Deny-by-default foundation. No path is opened for read or write here.
-// Each feature module adds its own explicit, narrowly-scoped rules when
-// that module is implemented (e.g. artwork images scoped to their seller).
+// Module 05 — Artwork Media/Image Upload. Everything not explicitly opened
+// below stays denied by default (see the closing catch-all match) — the
+// same deny-by-default foundation this file started with in Module 00.
 service firebase.storage {
   match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Reads the SELLER custom claim directly from the auth token — never
+    // trusts any Firestore mirror field, matching firestore.rules' hasRole()
+    // and Module 04's invariant that the browser never grants SELLER from
+    // Firestore alone.
+    function hasRole(role) {
+      return isSignedIn() && request.auth.token.role == role;
+    }
+
+    function isSupportedImage() {
+      return request.resource.size > 0 &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
+
+    // Cross-service Firestore lookups so an upload/delete can be scoped to
+    // the artwork's actual, current lifecycle state — a client-supplied
+    // Storage path alone can't prove which seller's artwork it belongs to
+    // or whether that artwork is still editable, since Storage and
+    // Firestore are independent services with no shared authorization
+    // context otherwise.
+    function artworkDoc(artworkId) {
+      return firestore.get(/databases/(default)/documents/artworks/$(artworkId));
+    }
+
+    function artworkExistsAndIsEditableBy(artworkId, ownerUid) {
+      return firestore.exists(/databases/(default)/documents/artworks/$(artworkId)) &&
+        artworkDoc(artworkId).data.sellerId == ownerUid &&
+        artworkDoc(artworkId).data.status == 'DRAFT';
+    }
+
+    // Owner-scoped artwork photos: artworks/{ownerUid}/{artworkId}/{imageId}.
+    // No public Marketplace read path exists yet (matching
+    // firestore.rules' artworks/{artworkId} read rule), so reads stay
+    // owner-only rather than opening media before there's any legitimate
+    // way to browse it. A seller may only write/delete while (a) they are
+    // signed in as the path's own owner, (b) they hold the SELLER claim,
+    // and (c) the artwork this image belongs to still exists, is still
+    // theirs, and is still DRAFT — matching the same "locked once
+    // SUBMITTED" lifecycle firestore.rules enforces for the artwork
+    // document itself, so media can never be added, replaced, or removed
+    // after submission any more than the artwork's own fields can.
+    match /artworks/{ownerUid}/{artworkId}/{imageId} {
+      allow read: if isOwner(ownerUid);
+
+      allow write: if isOwner(ownerUid) &&
+        hasRole('SELLER') &&
+        isSupportedImage() &&
+        artworkExistsAndIsEditableBy(artworkId, ownerUid);
+
+      allow delete: if isOwner(ownerUid) &&
+        hasRole('SELLER') &&
+        artworkExistsAndIsEditableBy(artworkId, ownerUid);
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

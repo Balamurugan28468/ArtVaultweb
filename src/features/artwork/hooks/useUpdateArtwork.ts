@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
+import { deleteArtworkImageObject } from '../api/artworkImageStorage'
 import { deleteArtworkDraft, submitArtwork, updateArtworkDraft } from '../api/artworkRepository'
-import { isArtworkError, type ArtworkDraftInput, type ArtworkError } from '../types'
+import { isArtworkError, type ArtworkDraftInput, type ArtworkError, type ArtworkImage } from '../types'
 
 export type UpdateStatus = 'idle' | 'saving' | 'success' | 'error'
 
@@ -24,7 +25,19 @@ export function useUpdateArtwork() {
 
   const update = useCallback((id: string, input: ArtworkDraftInput) => runMutation(() => updateArtworkDraft(id, input)), [runMutation])
   const submit = useCallback((id: string) => runMutation(() => submitArtwork(id)), [runMutation])
-  const remove = useCallback((id: string) => runMutation(() => deleteArtworkDraft(id)), [runMutation])
+  // Deletes the draft's own photos first — while the artwork doc still
+  // exists and is still DRAFT, the only state storage.rules ever allows a
+  // delete in — then the Firestore document itself. Best-effort per image:
+  // an already-missing Storage object (e.g. a save that failed partway)
+  // must never block discarding the draft it belongs to.
+  const remove = useCallback(
+    (id: string, images: readonly ArtworkImage[] = []) =>
+      runMutation(async () => {
+        await Promise.all(images.map((image) => deleteArtworkImageObject(image.path).catch(() => {})))
+        await deleteArtworkDraft(id)
+      }),
+    [runMutation],
+  )
 
   return { update, submit, remove, status, error }
 }

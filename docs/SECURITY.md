@@ -1,14 +1,60 @@
 # ArtVault — Security Architecture
 
 **Status: foundation + authentication + customer account + seller/artwork
-foundation.** Module 00 shipped a deny-by-default rules skeleton. Module 01
-added the first real rule, the first Cloud Function, and the real role
-model described below. Module 03 hardens that rule into a genuine
-field-level allow-list for customer profile self-service edits. Module 04
-adds `sellers/{uid}` and `artworks/{artworkId}`, both backend-authoritative
-about the one thing that actually matters (who may become a SELLER, who
-owns which artwork) exactly the way Module 01 already established for
-`ADMIN`/`SUPER_ADMIN`.
+foundation + artwork media.** Module 00 shipped a deny-by-default rules
+skeleton. Module 01 added the first real rule, the first Cloud Function,
+and the real role model described below. Module 03 hardens that rule into a
+genuine field-level allow-list for customer profile self-service edits.
+Module 04 adds `sellers/{uid}` and `artworks/{artworkId}`, both
+backend-authoritative about the one thing that actually matters (who may
+become a SELLER, who owns which artwork) exactly the way Module 01 already
+established for `ADMIN`/`SUPER_ADMIN`. Module 05 opens `storage.rules` for
+the first time, scoped to exactly the artwork photos an already-verified
+SELLER may touch.
+
+## Implemented in Module 05
+
+- **`storage.rules` is opened for the first time**, scoped to
+  `artworks/{ownerUid}/{artworkId}/{imageId}` only — every other path stays
+  denied by the same closing catch-all the file started with in Module 00.
+  A write/delete requires, all at once: the caller is signed in as
+  `ownerUid` itself, holds the `SELLER` custom claim (read from the auth
+  token, never a Firestore mirror — the same invariant Module 04
+  establishes for Firestore rules), the file is a supported image
+  (`image/jpeg`, `image/png`, or `image/webp`, ≤ 10 MB), and — via a
+  cross-service `firestore.get()`/`firestore.exists()` lookup, since
+  Storage and Firestore are independent services with no shared
+  authorization context otherwise — the artwork this image belongs to
+  actually exists, actually belongs to that same uid, and is still `DRAFT`.
+  Reads stay owner-only, matching `artworks/{artworkId}`'s own read rule
+  (no public Marketplace path exists yet for either).
+- **`artworks/{artworkId}.images` accepts validated entries only while
+  `DRAFT`.** `firestore.rules` pins each entry's `path` to exactly
+  `artworks/{sellerId}/{artworkId}/{id}` — the one location a real upload
+  for *this* artwork could ever produce — so Firestore metadata alone can
+  never point at another seller's photo, another artwork's photo, or an
+  arbitrary external URL; `contentType`/`size` are re-validated
+  independently of `storage.rules`, since a client could otherwise write
+  fabricated metadata without ever uploading anything through Storage at
+  all. Firestore's rules language has no general element-wise loop over a
+  list, so the ≤ 6 maximum is enforced via a small, fixed number of
+  individually-checked indices (safe because `||` short-circuits before an
+  out-of-bounds access). Changing `images` in the same write as submitting
+  (`DRAFT → SUBMITTED`) is rejected, same as any other field — media is
+  locked the instant an artwork is submitted, exactly like its other
+  fields.
+- **Verified against the real Firebase Local Emulator Suite** — both
+  services, since the cross-service lookup above only proves itself against
+  a real running pair. See `storage-tests/artworkImages.rules.test.ts` (16
+  tests: upload/read/delete × owner/other-seller/customer/unauthenticated/
+  wrong-lifecycle/unsupported-type/oversized) and the new image-update
+  cases added to `firestore-tests/artworks.rules.test.ts` (bringing that
+  file's + `sellers.rules.test.ts`'s + `users.rules.test.ts`'s combined
+  total to 92). Run via `npm run test:storage-rules` and `npm run
+  test:rules` respectively, against a disposable Firestore+Storage emulator
+  pair — real owner data is protected via the same export/move-aside/
+  restore pattern Module 04 established, since these tests wipe whatever
+  project they run against.
 
 ## Implemented in Module 04
 
@@ -67,12 +113,11 @@ owns which artwork) exactly the way Module 01 already established for
   doesn't exist) and still requires being signed in at all, not fully
   public. Reading an *existing* artwork still requires true ownership,
   unchanged.
-- **`images` cannot be set by any client write, in create or update.**
-  `create` requires `images.size() == 0`; every `update` branch requires
-  `request.resource.data.images == resource.data.images` (unchanged). This
-  isn't a UI restriction — it's enforced server-side, because real
-  Storage-backed image upload (with its own rules and validation) is
-  Module 05's job, not this one's.
+- **`images` cannot be set to anything on `create`.** `create` requires
+  `images.size() == 0` — a photo can only ever be added once the artwork
+  document (and its id) already exists, since a real upload's Storage path
+  is scoped to that id. Validated updates while `DRAFT` are Module 05's
+  job — see below.
 - **`price` is a schema-validated integer, never a float.** The rule
   requires `data.price is int && data.price >= 100` (≥ ₹1 in paise) —
   a request carrying a decimal/float price is rejected at the rule level,
@@ -176,10 +221,6 @@ owns which artwork) exactly the way Module 01 already established for
   `ADMIN`/`SUPER_ADMIN` already work. A real in-app review flow (approve/
   reject buttons, reviewer notes, an audit trail) belongs to the future
   Admin Control Center module.
-- **Real Firebase Storage image upload for artworks.** `images` is a
-  schema field on `artworks/{artworkId}` today but is rule-enforced to stay
-  empty on every client write — `storage.rules` remains fully closed. This
-  is Module 05's job.
 - Sellers are not restricted from buying — role gating only restricts
   seller-studio and admin surfaces; cart/checkout rules are open to any
   authenticated user regardless of role.

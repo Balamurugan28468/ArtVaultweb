@@ -9,11 +9,27 @@ const createArtworkDraft = vi.fn()
 const updateArtworkDraft = vi.fn()
 const submitArtwork = vi.fn()
 const deleteArtworkDraft = vi.fn()
+const mutateArtworkImages = vi.fn()
 vi.mock('../api/artworkRepository', () => ({
   createArtworkDraft: (...args: unknown[]) => createArtworkDraft(...args),
   updateArtworkDraft: (...args: unknown[]) => updateArtworkDraft(...args),
   submitArtwork: (...args: unknown[]) => submitArtwork(...args),
   deleteArtworkDraft: (...args: unknown[]) => deleteArtworkDraft(...args),
+  mutateArtworkImages: (...args: unknown[]) => mutateArtworkImages(...args),
+}))
+
+// ArtworkImageManager (rendered whenever an existing artwork is passed in)
+// pulls in the real Storage SDK via artworkImageStorage.ts — stubbed out
+// here since this file is only exercising ArtworkForm's own form/lifecycle
+// behavior, not Module 05's upload flow (covered by
+// ArtworkImageManager.test.tsx and useArtworkImages.test.tsx).
+vi.mock('../api/artworkImageStorage', () => ({
+  artworkImagePath: vi.fn(),
+  deleteArtworkImageObject: vi.fn().mockResolvedValue(undefined),
+  getArtworkImageDownloadURL: vi.fn(),
+  newArtworkImageId: vi.fn(),
+  startArtworkImageUpload: vi.fn(),
+  validateImageFile: vi.fn(() => null),
 }))
 
 const useAuth = vi.fn()
@@ -24,6 +40,7 @@ beforeEach(() => {
   updateArtworkDraft.mockReset()
   submitArtwork.mockReset()
   deleteArtworkDraft.mockReset()
+  mutateArtworkImages.mockReset().mockResolvedValue([])
   useAuth.mockReturnValue({ user: { uid: 'alice' } })
 })
 
@@ -65,8 +82,8 @@ function buildArtwork(overrides: Partial<Artwork> = {}): Artwork {
 describe('ArtworkForm — create mode', () => {
   it('shows a disabled, honest photo-upload placeholder — no functional-looking button that does nothing', () => {
     renderForm()
-    expect(screen.getByText(/artwork photos will be available in the next module/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /upload/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/save this draft to add photos/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /add photos/i })).not.toBeInTheDocument()
   })
 
   it('shows validation errors instead of submitting when required fields are empty', async () => {

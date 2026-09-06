@@ -13,7 +13,7 @@ export function ArtworkListItem({ artwork }: { artwork: Artwork }) {
 
   const handleConfirmDelete = async () => {
     try {
-      await remove(artwork.id)
+      await remove(artwork.id, artwork.images)
       setConfirmDeleteOpen(false)
       toast.success('Draft deleted.')
     } catch (error) {

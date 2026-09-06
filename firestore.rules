@@ -150,6 +150,52 @@ service cloud.firestore {
       return ['painting', 'sculpture', 'photography', 'digital', 'other'];
     }
 
+    // Module 05 — Artwork Media/Image Upload. `images` entries are metadata
+    // mirrors of real Cloud Storage objects (see storage.rules) — never raw
+    // bytes. `path` is pinned to exactly the owner-scoped Storage location a
+    // valid upload for THIS artwork could ever land at
+    // (`artworks/{sellerId}/{artworkId}/{id}`), so a client can never point
+    // an artwork at another seller's or another artwork's photo, or at an
+    // arbitrary external URL, by writing Firestore metadata alone — the
+    // exact same "never trust Firestore alone" principle Module 04 applies
+    // to authorization also applies here to media identity. `contentType`
+    // and `size` mirror what storage.rules independently enforces on the
+    // real object; validating them again here is defense in depth against a
+    // client that writes fabricated metadata without ever uploading
+    // anything through Storage at all — a gap storage.rules alone can't
+    // close, since the two services are independent.
+    function isValidArtworkImage(image, sellerId, artworkId) {
+      return
+        image.keys().hasOnly(['id', 'path', 'url', 'order', 'contentType', 'size']) &&
+        image.id is string && image.id.size() > 0 && image.id.size() <= 200 &&
+        image.path == 'artworks/' + sellerId + '/' + artworkId + '/' + image.id &&
+        image.url is string && image.url.size() > 0 &&
+        image.contentType in ['image/jpeg', 'image/png', 'image/webp'] &&
+        image.size is int && image.size > 0 && image.size <= 10485760 &&
+        image.order is int && image.order >= 0;
+    }
+
+    // Firestore rules have no general element-wise loop over a list, so a
+    // small, fixed max image count (matching ARTWORK_MAX_IMAGES in
+    // types.ts) is unrolled into individually-checked indices — safe
+    // because `||` short-circuits before an out-of-bounds `images[i]` (which
+    // would otherwise abort evaluation) is ever evaluated.
+    function isValidImageAt(images, i, sellerId, artworkId) {
+      return i >= images.size() || isValidArtworkImage(images[i], sellerId, artworkId);
+    }
+
+    function isValidArtworkImages(images, sellerId, artworkId) {
+      return
+        images is list &&
+        images.size() <= 6 &&
+        isValidImageAt(images, 0, sellerId, artworkId) &&
+        isValidImageAt(images, 1, sellerId, artworkId) &&
+        isValidImageAt(images, 2, sellerId, artworkId) &&
+        isValidImageAt(images, 3, sellerId, artworkId) &&
+        isValidImageAt(images, 4, sellerId, artworkId) &&
+        isValidImageAt(images, 5, sellerId, artworkId);
+    }
+
     // Shared by create and the "still editing while DRAFT" update branch —
     // every field-level constraint a valid artwork document must satisfy,
     // independent of its status transition.
@@ -208,14 +254,15 @@ service cloud.firestore {
       allow update: if
         isOwner(resource.data.sellerId) &&
         request.resource.data.sellerId == resource.data.sellerId &&
-        request.resource.data.images == resource.data.images &&
         request.resource.data.updatedAt == request.time &&
         (
           (resource.data.status == 'DRAFT' &&
            request.resource.data.status == 'DRAFT' &&
-           isValidArtworkFields(request.resource.data)) ||
+           isValidArtworkFields(request.resource.data) &&
+           isValidArtworkImages(request.resource.data.images, resource.data.sellerId, artworkId)) ||
           (resource.data.status == 'DRAFT' &&
            request.resource.data.status == 'SUBMITTED' &&
+           request.resource.data.images == resource.data.images &&
            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']))
         );
 

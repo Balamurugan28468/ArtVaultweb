@@ -1,6 +1,13 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-05 — Module 04 Final Hardening & Firebase Emulator
+_Last updated: 2026-09-06 — Module 05 (Artwork Media/Image Upload) —
+Storage-backed photo upload for Seller Studio DRAFT artworks, plus the
+Firebase emulator launcher lifecycle hardening it surfaced (stale-lock
+identity verification, tree-aware orphan-process cleanup covering dynamic
+Functions-worker ports) — **implementation, tests, and the owner's own
+real upload/restart verification all complete, verified, and committed**;
+see "Module 05 — Artwork Media/Image Upload & Emulator Lifecycle Hardening"
+below for the full write-up. Module 04 Final Hardening & Firebase Emulator
 Persistence / Seller-Authorization Reconciliation: implementation, tests,
 and the **owner's own real Windows Ctrl+C manual restart verification** all
 **complete, verified, and committed** (`877f3ba`, full hash
@@ -25,15 +32,17 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 04 — Seller Foundation & Artwork Draft Management: implementation
-complete, verified, owner manually accepted end to end, and committed**
-(`d483994`, `1f8ca5a`, `1f0deb7`). A follow-up hardening pass — Firebase
-emulator persistence (single-instance protection, safe snapshot/export
-architecture) and seller-authorization reconciliation — is **complete,
-verified, and committed** (`877f3ba`, see "Module 04 — Emulator Persistence
-& Seller-Authorization Reconciliation" below). Module 05 (artwork image
-upload) has not been started. See below for the full writeup, and
-"Completed modules" for the checkpoint entry.
+**Module 05 — Artwork Media/Image Upload: implementation complete,
+verified, owner manually accepted end to end, and committed** — Storage-
+backed photo upload (add/preview/reorder/remove, progress/retry/cancel) for
+Seller Studio DRAFT artworks, plus the emulator launcher lifecycle
+hardening (stale-lock identity verification, tree-aware orphan-process
+cleanup) it surfaced. See "Module 05 — Artwork Media/Image Upload &
+Emulator Lifecycle Hardening" below for the full writeup. Module 04
+(Seller Foundation & Artwork Draft Management: `d483994`, `1f8ca5a`,
+`1f0deb7`; Emulator Persistence & Seller-Authorization Reconciliation:
+`877f3ba`) remains complete, verified, and committed. Module 06 has not
+been started. See "Completed modules" for the checkpoint entry.
 
 ## Authentication methods — current scope
 
@@ -53,6 +62,155 @@ happened; the working tree was verified byte-identical to the prior
 approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
+
+## Module 05 — Artwork Media/Image Upload & Emulator Lifecycle Hardening (COMPLETE / VERIFIED / COMMITTED)
+
+**Status:** implementation, automated tests, and real-emulator verification
+all complete. The owner personally uploaded real photos to their real DRAFT
+artwork in a real browser, confirmed they persisted across a full emulator
+restart, and separately confirmed the emulator-launcher lifecycle fix
+(below) with their own retest. Review result: **PASS — owner manually
+accepted**.
+
+### Feature: artwork photo upload
+
+Sellers can add up to 6 photos (JPEG/PNG/WebP, ≤10 MB each) to a DRAFT
+artwork in Seller Studio: multi-select add, live upload progress, preview
+thumbnails, reorder (move earlier/later), remove before or after upload
+completes, retry a failed upload, and duplicate-in-flight-file protection.
+Photos are locked (read-only, same component renders both states) the
+instant an artwork is SUBMITTED, exactly like its other fields.
+
+- **Data model:** `artworks/{artworkId}.images` changed from an always-
+  empty placeholder (`string[]`) to real entries:
+  `{ id, path, url, order, contentType, size }`. `path` is pinned to
+  `artworks/{sellerId}/{artworkId}/{id}` — the one Cloud Storage location a
+  real upload for *this* artwork could ever produce.
+- **Security — `storage.rules`, opened for the first time** (previously
+  fully closed): a write/delete requires the caller signed in as the
+  path's own owner uid, holding the `SELLER` custom claim (from the auth
+  token, never a Firestore mirror — the Module 04 invariant), a supported
+  content-type/size, and — via a cross-service `firestore.get()` lookup,
+  since Storage and Firestore share no authorization context otherwise —
+  that the artwork this image belongs to actually exists, belongs to that
+  same uid, and is still DRAFT. Reads stay owner-only (no public
+  Marketplace path exists yet, matching `artworks/{artworkId}`'s own read
+  rule).
+- **Security — `firestore.rules`:** `images` entries are validated while
+  DRAFT (path/content-type/size/count, ≤6, re-checked independently of
+  Storage — a client could otherwise write fabricated metadata without
+  ever uploading anything real); `create` still forces `images.size() == 0`
+  (a photo can only be added once the artwork, and its id, already exist);
+  changing `images` in the same write as submitting is rejected like any
+  other field.
+- **Firestore writes** for every images-array change (add/remove/reorder)
+  go through one transaction helper (`mutateArtworkImages`) rather than a
+  plain `updateDoc`, so two uploads finishing back-to-back apply cleanly
+  instead of racing each other from a stale read.
+- **Cleanup:** discarding a DRAFT now also best-effort deletes its Storage
+  images before deleting the Firestore document (previously would have
+  orphaned them).
+- **Real owner verification:** uploaded 2 real photos (840 KB, 1.16 MB) to
+  the real "3d" DRAFT artwork through the real browser UI — upload started
+  immediately (first progress event at +93ms in the equivalent automated
+  check), thumbnails appeared, no console errors. Firestore metadata and
+  the real Storage objects were independently confirmed via the Admin SDK,
+  both before and after a full emulator restart, byte-size-identical
+  throughout.
+
+### Fix: emulator launcher stale-lock and orphan-process handling
+
+Rolling out Module 05 surfaced a real gap in Module 04's single-instance
+launcher guard (`scripts/start-emulators.mjs`), reproduced directly on this
+machine before being fixed:
+
+- **Stale-lock detection was PID-reuse-vulnerable.** The original check
+  only asked "is *some* process alive at this PID?" — Windows recycles PIDs
+  quickly, so a launcher that was force-killed rather than shut down
+  cleanly could leave a lock file naming a PID since reassigned to an
+  unrelated process, wrongly treated as "still running." Fixed:
+  `isLauncherProcess()` also verifies (via the PID's own command line) that
+  it actually names `start-emulators.mjs`.
+- **A stale-lock reclaim never checked for orphaned emulator children still
+  bound to the required ports.** Starting a second suite on top of them
+  produced exactly the originally-reported symptom: a lone orphaned
+  Firestore process answering on 8080 while Auth/Storage sat dead. Fixed:
+  before starting, the launcher now identifies (never guesses) any of its
+  own orphaned processes and stops them first.
+- **Ownership detection was port-anchored only, missing the Functions
+  Emulator's own worker** (and the firebase-tools hub process itself, and
+  the Storage rules-runtime helper) **entirely**, since a Functions worker
+  binds to a different, unpredictable port every run and the hub/helper
+  processes carry no absolute, project-specific argument of their own at
+  all. Fixed with a tree-aware ownership computation
+  (`scripts/lib/emulatorGuards.mjs`'s `computeOwnedEmulatorPids`): a
+  process is *seeded* as owned only by direct content proof (an absolute
+  path naming this exact project, plus a real emulator marker, both in its
+  own command line — e.g. Firestore's `--seed_from_export <abs path>`, or a
+  Functions worker's `...firebase-functions.js "<abs functions dir>"`),
+  then the climb walks upward *only* through bare `cmd.exe`/`node.exe`
+  wrapper hops (the exact, and only, shapes this launcher's own spawn chain
+  can ever produce), capped at 8 hops, and finally sweeps back down to
+  catch content-less siblings. A process that only partially matches (or
+  that a required port's occupant can't be proven to be ours) is never
+  touched — startup fails loudly instead of guessing.
+- **Startup readiness now independently verifies** Auth/Firestore/Storage
+  are actually `LISTENING` (a real TCP probe) before ever printing a
+  "ready" line — not just trusting firebase-tools' own text output.
+- **Graceful shutdown** also sweeps for and stops any straggler matching
+  the same ownership computation, in case the console Ctrl+C broadcast
+  doesn't reach every descendant.
+- **Real verification:** reproduced the exact broken state twice (once via
+  a genuine leftover orphan discovered mid-session, once by deliberately
+  force-killing only the top wrapper process to leave the rest of the tree
+  alive) and confirmed the fixed launcher correctly identified and stopped
+  every orphan — including the firebase-tools hub and the Storage
+  rules-runtime helper, neither directly provable on their own — with zero
+  unidentified processes and zero manual intervention, both times. Owner
+  data (SELLER/APPROVED status, artwork, both uploaded images) was
+  confirmed byte-identical via the Admin SDK before and after each cycle.
+
+### Tests
+
+- **Frontend:** 361/361 passing (up from 320) — new hook
+  (`useArtworkImages`), Storage-helper, and component tests for the upload
+  flow.
+- **Firestore rules:** 92/92 (82 pre-existing + 10 new image-validation
+  cases).
+- **Storage rules:** 16/16 (new `storage-tests/artworkImages.rules.test.ts`
+  — upload/read/delete × owner/other-seller/customer/unauthenticated/
+  wrong-lifecycle/unsupported-type/oversized), run via
+  `npm run test:storage-rules` against a disposable Firestore+Storage
+  emulator pair, real owner data protected via the same export/move-aside/
+  restore pattern Module 04 established.
+- **Emulator launcher guards:** 47/47 new tests
+  (`scripts/lib/emulatorGuards.test.mjs`, run via `npm run test:scripts`) —
+  dead/live/recycled-PID stale-lock cases, the ancestor climb (including
+  its non-wrapper stop and 8-hop cap) and sibling sweep, ambiguous-evidence
+  fail-safes, missing process metadata, and the combined
+  dead-lock-plus-port-orphan-plus-dynamic-port-orphan real-world scenario.
+- **Build/typecheck/lint:** all clean (pre-existing advisory warnings
+  only).
+
+### Known limitations
+
+- No drag-and-drop reordering — Move earlier/later buttons only.
+- No server-side sweep for a Storage upload that completes but whose
+  Firestore save fails permanently (e.g. the artwork was submitted from
+  another tab mid-upload); the client's own best-effort cleanup correctly
+  can't delete it either once the artwork is no longer DRAFT — a rare,
+  self-correcting edge case, not a security gap.
+- The shutdown-side orphan sweep's *trigger* (a real SIGINT reaching the
+  launcher) couldn't be forced live from this session's own tooling, for
+  the same reason already documented in Module 04: no reliable way to
+  deliver a literal Ctrl+C to a detached background process from here.
+  Verified via unit tests and code review instead; the pre-startup cleanup
+  path — the one that actually recovers an already-broken state — was
+  proven live, repeatedly, against real orphaned process trees.
+- The ancestor-climb identity check is Windows-only and name-allowlisted to
+  `cmd.exe`/`node.exe`; on a platform where this project's spawn chain ever
+  produced a different intermediate process shape, that hop stops the
+  climb early rather than risk over-reaching.
 
 ## Module 04 — Seller Foundation & Artwork Draft Management (COMPLETE, owner manually accepted, committed)
 
@@ -1648,6 +1806,23 @@ untouched.
   Seller Studio access, DRAFT artwork persistence, and emulator
   import/export all held). Review result: **PASS — owner restart-verified**.
   Checkpoint commit: `877f3ba`.
+- **Module 05 — Artwork Media/Image Upload & Emulator Lifecycle Hardening:**
+  Storage-backed artwork photo upload for Seller Studio DRAFT artworks
+  (add/preview/reorder/remove, progress/retry/cancel), owner-scoped
+  `storage.rules` opened for the first time, Firestore `images` metadata
+  validation, and submitted-artwork media lock — plus the emulator launcher
+  fixes it surfaced: identity-verified stale-lock recovery (closing a
+  PID-reuse gap), tree-aware orphan-process cleanup extended to cover the
+  Functions Emulator's own dynamic-port worker (previously invisible to a
+  port-only check), and an independent port-readiness gate before startup
+  is ever reported ready. Verified against the real owner account: real
+  photos uploaded through the real browser, persisted through a full
+  restart with byte-identical Storage objects and Firestore metadata;
+  SELLER/APPROVED authorization held throughout; the fixed launcher
+  correctly recovered from two independently-reproduced real broken states
+  with zero unidentified processes and zero manual intervention. Review
+  result: **PASS — owner manually accepted**. Checkpoint commit: this
+  closeout's own commit (see `git log`).
 
 ## Pending modules (not started, order not yet committed)
 
@@ -1657,11 +1832,11 @@ Checkout/Payments, Orders, Reviews, Notifications, AI (analysis / assistant
 (including seller-application review UI), Audit Logs, Analytics, hardened
 Security Rules, Production Deployment. (Customer Account & Profile
 Foundation is Module 03, complete and committed; Seller Foundation &
-Artwork Draft Management is Module 04, complete and committed — see above.
-Artwork image upload via Firebase Storage — Module 05 — and a dedicated
-Inventory feature beyond the single `inventoryCount` field remain deferred,
-not started. Avatar *upload* specifically also remains deferred to a
-future module.)
+Artwork Draft Management is Module 04, complete and committed; Artwork
+Media/Image Upload is Module 05, complete and committed — see above. A
+dedicated Inventory feature beyond the single `inventoryCount` field
+remains deferred, not started. Avatar *upload* specifically also remains
+deferred to a future module.)
 
 ## Architecture decisions made so far
 

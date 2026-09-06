@@ -3,6 +3,7 @@ import { ImageOff } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router'
+import { ArtworkImageManager } from './ArtworkImageManager'
 import { ConfirmDeleteDraftModal } from './ConfirmDeleteDraftModal'
 import { useCreateArtwork } from '../hooks/useCreateArtwork'
 import { useUpdateArtwork } from '../hooks/useUpdateArtwork'
@@ -93,7 +94,7 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
     if (!artwork) return
     setActionError(null)
     try {
-      await remove(artwork.id)
+      await remove(artwork.id, artwork.images)
       setConfirmDeleteOpen(false)
       navigate('/seller-studio/artworks')
     } catch (error) {
@@ -136,6 +137,7 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
             <dd className="text-sm text-text-primary">{artwork.inventoryCount}</dd>
           </div>
         </dl>
+        <ArtworkImageManager artwork={artwork} />
       </div>
     )
   }
@@ -260,13 +262,17 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
         )}
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-text-secondary">Photos</span>
-        <div className="flex items-center gap-2 rounded-md border border-dashed border-border-strong px-3 py-3 text-sm text-text-muted">
-          <ImageOff aria-hidden="true" className="h-4 w-4 shrink-0" />
-          Artwork photos will be available in the next module.
+      {artwork ? (
+        <ArtworkImageManager artwork={artwork} />
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-text-secondary">Photos</span>
+          <div className="flex items-center gap-2 rounded-md border border-dashed border-border-strong px-3 py-3 text-sm text-text-muted">
+            <ImageOff aria-hidden="true" className="h-4 w-4 shrink-0" />
+            Save this draft to add photos.
+          </div>
         </div>
-      </div>
+      )}
 
       {actionError && (
         <p role="alert" className="text-sm text-danger">

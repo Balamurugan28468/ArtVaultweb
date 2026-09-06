@@ -95,7 +95,7 @@ describe('artworks/{artworkId} rules — create', () => {
     await assertFails(addDoc(collection(aliceDb, 'artworks'), validArtwork({ sellerId: 'bob' })))
   })
 
-  it('blocks creating with a non-empty images array (Storage upload is deferred to Module 05)', async () => {
+  it('blocks creating with a non-empty images array (photos can only be added after the DRAFT exists — see Module 05 update tests below)', async () => {
     const aliceDb = sellerContext('alice')
     await assertFails(addDoc(collection(aliceDb, 'artworks'), validArtwork({ images: ['https://evil.example/x.png'] })))
   })
@@ -219,7 +219,7 @@ describe('artworks/{artworkId} rules — update while DRAFT', () => {
     await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { sellerId: 'bob', updatedAt: serverTimestamp() }))
   })
 
-  it('blocks setting images directly (Storage upload deferred to Module 05)', async () => {
+  it('blocks setting images to a malformed (non-object-list) value', async () => {
     const aliceDb = sellerContext('alice')
     await assertFails(
       updateDoc(doc(aliceDb, 'artworks', artworkId), {
@@ -251,6 +251,113 @@ describe('artworks/{artworkId} rules — update while DRAFT', () => {
   })
 })
 
+describe('artworks/{artworkId} rules — image updates while DRAFT (Module 05)', () => {
+  let artworkId: string
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_DRAFT)
+      artworkId = ref.id
+    })
+  })
+
+  function validImage(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'img1.jpg',
+      path: `artworks/alice/${artworkId}/img1.jpg`,
+      url: 'http://127.0.0.1:9199/v0/b/demo-artvault.appspot.com/o/img1.jpg?alt=media',
+      order: 0,
+      contentType: 'image/jpeg',
+      size: 1024,
+      ...overrides,
+    }
+  }
+
+  it('allows the owner to add a valid image', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), { images: [validImage()], updatedAt: serverTimestamp() }),
+    )
+  })
+
+  it("blocks an image path pointing at a different seller's folder", async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), {
+        images: [validImage({ path: `artworks/bob/${artworkId}/img1.jpg` })],
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+
+  it('blocks an image path pointing at a different artwork', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), {
+        images: [validImage({ path: 'artworks/alice/some-other-artwork/img1.jpg' })],
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+
+  it('blocks an unsupported content type', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), {
+        images: [validImage({ contentType: 'image/gif' })],
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+
+  it('blocks an oversized image', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), {
+        images: [validImage({ size: 99_000_000 })],
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+
+  it('blocks an image object with an unrecognized extra field', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), {
+        images: [validImage({ downloadToken: 'sneaky' })],
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+
+  it('blocks more than the maximum of 6 images', async () => {
+    const aliceDb = sellerContext('alice')
+    const images = Array.from({ length: 7 }, (_, i) => validImage({ id: `img${i}.jpg`, path: `artworks/alice/${artworkId}/img${i}.jpg`, order: i }))
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { images, updatedAt: serverTimestamp() }))
+  })
+
+  it("blocks another seller from adding images to this seller's artwork", async () => {
+    const bobDb = sellerContext('bob')
+    await assertFails(
+      updateDoc(doc(bobDb, 'artworks', artworkId), {
+        images: [validImage({ path: `artworks/bob/${artworkId}/img1.jpg` })],
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+
+  it('blocks changing images in the same write as submitting for review', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), {
+        status: 'SUBMITTED',
+        images: [validImage()],
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+})
+
 describe('artworks/{artworkId} rules — SUBMITTED is locked', () => {
   let artworkId: string
 
@@ -274,6 +381,25 @@ describe('artworks/{artworkId} rules — SUBMITTED is locked', () => {
   it('blocks deleting a SUBMITTED artwork', async () => {
     const aliceDb = sellerContext('alice')
     await assertFails(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
+  })
+
+  it('blocks adding images once SUBMITTED, even a validly-shaped one', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), {
+        images: [
+          {
+            id: 'img1.jpg',
+            path: `artworks/alice/${artworkId}/img1.jpg`,
+            url: 'http://127.0.0.1:9199/v0/b/demo-artvault.appspot.com/o/img1.jpg?alt=media',
+            order: 0,
+            contentType: 'image/jpeg',
+            size: 1024,
+          },
+        ],
+        updatedAt: serverTimestamp(),
+      }),
+    )
   })
 })
 

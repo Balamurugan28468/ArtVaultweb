@@ -21,6 +21,15 @@ import {
 } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  findOrphanEmulatorPorts,
+  findOrphanEmulatorProcesses,
+  isLauncherProcess,
+  killProcessTree,
+  readLockPid,
+  releaseLockIfOwnedBySelf,
+  waitForPortsState,
+} from './lib/emulatorGuards.mjs'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const exportDir = path.join(projectRoot, 'emulator-data')
@@ -31,52 +40,124 @@ const lockFile = path.join(projectRoot, '.emulator-launcher.lock')
 
 const MIN_JAVA_MAJOR_VERSION = 21
 
+// firebase.json's own emulator ports — the set this launcher requires to
+// actually be listening before it will ever call startup "ready".
+const REQUIRED_PORTS = { firestore: 8080, auth: 9099, storage: 9199 }
+
 // Only one Firebase Emulator Suite may own ./emulator-data at a time — two
 // launchers racing to import/export it concurrently is exactly how a
 // coherent generation gets assembled from mismatched Auth/Firestore
 // snapshots (observed directly on this project). A PID-stamped lock file
 // (never inside emulator-data itself, so it's never mistaken for
 // persistence data) makes a second, unaware launcher exit immediately
-// instead of touching anything.
-function isProcessAlive(pid) {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
+// instead of touching anything. isLauncherProcess() (not just a plain
+// liveness check) exists because Windows recycles PIDs quickly: a launcher
+// that was force-killed rather than shut down cleanly leaves a lock file
+// behind naming a PID that can be reassigned to a totally unrelated process
+// by the time the next launch runs — a plain "is *a* process alive at this
+// PID" check would then wrongly treat that lock as still held.
 function acquireSingleInstanceLock() {
-  if (existsSync(lockFile)) {
-    const heldPid = Number.parseInt(readFileSync(lockFile, 'utf8').trim(), 10)
-    if (Number.isInteger(heldPid) && isProcessAlive(heldPid)) {
+  const heldPid = readLockPid(lockFile)
+  if (heldPid !== null) {
+    if (isLauncherProcess(heldPid)) {
       console.error(
         `Another ArtVault emulator launcher is already running (PID ${heldPid}). Exiting without touching ` +
           `persistence, ports, or exports. Stop that session first if you need to restart the emulators.`,
       )
       process.exit(1)
     }
-    // Stale lock (the process that held it is gone, e.g. it crashed without
-    // a clean exit) — safe to reclaim; nothing about *persistence* is
-    // touched here, only this coordination file.
+    // Stale lock (the process that held it is gone, or the PID now belongs
+    // to something else entirely — e.g. it crashed without a clean exit) —
+    // safe to reclaim; nothing about *persistence* is touched here, only
+    // this coordination file. The required ports may still be held by that
+    // dead launcher's orphaned children, though — see
+    // cleanUpOrphanedEmulatorProcesses() below, run right after this.
     console.log('Found a stale launcher lock from a process that is no longer running — reclaiming it.')
   }
   writeFileSync(lockFile, String(process.pid), 'utf8')
 }
 
 function releaseSingleInstanceLock() {
-  try {
-    if (existsSync(lockFile) && readFileSync(lockFile, 'utf8').trim() === String(process.pid)) {
-      rmSync(lockFile, { force: true })
-    }
-  } catch {
-    // Never let lock cleanup crash the shutdown path.
+  releaseLockIfOwnedBySelf(lockFile, process.pid)
+}
+
+// Combines the two orphan-detection strategies into one deduplicated list:
+// findOrphanEmulatorPorts (anchored to a fixed port — the only way to prove
+// a REQUIRED port's occupant is safe to remove) and
+// findOrphanEmulatorProcesses (identity-only, no port needed at all — the
+// only way to ever find a Functions worker, which binds to a different,
+// unpredictable port every run and so can never be caught by the
+// port-anchored check). Both independently require looksLikeArtVaultEmulator
+// Process() to prove ownership before something is ever included here.
+function findAllOwnedOrphans() {
+  const byPort = findOrphanEmulatorPorts({ ports: REQUIRED_PORTS, projectRoot })
+  const byIdentity = findOrphanEmulatorProcesses({ projectRoot, excludePids: [process.pid] })
+
+  const owned = new Map()
+  for (const p of byPort.owned) owned.set(p.pid, { pid: p.pid, description: `${p.name} (port ${p.port})` })
+  for (const p of byIdentity.owned) if (!owned.has(p.pid)) owned.set(p.pid, { pid: p.pid, description: p.description })
+
+  return { owned: [...owned.values()], unidentified: byPort.unidentified, freeablePorts: byPort.owned.map((p) => p.port) }
+}
+
+function stopOwnedOrphans(owned) {
+  const details = owned.map((p) => `${p.description} (PID ${p.pid})`).join(', ')
+  console.log(
+    `Found orphaned ArtVault emulator process(es) from a previous session that didn't shut down cleanly: ` +
+      `${details}. Stopping them...`,
+  )
+  for (const { pid } of owned) killProcessTree(pid)
+}
+
+// A launcher that was force-killed (rather than shut down via Ctrl+C) can
+// leave its emulator child processes running even after its own lock is
+// recognized as stale above — nothing else ever stopped them. Starting a
+// second `firebase emulators:start` on top of those still-bound ports is
+// exactly how a genuinely broken, partial suite happens (observed directly:
+// an orphaned Firestore process alone answering on 8080 while Auth/Storage,
+// belonging to no running process at all, sit dead — and separately, an
+// orphaned Functions worker on its own dynamic port, invisible to a
+// port-anchored check entirely). Only ever stops a process independently
+// verified (via findAllOwnedOrphans, both strategies) to be this project's
+// own emulator suite; anything unidentified occupying a REQUIRED port aborts
+// startup loudly instead of guessing — an unidentified process elsewhere
+// (not on one of the three fixed ports) is simply left alone, since nothing
+// requires that specific port to be free for our own suite to start.
+async function cleanUpOrphanedEmulatorProcesses() {
+  const { owned, unidentified, freeablePorts } = findAllOwnedOrphans()
+
+  if (unidentified.length > 0) {
+    const details = unidentified.map((p) => `${p.name} (port ${p.port}, PID ${p.pid})`).join(', ')
+    console.error(
+      `Required port(s) already in use by a process this launcher cannot verify belongs to ArtVault's own ` +
+        `emulator suite: ${details}. Not touching it — stop whatever is using that port yourself, then retry.`,
+    )
+    releaseSingleInstanceLock()
+    process.exit(1)
   }
+
+  if (owned.length === 0) return
+
+  stopOwnedOrphans(owned)
+
+  if (freeablePorts.length > 0) {
+    const cleared = await waitForPortsState(freeablePorts, { want: 'free', timeoutMs: 10000, intervalMs: 250 })
+    if (!cleared.ok) {
+      console.error(
+        `Stopped the orphaned process(es), but port(s) ${cleared.missing.join(', ')} are still occupied — the OS ` +
+          `hasn't released them yet, or something else is now using them. Not safe to start a new suite on top of ` +
+          `that. Try again in a moment.`,
+      )
+      releaseSingleInstanceLock()
+      process.exit(1)
+    }
+  }
+  console.log('Orphaned process(es) stopped.')
 }
 
 acquireSingleInstanceLock()
 process.on('exit', releaseSingleInstanceLock)
+await cleanUpOrphanedEmulatorProcesses()
 
 // Deliberately `-version` (single dash), not `--version`: Java 8 and older
 // only understand the single-dash form and exit with "Unrecognized option"
@@ -521,6 +602,23 @@ async function runTrustedReconciliation(afterReadiness, stream) {
     return
   }
 
+  // firebase-tools printing "All emulators ready!" and reconciliation
+  // succeeding both only prove the *hub* and *Firestore* came up — an
+  // independent TCP check of every required port is the actual proof the
+  // app can safely connect, rather than trusting that text line alone (the
+  // exact gap behind a partial startup where Firestore answers but
+  // Auth/Storage never bound at all).
+  const portsReady = await waitForPortsState(Object.values(REQUIRED_PORTS), { want: 'listening', timeoutMs: 15000 })
+  if (!portsReady.ok) {
+    reconciliationFailed = true
+    console.error(
+      `Emulator suite reported ready, but required port(s) never came up: ${portsReady.missing.join(', ')}. ` +
+        'Treating startup as failed — do not start the web app.',
+    )
+    child.kill('SIGINT')
+    return
+  }
+
   reconciliationFinished = true
   if (afterReadiness) stream.write(afterReadiness)
   console.log('All emulators ready — import complete and trusted role reconciliation completed.')
@@ -550,6 +648,20 @@ process.on('SIGINT', () => {
 })
 
 child.on('exit', async (code, signal) => {
+  // Belt-and-suspenders for a *normal* shutdown: the console Ctrl+C
+  // broadcast this relies on (see the SIGINT handler above) should reach
+  // every process sharing this console, but a Functions worker surviving
+  // past the main child's own exit has been observed in practice. By this
+  // point the main child is already gone, so anything still matching our
+  // own identity now is unambiguously a straggler, never something still
+  // legitimately in use — safe to stop directly, no port-freed wait needed
+  // since nothing further depends on these ports being free right now.
+  const { owned: stragglers } = findOrphanEmulatorProcesses({ projectRoot, excludePids: [process.pid] })
+  if (stragglers.length > 0) {
+    stopOwnedOrphans(stragglers)
+    console.log(`Stopped ${stragglers.length} emulator process(es) still running after shutdown.`)
+  }
+
   if (!existsSync(exportMetadataFile)) {
     const newStagingDirs = findExportStagingDirs().filter((name) => !preExistingExportStagingDirs.has(name))
     await recoverOrphanedExport(newStagingDirs, { label: 'Shutdown export' })

@@ -23,6 +23,9 @@ const ArtworkFormPage = lazy(() =>
 const ArtistProfilePage = lazy(() =>
   import('@/app/routes/ArtistProfilePage').then((m) => ({ default: m.ArtistProfilePage })),
 )
+const MarketplacePage = lazy(() =>
+  import('@/app/routes/MarketplacePage').then((m) => ({ default: m.MarketplacePage })),
+)
 const SellerProfilePage = lazy(() =>
   import('@/app/routes/SellerProfilePage').then((m) => ({ default: m.SellerProfilePage })),
 )
@@ -35,6 +38,7 @@ export const router = createBrowserRouter([
       { index: true, element: <HomePage /> },
       { path: 'sign-in', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
+      { path: 'explore', element: <MarketplacePage /> },
       { path: 'artists/:artistId', element: <ArtistProfilePage /> },
       {
         element: <RequireAuth />,

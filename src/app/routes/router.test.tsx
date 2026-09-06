@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AppProviders } from '@/app/providers/AppProviders'
 import { AuthProvider } from '@/app/providers/AuthProvider'
 import { router } from '@/app/routes/router'
 
-vi.mock('@/lib/firebase/config', () => ({ auth: { currentUser: null } }))
+vi.mock('@/lib/firebase/config', () => ({ auth: { currentUser: null }, db: {} }))
 vi.mock('firebase/auth', () => ({
   onAuthStateChanged: (_auth: unknown, callback: (user: null) => void) => {
     callback(null)
@@ -12,6 +13,15 @@ vi.mock('firebase/auth', () => ({
   },
   getIdTokenResult: vi.fn(),
 }))
+// The real marketplace repository issues a genuine Firestore getDocs() call
+// — stubbed here the same way every other lazy-loaded route in this file
+// avoids touching the real SDK, so this file only proves the route wires up
+// and renders, not marketplace query behavior (see marketplaceRepository's
+// own dedicated tests for that).
+vi.mock('firebase/firestore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('firebase/firestore')>()
+  return { ...actual, getDocs: vi.fn().mockResolvedValue({ docs: [] }) }
+})
 
 // `router` is a module-level singleton (createBrowserRouter is only ever
 // meant to be constructed once) shared across every test in this file, so
@@ -24,9 +34,11 @@ afterEach(async () => {
 describe('router', () => {
   it('renders the root layout and the home page at "/" for a signed-out visitor', async () => {
     const { container } = render(
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>,
+      <AppProviders>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </AppProviders>,
     )
 
     // BrandLogo's wordmark visually splits "Art"/"Vault" across nested
@@ -49,9 +61,11 @@ describe('router', () => {
   // circular-import failure inside either page would fail here.
   it('lazy-loads the real Sign Up page via SPA link navigation from Home', async () => {
     render(
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>,
+      <AppProviders>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </AppProviders>,
     )
     await screen.findByText('Welcome to ArtVault')
 
@@ -63,9 +77,11 @@ describe('router', () => {
 
   it('lazy-loads the real Sign In page via SPA link navigation from Home', async () => {
     render(
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>,
+      <AppProviders>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </AppProviders>,
     )
     await screen.findByText('Welcome to ArtVault')
 
@@ -77,9 +93,11 @@ describe('router', () => {
 
   it('lazy-loads the real Sign Up page on direct navigation to "/sign-up"', async () => {
     render(
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>,
+      <AppProviders>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </AppProviders>,
     )
     await router.navigate('/sign-up')
 
@@ -89,13 +107,44 @@ describe('router', () => {
 
   it('lazy-loads the real Sign In page on direct navigation to "/sign-in"', async () => {
     render(
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>,
+      <AppProviders>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </AppProviders>,
     )
     await router.navigate('/sign-in')
 
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
     expect(screen.getByLabelText('Email')).toBeInTheDocument()
+  })
+
+  it('lazy-loads the real Marketplace page on direct navigation to "/explore", without requiring authentication (Module 08)', async () => {
+    render(
+      <AppProviders>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </AppProviders>,
+    )
+    await router.navigate('/explore')
+
+    expect(await screen.findByRole('heading', { name: 'Explore' })).toBeInTheDocument()
+    expect(screen.queryByText(/sign in/i, { selector: 'h1,h2,p' })).not.toBeInTheDocument()
+  })
+
+  it('reaches the real Marketplace page via SPA link navigation from Home', async () => {
+    render(
+      <AppProviders>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </AppProviders>,
+    )
+    await screen.findByText('Welcome to ArtVault')
+
+    fireEvent.click(screen.getAllByRole('link', { name: 'Explore' })[0])
+
+    expect(await screen.findByRole('heading', { name: 'Explore' })).toBeInTheDocument()
   })
 })

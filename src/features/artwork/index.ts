@@ -1,6 +1,7 @@
 export {
   createArtworkDraft,
   deleteArtworkDraft,
+  mapToArtwork,
   mutateArtworkImages,
   subscribeArtwork,
   subscribePublishedArtworks,

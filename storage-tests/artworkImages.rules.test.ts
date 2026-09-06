@@ -3,16 +3,26 @@ import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestE
 import { doc, setDoc } from 'firebase/firestore'
 import { deleteObject, getBytes, ref, uploadBytes } from 'firebase/storage'
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
+import {
+  assertIsolatedFirestoreTestEnvironment,
+  assertIsolatedStorageTestEnvironment,
+  TEST_PROJECT_ID,
+} from '../test-support/emulatorTestEnv'
 
-// Requires both the Firestore and Storage emulators running locally
-// (127.0.0.1:8080 and 127.0.0.1:9199) — not part of `npm run test`; run
-// separately via `npm run test:storage-rules` once an emulator is up (see
-// docs/SECURITY.md). storage.rules calls firestore.get()/firestore.exists()
-// to check an artwork's real owner/lifecycle state, so both emulators must
-// be reachable even though only Storage rules are under test here — that
-// cross-service call always bypasses Firestore's own rules, which is why
-// seeding below uses withSecurityRulesDisabled rather than needing a
-// SELLER-authenticated Firestore write.
+// Not part of `npm run test` — run via `npm run test:storage-rules`, which
+// launches dedicated, disposable Firestore and Storage emulators via
+// `firebase emulators:exec` (see firebase.test.json and package.json) and
+// never the real ArtVault development emulators. The two
+// assertIsolated*TestEnvironment() calls below are a fail-closed guard
+// against ever accidentally connecting to those dev instances instead —
+// see test-support/emulatorTestEnv.ts and ARTVAULT_PROJECT_STATE.md's
+// Module 08 write-up for the real incident this prevents. storage.rules
+// calls firestore.get()/firestore.exists() to check an artwork's real
+// owner/lifecycle state, so both emulators must be reachable even though
+// only Storage rules are under test here — that cross-service call always
+// bypasses Firestore's own rules, which is why seeding below uses
+// withSecurityRulesDisabled rather than needing a SELLER-authenticated
+// Firestore write.
 
 let testEnv: RulesTestEnvironment
 
@@ -36,17 +46,19 @@ function artworkFixture(overrides: Record<string, unknown> = {}) {
 }
 
 beforeAll(async () => {
+  const firestoreAddress = assertIsolatedFirestoreTestEnvironment()
+  const storageAddress = assertIsolatedStorageTestEnvironment()
   testEnv = await initializeTestEnvironment({
-    projectId: 'demo-artvault',
+    projectId: TEST_PROJECT_ID,
     firestore: {
       rules: readFileSync('firestore.rules', 'utf8'),
-      host: '127.0.0.1',
-      port: 8080,
+      host: firestoreAddress.host,
+      port: firestoreAddress.port,
     },
     storage: {
       rules: readFileSync('storage.rules', 'utf8'),
-      host: '127.0.0.1',
-      port: 9199,
+      host: storageAddress.host,
+      port: storageAddress.port,
     },
   })
 })

@@ -5,12 +5,18 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { addDoc, collection, deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore'
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { assertIsolatedFirestoreTestEnvironment, TEST_PROJECT_ID } from '../test-support/emulatorTestEnv'
 
-// Requires the Firestore emulator running locally at 127.0.0.1:8080. Not
-// part of `npm run test` — run separately via `npm run test:rules` once an
-// emulator is up. See docs/SECURITY.md.
+// Not part of `npm run test` — run via `npm run test:rules`, which launches
+// a dedicated, disposable Firestore emulator via `firebase emulators:exec`
+// (see firebase.test.json and package.json) and never the real ArtVault
+// development emulator. assertIsolatedFirestoreTestEnvironment() below is a
+// fail-closed guard against ever accidentally connecting to that dev
+// instance instead — see test-support/emulatorTestEnv.ts and
+// ARTVAULT_PROJECT_STATE.md's Module 08 write-up for the real incident this
+// prevents.
 
 let testEnv: RulesTestEnvironment
 
@@ -50,12 +56,13 @@ const EXISTING_PUBLISHED = { ...EXISTING_DRAFT, status: 'PUBLISHED', reviewedAt:
 const EXISTING_REJECTED = { ...EXISTING_DRAFT, status: 'REJECTED', reviewedAt: 2, rejectionReason: 'blurry photos' }
 
 beforeAll(async () => {
+  const { host, port } = assertIsolatedFirestoreTestEnvironment()
   testEnv = await initializeTestEnvironment({
-    projectId: 'demo-artvault',
+    projectId: TEST_PROJECT_ID,
     firestore: {
       rules: readFileSync('firestore.rules', 'utf8'),
-      host: '127.0.0.1',
-      port: 8080,
+      host,
+      port,
     },
   })
 })
@@ -481,6 +488,58 @@ describe('artworks/{artworkId} rules — PUBLISHED is publicly readable (Module 
   it('once PUBLISHED, the owner cannot delete it', async () => {
     const aliceDb = sellerContext('alice')
     await assertFails(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
+  })
+})
+
+// Module 08 — Marketplace. The Module 07 rule comment already predicted
+// this: "rules evaluate per-document, never by query shape" — these tests
+// exist to actually prove that a genuine cross-seller, no-sellerId-filter
+// query (never issued by any earlier module) still only ever returns
+// PUBLISHED documents, for every seller, not just one. Firestore itself
+// would reject a where('status','==','PUBLISHED') query outright as
+// insufficiently constrained if the rule required a sellerId, so a
+// mismatch here would show up as either a permission error or, worse, a
+// leaked non-PUBLISHED document — this test suite would fail either way.
+describe('artworks/{artworkId} rules — cross-seller marketplace query (Module 08)', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore()
+      await addDoc(collection(db, 'artworks'), { ...EXISTING_PUBLISHED, sellerId: 'alice', title: 'Alice Published' })
+      await addDoc(collection(db, 'artworks'), { ...EXISTING_PUBLISHED, sellerId: 'bob', title: 'Bob Published' })
+      await addDoc(collection(db, 'artworks'), { ...EXISTING_DRAFT, sellerId: 'alice', title: 'Alice Draft' })
+      await addDoc(collection(db, 'artworks'), { ...EXISTING_SUBMITTED, sellerId: 'bob', title: 'Bob Submitted' })
+      await addDoc(collection(db, 'artworks'), { ...EXISTING_REJECTED, sellerId: 'bob', title: 'Bob Rejected' })
+    })
+  })
+
+  it('lets a signed-out visitor query PUBLISHED artworks across every seller, and only those', async () => {
+    const anonDb = testEnv.unauthenticatedContext().firestore()
+    const snapshot = await assertSucceeds(getDocs(query(collection(anonDb, 'artworks'), where('status', '==', 'PUBLISHED'))))
+    const titles = snapshot.docs.map((d) => d.data().title).sort()
+    expect(titles).toEqual(['Alice Published', 'Bob Published'])
+  })
+
+  it('lets an authenticated non-owner (customer) query PUBLISHED artworks across every seller, and only those', async () => {
+    const customerDb = testEnv.authenticatedContext('mallory', { role: 'CUSTOMER' }).firestore()
+    const snapshot = await assertSucceeds(
+      getDocs(query(collection(customerDb, 'artworks'), where('status', '==', 'PUBLISHED'))),
+    )
+    const titles = snapshot.docs.map((d) => d.data().title).sort()
+    expect(titles).toEqual(['Alice Published', 'Bob Published'])
+  })
+
+  it('never returns another seller’s DRAFT/SUBMITTED/REJECTED artwork to the cross-seller query, even for a signed-in seller', async () => {
+    const aliceDb = sellerContext('alice')
+    const snapshot = await assertSucceeds(getDocs(query(collection(aliceDb, 'artworks'), where('status', '==', 'PUBLISHED'))))
+    const titles = snapshot.docs.map((d) => d.data().title)
+    expect(titles).not.toContain('Bob Submitted')
+    expect(titles).not.toContain('Bob Rejected')
+    expect(titles).not.toContain('Alice Draft')
+  })
+
+  it('a cross-seller query for a non-PUBLISHED status is rejected outright, not merely empty', async () => {
+    const anonDb = testEnv.unauthenticatedContext().firestore()
+    await assertFails(getDocs(query(collection(anonDb, 'artworks'), where('status', '==', 'SUBMITTED'))))
   })
 })
 

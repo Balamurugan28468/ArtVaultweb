@@ -1,4 +1,4 @@
-import { doc, onSnapshot, serverTimestamp, Timestamp, updateDoc, type Unsubscribe } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot, serverTimestamp, Timestamp, updateDoc, type Unsubscribe } from 'firebase/firestore'
 import { db } from '@/lib/firebase/config'
 import type { ArtistProfile, ArtistProfileError, UpdateArtistProfileInput } from '../types'
 
@@ -52,6 +52,27 @@ export function subscribeArtistProfile(
     },
     (error) => onError(toArtistProfileError(error)),
   )
+}
+
+/**
+ * A single one-shot read of just the public display name — never a live
+ * subscription — for contexts that show many artists at once (e.g. the
+ * Marketplace grid, Module 08) where opening one onSnapshot listener per
+ * card would mean dozens of live listeners for a value that essentially
+ * never changes mid-browse. Returns `null` for a nonexistent or malformed
+ * document, exactly like subscribeArtistProfile's own "missing" case,
+ * rather than throwing — a missing artist profile is not itself an error
+ * for a caller that only wants a display label.
+ */
+export async function getArtistDisplayName(uid: string): Promise<string | null> {
+  try {
+    const snapshot = await getDoc(artistDocRef(uid))
+    if (!snapshot.exists()) return null
+    const data = snapshot.data()
+    return typeof data.displayName === 'string' ? data.displayName : null
+  } catch {
+    return null
+  }
 }
 
 /**

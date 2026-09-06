@@ -63,8 +63,14 @@ function mapToArtworkImages(value: unknown): ArtworkImage[] {
   return value.map(mapToArtworkImage).filter((image): image is ArtworkImage => image !== null)
 }
 
-/** Defensive mapping — never assumes every field is present or well-typed. */
-function mapToArtwork(id: string, data: Record<string, unknown>): Artwork | null {
+/**
+ * Defensive mapping — never assumes every field is present or well-typed.
+ * Exported for reuse by other public read paths over the same collection
+ * (see marketplaceRepository.ts, Module 08) — the mapping itself doesn't
+ * change across query shapes, only which documents a given query can ever
+ * return.
+ */
+export function mapToArtwork(id: string, data: Record<string, unknown>): Artwork | null {
   if (typeof data.sellerId !== 'string') return null
   if (!isArtworkStatus(data.status)) return null
 

@@ -1,25 +1,42 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-06 — Module 07 (Artwork Moderation & Publishing) —
-ArtVault's first genuine public artwork lifecycle: two new artwork statuses
-(`PUBLISHED`, `REJECTED`), a trusted Admin-SDK-only operator script
-(`functions/src/publishArtwork.ts`) as the sole path from `SUBMITTED` to
-either, a new narrowly-scoped public read path on `artworks/{artworkId}`,
-and Module 06's public artist page now querying and rendering real
-`PUBLISHED` artwork instead of a static empty state — **implementation,
-automated tests (including a real pre-existing security gap found and
-closed by this module's own new tests), and real end-to-end verification
-(real owner account, real Playwright-driven UI submit, real trusted-CLI
-publish/reject, real signed-out public-page checks, and a real emulator
-restart) all complete, owner-reviewed and approved, and **committed**
-(`a6aa668`, full hash `a6aa668775ecad86e625ff1458fdbc0fef870c85`, on top of
-`d917e4f`)**; see "Module 07 — Artwork Moderation & Publishing" below for the
-full write-up. Module 06 (Artist Profiles) — ArtVault's first
-public-facing feature: a public `artists/{artistId}` projection, a public
-`/artists/:artistId` page, and a Seller Studio surface for managing it —
-**implementation, tests, real-emulator verification, and the owner's own
-manual verification (including the real signed-out/incognito route retest)
-all complete, verified — pending commit approval only**; see "Module 06 —
+_Last updated: 2026-09-06 — Module 08 (Marketplace — Public Artwork Browsing
+& Search/Filtering) — ArtVault's first cross-seller public discovery
+surface: a public `/explore` route querying `artworks` for
+`status == 'PUBLISHED'` across every seller (no `sellerId` filter at all,
+the first query of its kind in this codebase), with Firestore-native
+category/price-range filtering, three sort orders, and real cursor-based
+"load more" pagination via a new `useMarketplaceArtworks` (TanStack Query
+`useInfiniteQuery`) — the first feature in this codebase read through
+TanStack Query rather than a live `subscribeX` listener. Required **no**
+`firestore.rules` change: Module 07's own `PUBLISHED`-read rule already
+covered a cross-seller query, since Firestore evaluates rules per-document,
+never by query shape — proven by a new dedicated rules-test suite, not just
+asserted. **Implementation, automated tests, and real end-to-end
+verification (real signed-out browser session against the real owner's own
+`PUBLISHED` "3d" artwork alongside disposable cross-seller fixtures) all
+complete — awaiting owner review; not yet committed**; see "Module 08 —
+Marketplace" below for the full write-up. Module 07 (Artwork Moderation &
+Publishing) — ArtVault's first genuine public artwork lifecycle: two new
+artwork statuses (`PUBLISHED`, `REJECTED`), a trusted Admin-SDK-only
+operator script (`functions/src/publishArtwork.ts`) as the sole path from
+`SUBMITTED` to either, a new narrowly-scoped public read path on
+`artworks/{artworkId}`, and Module 06's public artist page now querying and
+rendering real `PUBLISHED` artwork instead of a static empty state —
+**implementation, automated tests (including a real pre-existing security
+gap found and closed by this module's own new tests), and real end-to-end
+verification (real owner account, real Playwright-driven UI submit, real
+trusted-CLI publish/reject, real signed-out public-page checks, and a real
+emulator restart) all complete, owner-reviewed and approved, and
+**committed** (`a6aa668`, full hash
+`a6aa668775ecad86e625ff1458fdbc0fef870c85`, on top of `d917e4f`)**; see
+"Module 07 — Artwork Moderation & Publishing" below for the full write-up.
+Module 06 (Artist Profiles) — ArtVault's first public-facing feature: a
+public `artists/{artistId}` projection, a public `/artists/:artistId` page,
+and a Seller Studio surface for managing it — **implementation, tests,
+real-emulator verification, and the owner's own manual verification
+(including the real signed-out/incognito route retest) all complete,
+verified, owner-approved, and committed** (`d917e4f`); see "Module 06 —
 Artist Profiles" below for the full write-up. Module 05 (Artwork Media/Image
 Upload) — Storage-backed photo upload for Seller Studio DRAFT artworks,
 plus the Firebase emulator launcher lifecycle hardening it surfaced
@@ -53,36 +70,33 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 07 — Artwork Moderation & Publishing: implementation, automated
-tests, and real end-to-end verification complete — owner-reviewed,
-approved, and committed (`a6aa668`).** Extends the artwork lifecycle by exactly
-two states (`PUBLISHED`, `REJECTED`) beyond Module 04's `DRAFT`/`SUBMITTED`,
-with `SUBMITTED → PUBLISHED`/`SUBMITTED → REJECTED` performed exclusively
-by a new trusted, Admin-SDK-only operator script
-(`functions/src/publishArtwork.ts`, same family as `promoteSeller.ts`) —
-never client-reachable, never a self-service in-app path. `PUBLISHED`
-artworks gain ArtVault's first public read path on `artworks/{artworkId}`
-itself (additive, one new `allow read` branch; `DRAFT`/`SUBMITTED`/
-`REJECTED` remain exactly as private as before). Module 06's public artist
-page now calls a real `subscribePublishedArtworks` query instead of always
-showing the static empty state. Writing this module's own security tests
-surfaced and closed a real pre-existing gap: an ordinary `DRAFT` edit had
-no `hasOnly()` restricting which fields a client could touch, so a client
-could have smuggled a forged `reviewedAt` into an otherwise-ordinary edit —
-fixed with the same allow-list discipline already used elsewhere in
-`firestore.rules`. Verified against the real owner's own account end to
-end (real Playwright-driven "Submit for review" click, real trusted-CLI
-publish, real signed-out public-page check, real emulator restart) and
-against a disposable test-fixture account for the REJECTED path (never the
-owner's own artwork). See "Module 07 — Artwork Moderation & Publishing"
-below for the full write-up. Module 06 (Artist Profiles: `d917e4f`),
-Module 05 (Artwork Media/Image Upload & Emulator Lifecycle Hardening:
-`3265194`), and Module 04 (Seller Foundation & Artwork Draft Management:
-`d483994`, `1f8ca5a`, `1f0deb7`; Emulator Persistence & Seller-Authorization
-Reconciliation: `877f3ba`) remain complete, verified, and committed.
-Module 08 has not been started — see "Module 08" scope discovery below.
-See "Completed modules" for the checkpoint entry once Module 07's own
-checkpoint is added.
+**Module 08 — Marketplace (Public Artwork Browsing & Search/Filtering):
+implementation, automated tests, and real end-to-end verification
+complete — awaiting owner review; not yet committed.** A public `/explore`
+route (`src/app/routes/MarketplacePage.tsx`) queries `artworks` for
+`status == 'PUBLISHED'` across every seller — no `sellerId` filter at all,
+the first cross-seller query this codebase has ever issued — with optional
+category/price-range filtering, three sort orders (`newest`, `price-asc`,
+`price-desc`), and real cursor-based "load more" pagination
+(`fetchMarketplacePage`, `useMarketplaceArtworks`). Required **zero**
+`firestore.rules` changes: Module 07's own additive `PUBLISHED`-read branch
+already covered this, since Firestore evaluates security rules
+per-document, never by query shape — a new dedicated rules-test suite
+proves this directly rather than merely relying on that reasoning holding.
+No new `artworks/{artworkId}` field was added; the artist name on each card
+resolves via a new one-shot `getArtistDisplayName` read of the existing
+public `artists/{artistId}` projection. Deliberately not built: a
+tag-based filter (no fixed taxonomy exists to filter by) and free-text/
+fuzzy title search (needs a dedicated search provider, already deferred in
+`docs/ARCHITECTURE.md` pending owner approval) — see "Module 08 —
+Marketplace" below for the full reasoning and write-up. Module 07 (Artwork
+Moderation & Publishing: `a6aa668`), Module 06 (Artist Profiles:
+`d917e4f`), Module 05 (Artwork Media/Image Upload & Emulator Lifecycle
+Hardening: `3265194`), and Module 04 (Seller Foundation & Artwork Draft
+Management: `d483994`, `1f8ca5a`, `1f0deb7`; Emulator Persistence &
+Seller-Authorization Reconciliation: `877f3ba`) remain complete, verified,
+and committed. See "Completed modules" for the checkpoint entry once
+Module 08's own checkpoint is added.
 
 ## Authentication methods — current scope
 
@@ -102,6 +116,284 @@ happened; the working tree was verified byte-identical to the prior
 approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
+
+## Module 08 — Marketplace (Public Artwork Browsing & Search/Filtering) (COMPLETE, VERIFIED — awaiting owner review, not committed)
+
+**Status:** implementation, automated tests (frontend unit/component,
+Firestore rules), and real end-to-end verification via the Firebase Local
+Emulator Suite and a real browser (Playwright) all complete. Owner review
+pending; **not yet committed**.
+
+### Objective and scope decision
+
+A fresh scope-discovery pass (not assuming Module 07's own prior ordering
+still held) found that Module 07 created real `PUBLISHED` artwork but no
+way to discover it except visiting a known artist's URL directly — no
+route existed that listed artwork across sellers. Every other pending
+candidate (Wishlist/Likes/Follows/Sharing, Cart, Checkout/Payments, Orders,
+Auctions, AI, AR, Admin/Moderation UI) was blocked on either an owner
+decision not yet made (payment provider, Firebase Blaze billing, an AI
+provider) or a new artwork lifecycle state Module 07 deliberately declined
+to add. Marketplace had no such blocker: search stays Firestore-native
+(already the approved scope in `docs/ARCHITECTURE.md`), and it directly
+fixes the discoverability gap Module 07 left behind. The owner approved
+this as Module 08, combining "Marketplace" and "Search and filtering" into
+one module rather than treating them as separate, since in practice they
+are the same page.
+
+### What was built
+
+- **`src/features/marketplace/`** (new feature) — `api/marketplaceRepository.ts`
+  (`fetchMarketplacePage`, a one-shot cursor-paginated `getDocs` query, not
+  a live subscription), `hooks/useMarketplaceArtworks.ts` (TanStack Query
+  `useInfiniteQuery` — the first feature in this codebase read through
+  TanStack Query rather than a `subscribeX`/`useX` pair), `hooks/
+  useArtistDisplayNames.ts` (`useQueries`, one deduplicated one-shot read
+  per distinct seller on the current page), `components/
+  MarketplaceFilters.tsx` (category chips, sort chips, price range with an
+  explicit Apply/Clear action), `components/MarketplaceGrid.tsx` (results
+  grid, loading/error/empty/pagination states), and `types.ts`.
+- **`src/app/routes/MarketplacePage.tsx`** — new public route at `/explore`
+  (`router.tsx`), deliberately outside `RequireAuth`, matching every other
+  public route so far. The pre-scaffolded `marketplace` nav item
+  (`src/app/navigation/navItems.ts`, already pointing at `/explore` with
+  the label "Explore" since Module 02) is flipped from `comingSoon` to
+  `available` — no new nav entry invented, the existing placeholder is
+  simply switched on.
+- **`src/features/artwork/api/artworkRepository.ts`** — `mapToArtwork` is
+  now exported for reuse by the new marketplace repository (same mapping,
+  a different query shape); no behavior change.
+- **`src/features/artist-profile/api/artistProfileRepository.ts`** — new
+  `getArtistDisplayName(uid)`, a one-shot read of the existing public
+  `artists/{artistId}` projection, used only by Marketplace cards. No new
+  field, no new collection.
+- **`src/features/artwork/components/PublicArtworkCard.tsx`** — gains one
+  new optional prop, `artistDisplayName`, rendered only when passed;
+  Module 06/07's own usage on the artist page never passes it and is
+  visually unchanged. Marketplace wraps each card in a `<Link
+  to="/artists/{sellerId}">` from the outside, so the card component itself
+  needed no new navigation behavior.
+- **`firestore.indexes.json`** — 4 new composite indexes on `artworks`
+  (previously empty): `(status, createdAt desc)`, `(status, price asc)`,
+  `(status, category, createdAt desc)`, `(status, category, price asc)`.
+  Each pairs directly with one query shape the UI can actually produce
+  (no-category vs. category-filtered, × the newest-sort family vs. the
+  price-sort family); the price-ascending indexes also serve
+  price-descending via Firestore's own "same index, fully reversed"
+  capability, and a `documentId()` tiebreaker orderBy in every query is
+  covered by Firestore's automatic implicit trailing index, not listed
+  explicitly. See `docs/DATABASE.md`'s "Marketplace query architecture"
+  section for the full mapping.
+- **No `firestore.rules` change at all** — see "Security decisions" below
+  and `docs/SECURITY.md`'s new "Implemented in Module 08" section.
+- **Documentation** — `docs/DATABASE.md` (new "Marketplace query
+  architecture (Module 08)" section) and `docs/SECURITY.md` (new
+  "Implemented in Module 08" section) updated; this file.
+
+### Query architecture, filters/sorts, and pagination
+
+Every query starts with the mandatory `where('status', '==', 'PUBLISHED')`,
+optionally adds one `where('category', '==', ...)` equality filter and/or a
+`price` range (`>=`/`<=`), and always ends with exactly one primary
+`orderBy` (`createdAt desc` for "Newest", or `price asc`/`price desc`) plus
+a `documentId()` tiebreaker in the same direction — the tiebreaker is what
+makes `startAfter`-based cursor pagination correct even when two artworks
+share the same `createdAt`/`price` value. Pagination is real cursor-based
+"load more" (`limit(12)` + `startAfter(cursor.primary, cursor.id)`), never
+"fetch everything and filter/paginate in the browser." Because Firestore
+requires an inequality-filtered field to lead the query's `orderBy`, a
+price range cannot be combined with the `createdAt`-based "Newest" sort in
+one query; when both are requested together, the repository silently
+serves `price-asc` instead (`effectiveSort` in `marketplaceRepository.ts`)
+and the UI shows a small note explaining the substitution — a real
+Firestore constraint, not an arbitrary product choice.
+
+### Search capabilities and limitations (documented, not silently dropped)
+
+- **Category filtering:** real, Firestore-native, single-select over the
+  existing fixed `ARTWORK_CATEGORIES` enum.
+- **Price range filtering:** real, Firestore-native (`>=`/`<=` on `price`).
+- **Sorting:** real — newest, price ascending, price descending.
+- **Tag filtering: deliberately not built.** Unlike `category` (a small,
+  closed, hardcoded enum), `tags` are freeform per-artwork strings with no
+  "known tags" index anywhere in the schema. Querying one *specific* known
+  tag via `array-contains` is technically supported, but *discovering*
+  which tags exist to filter by is not, without either inventing a new
+  aggregation collection (not justified by any confirmed need yet) or
+  scanning every artwork client-side (defeats the point of a server-side
+  filter). Left for a later pass if real demand for it appears.
+- **Free-text/fuzzy title search: deliberately not built.** A Firestore
+  prefix-range trick could serve a case-sensitive "starts with" match, but
+  it would force yet another sort/index family for comparatively little
+  value over the structured filters above. True full-text/fuzzy search
+  needs a dedicated search provider (Algolia/Typesense/etc.), already
+  identified and deferred in `docs/ARCHITECTURE.md` pending explicit owner
+  approval of a paid service — not something this module should silently
+  fake with a misleading substring match.
+
+### Security decisions
+
+No `firestore.rules` line was changed. Firestore evaluates security rules
+per-document, never by query shape, so Module 07's existing
+`resource.data.status == 'PUBLISHED'` read branch already made *any*
+query that can only ever match `PUBLISHED` documents provably safe,
+regardless of how many sellers it spans — Module 07's own rule comment
+predicted exactly this ("this broader browsing surface is a later module's
+job"). A new "cross-seller marketplace query" test suite in
+`firestore-tests/artworks.rules.test.ts` proves this rather than merely
+asserting it: seeds `PUBLISHED`/`DRAFT`/`SUBMITTED`/`REJECTED` artworks
+across two different sellers, then confirms a signed-out visitor and an
+authenticated non-owner customer both get back every seller's `PUBLISHED`
+artwork and nothing else, that a signed-in seller running the same query
+never sees another seller's non-`PUBLISHED` artwork, and that a
+structurally unsafe variant of the same query shape
+(`status == 'SUBMITTED'`, still no `sellerId`) is rejected by Firestore
+outright as un-provable, not merely returned empty.
+
+### Testing
+
+- Firestore rules (`npm run test:rules`, real Firebase Local Emulator
+  Suite): 135/135 passing (up from 131 after Module 07) — 4 new tests, all
+  in the new "cross-seller marketplace query" suite.
+- Full frontend suite (`npx vitest run`): 460/460 passing across 67 test
+  files (up from 415/61 after Module 07) — 45 new tests across 7 new files
+  (`marketplaceRepository`, `useMarketplaceArtworks`, `useArtistDisplayNames`,
+  `MarketplaceFilters`, `MarketplaceGrid`, `MarketplacePage`, plus
+  extensions to `PublicArtworkCard.test.tsx`, `artistProfileRepository.test.ts`,
+  `useNavItems.test.ts`, and `router.test.tsx`). Two runs under heavy
+  concurrent system load (a simultaneous Playwright verification pass, a
+  Cloud Functions rebuild, and an emulator restart all running at once)
+  each showed a small number of failures confined to timeout-class errors
+  in files this module never touched (`router.test.tsx`,
+  `AccountHeader.test.tsx`, and, separately, an unrelated
+  `storage-tests/artworkImages.rules.test.ts` timeout) — every one of them
+  passed cleanly both in isolation and in a full, non-concurrent re-run,
+  confirming load-induced flakes, not regressions, matching the exact
+  pattern already documented in Module 07.
+- `npm run typecheck`, `npm run build` (production build; `MarketplacePage`
+  correctly code-splits into its own ~18 KB lazy chunk), `npm run lint` (0
+  errors; the only warnings are the same pre-existing patterns already
+  present elsewhere in the codebase, none in any Module 08 file), and
+  `npm run test:scripts` (47/47, unaffected) all pass.
+- `functions` test suite: 37/37 passing, unchanged — no `functions/`
+  source was touched by this module.
+- `git diff --check`: exit 0 — only pre-existing LF/CRLF `core.autocrlf`
+  warnings, no real whitespace errors.
+
+### Real emulator/browser verification (Firebase Local Emulator Suite + real browser)
+
+While preparing this verification, running the Firestore/Storage rules
+test suites directly against the already-running (real-data-bearing)
+emulator wiped its live Firestore/Auth state — those suites call
+`clearFirestore()` in their setup hooks against the same shared
+`demo-artvault` project the dev emulator uses, not an isolated copy. This
+is exactly the failure mode the project's existing protect/export/restore
+protocol exists to prevent, and it was not followed before running those
+commands this time. Recovery: the running emulator process tree was
+force-killed (`taskkill /T /F`, not a graceful shutdown, so the corrupted
+in-memory state was never auto-exported over the good on-disk backup), then
+restarted via `npm run emulators` to import the last good on-disk export.
+That export predated Module 07's final `PUBLISHED`/`REJECTED`
+verification, so both real fixtures had reverted to `DRAFT`; the exact
+same trusted-CLI flow Module 07 already used was re-run to restore the
+documented state (owner's "3d" re-submitted via real Playwright UI action
+and published via `publishArtwork.ts`; the disposable fixture re-submitted
+and rejected the same way) before Module 08's own verification began. No
+data was fabricated — every account, artwork, and Storage image involved
+already existed; this only restored a previously-verified, previously-real
+state that a testing mistake had temporarily reverted.
+
+With state restored, verified via a real signed-out Playwright browser
+session against `http://localhost:5173/explore`:
+
+1. `/explore` loads and renders with no sign-in required or attempted.
+2. The real owner's `PUBLISHED` "3d" artwork appears, with its real
+   uploaded Storage image URL rendering, correct title, and correct price
+   (₹5000).
+3. Four disposable, clearly-labeled cross-seller fixtures (under the
+   existing "Persist Restart Gallery" test account, spanning
+   sculpture/photography/digital/painting categories and a range of
+   prices) appear alongside the owner's artwork, confirming this is a
+   genuine cross-seller result set, not accidentally scoped to one seller.
+4. The disposable fixture's `REJECTED` artwork ("Persisted Artwork") never
+   appears — confirmed by an explicit zero-count check.
+5. Selecting the "Sculpture" category chip narrows the visible set to
+   exactly the one sculpture fixture, excluding the digital fixture and the
+   owner's own (non-sculpture) artwork.
+6. Selecting "Price: Low to High" then "Price: High to Low" re-orders the
+   five real+fixture cards into the exact expected ascending/descending
+   price order (verified by reading the rendered card titles back, not
+   just visually).
+7. A price range of ₹100–900 narrows the result set to exactly the two
+   fixtures actually in that range, and the "a price range is active"
+   sort-substitution note appears.
+8. Clicking the owner's "3d" card navigates to
+   `/artists/ppqIaap00MbYNY9RGDQmTwBb54bP` — the correct, real artist page.
+9. With only 5 real+fixture `PUBLISHED` artworks total (page size 12), the
+   "You've reached the end of the marketplace." end-of-results state
+   renders correctly. A live "Load more" click was **not** exercised in
+   the browser — doing so would require manufacturing 12+ artificial
+   fixtures purely to cross the page-size boundary, which is
+   disproportionate to what it would prove; the cursor-construction and
+   `hasNextPage` logic this depends on is already exhaustively covered by
+   `marketplaceRepository.test.ts` and `useMarketplaceArtworks.test.tsx`.
+10. Zero browser console errors across every check above.
+
+All disposable fixtures created for this verification were deleted
+afterward via the Admin SDK; the emulator was left containing only the
+same two real/fixture artworks documented in Module 07 (owner's `PUBLISHED`
+"3d", fixture's `REJECTED` "Persisted Artwork").
+
+### Follow-up hardening: permanent test/dev emulator isolation
+
+The incident described above (running rules tests directly against the
+shared dev emulator) was fixed permanently, not just recovered from once.
+`npm run test:rules`/`npm run test:storage-rules` now launch a dedicated,
+disposable emulator (`scripts/run-isolated-emulator-tests.mjs`,
+`firebase.test.json` — distinct ports `8280`/`9399`, project id
+`demo-artvault-test`, no persistence at all) via `firebase emulators:exec`,
+and every rules-test file additionally calls a fail-closed runtime guard
+(`test-support/emulatorTestEnv.ts`) before its first destructive call,
+refusing to run at all unless it can prove it is connected to that isolated
+instance and not the dev emulator's known ports. Proven safe with a real
+before/after check against the live dev emulator (same owner Auth
+uid/email/role claim, `users.role`, `sellers.status`, `artists.displayName`,
+`artworks.status`, and Storage image byte sizes, byte-identical before and
+after both isolated suites ran) — see docs/DEPLOYMENT.md's "Isolated
+rules-test emulator" section for the full architecture. Test results:
+135/135 Firestore rules tests, 16/16 Storage rules tests, 68/68
+launcher/script tests (21 new, covering the extracted Java-runtime
+resolution logic in `scripts/lib/javaRuntime.mjs`) — all against the
+isolated instance, all passing.
+
+A second, unrelated incident during this hardening pass is also worth
+recording honestly: while verifying the fix, the *dev* emulator's own
+Functions-emulator subsystem crashed on its own (an accumulation of failed
+reload attempts after repeated manual `tsc` rebuilds during this session,
+unrelated to the new test-isolation work, which was independently confirmed
+to never touch the dev emulator). The crash lost the in-memory-only
+`PUBLISHED`/`REJECTED` correction from the first incident (Auth accounts,
+`DRAFT`-state artwork data, and Storage images were untouched, since those
+came from the on-disk `./emulator-data` import). Recovered via the same
+trusted-CLI flow already used once, then immediately exported to disk
+(`firebase emulators:export ./emulator-data --force`, run against the
+already-running emulator hub rather than requiring a full restart) so the
+corrected state is now durably persisted, not just held in memory.
+
+### Known limitations / deliberately deferred
+
+- No tag-based filter and no free-text/fuzzy title search — see "Search
+  capabilities and limitations" above.
+- No live "Load more" click was exercised against real browser data (only
+  unit/integration-tested) — see point 9 above.
+- No new artwork lifecycle state, no Wishlist/Likes/Follows/Sharing, no
+  Cart/Checkout/Orders/Payments, no Auctions, no AI/Recommendations, no AR,
+  no Admin/Moderation UI — all remain later modules' work, matching the
+  scope-discovery report's own recommendation.
+- The exact composite index set here (4 indexes) covers only the filter/
+  sort combinations Module 08's own UI can produce; a future filter
+  dimension (e.g. tags) would need its own new indexes, not a reuse of
+  these.
 
 ## Module 07 — Artwork Moderation & Publishing (COMPLETE, VERIFIED, COMMITTED)
 
@@ -2260,18 +2552,37 @@ untouched.
   11-scenario live re-test, and the owner's own retest then confirmed
   PASS. Review result: **PASS — owner manually accepted**. Checkpoint
   commit: this closeout's own commit (see `git log`).
+- **Module 07 — Artwork Moderation & Publishing:** ArtVault's first genuine
+  public artwork lifecycle — two new statuses (`PUBLISHED`, `REJECTED`)
+  beyond `DRAFT`/`SUBMITTED`, a trusted Admin-SDK-only operator script
+  (`functions/src/publishArtwork.ts`) as the sole `SUBMITTED → *` path, and
+  ArtVault's first public read path on `artworks/{artworkId}` itself
+  (additive; `DRAFT`/`SUBMITTED`/`REJECTED` stayed exactly as private as
+  before). Writing this module's own security tests found and closed a
+  real pre-existing field-forgery gap in the `DRAFT`-edit rule. Verified
+  against the real owner's own account end to end (real Playwright-driven
+  "Submit for review," real trusted-CLI publish, real signed-out
+  public-page check, real emulator restart) and against a disposable test
+  fixture for the `REJECTED` path. 415/415 unit/component tests, 131/131
+  Firestore rules tests, 37/37 Cloud Functions tests. Review result:
+  **PASS — owner reviewed and approved**. Checkpoint commit: `a6aa668`
+  (docs-accuracy follow-up: `87626d0`).
 
 ## Pending modules (not started, order not yet committed)
 
-Marketplace/Search, Wishlist/Likes/Follows/Sharing, Cart, Checkout/Payments,
-Orders, Reviews, Notifications, AI (analysis / assistant / search /
-recommendations), Auctions, AR Engine, Admin Control Center (including
-seller-application review UI), Audit Logs, Analytics, hardened Security
-Rules, Production Deployment. (Customer Account & Profile Foundation is
-Module 03, complete and committed; Seller Foundation & Artwork Draft
-Management is Module 04, complete and committed; Artwork Media/Image
-Upload is Module 05, complete and committed; Artist Profiles is Module 06,
-implementation complete and pending owner review — see above. Followers/
+Wishlist/Likes/Follows/Sharing, Cart, Checkout/Payments, Orders, Reviews,
+Notifications, AI (analysis / assistant / recommendations), Auctions, AR
+Engine, Admin Control Center (including seller-application review UI and an
+in-app moderation UI for the `publishArtwork.ts` decision), Audit Logs,
+Analytics, hardened Security Rules, Production Deployment. (Customer
+Account & Profile Foundation is Module 03, complete and committed; Seller
+Foundation & Artwork Draft Management is Module 04, complete and committed;
+Artwork Media/Image Upload is Module 05, complete and committed; Artist
+Profiles is Module 06, complete and committed; Artwork Moderation &
+Publishing is Module 07, complete and committed; Marketplace (public
+browsing/search/filtering) is Module 08, complete and verified, pending
+owner review — see above. A tag-based filter and free-text/fuzzy search
+specifically remain deferred from Module 08 — see its write-up. Followers/
 following specifically remain deferred from Module 06 to whichever later
 module actually builds the Follows feature. A dedicated Inventory feature
 beyond the single `inventoryCount` field

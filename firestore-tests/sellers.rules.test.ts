@@ -7,10 +7,16 @@ import {
 } from '@firebase/rules-unit-testing'
 import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
+import { assertIsolatedFirestoreTestEnvironment, TEST_PROJECT_ID } from '../test-support/emulatorTestEnv'
 
-// Requires the Firestore emulator running locally at 127.0.0.1:8080. Not
-// part of `npm run test` — run separately via `npm run test:rules` once an
-// emulator is up. See docs/SECURITY.md.
+// Not part of `npm run test` — run via `npm run test:rules`, which launches
+// a dedicated, disposable Firestore emulator via `firebase emulators:exec`
+// (see firebase.test.json and package.json) and never the real ArtVault
+// development emulator. assertIsolatedFirestoreTestEnvironment() below is a
+// fail-closed guard against ever accidentally connecting to that dev
+// instance instead — see test-support/emulatorTestEnv.ts and
+// ARTVAULT_PROJECT_STATE.md's Module 08 write-up for the real incident this
+// prevents.
 
 let testEnv: RulesTestEnvironment
 
@@ -42,12 +48,13 @@ const EXISTING_APPLICATION = {
 }
 
 beforeAll(async () => {
+  const { host, port } = assertIsolatedFirestoreTestEnvironment()
   testEnv = await initializeTestEnvironment({
-    projectId: 'demo-artvault',
+    projectId: TEST_PROJECT_ID,
     firestore: {
       rules: readFileSync('firestore.rules', 'utf8'),
-      host: '127.0.0.1',
-      port: 8080,
+      host,
+      port,
     },
   })
 })

@@ -83,11 +83,13 @@ live for the whole session — there's no need to restart it after editing
 code, only after editing `vite.config.ts`/`.env` itself.
 
 **During the day:** keep both terminals open. Running `npm run test`,
-`npm run test:rules`, `npm run build`, or `npm run lint` in a *third*
-terminal never touches either of the first two — none of them start, stop,
-or otherwise manage the dev server or emulator process (`test:rules`
-connects to whatever Firestore emulator is already running at `127.0.0.1:8080`
-and fails clearly, rather than trying to start one, if nothing is there).
+`npm run build`, or `npm run lint` in a *third* terminal never touches
+either of the first two — none of them start, stop, or otherwise manage the
+dev server or emulator process. `npm run test:rules`/`npm run
+test:storage-rules` are different on purpose: each launches its own
+short-lived, disposable emulator (see "Isolated rules-test emulator"
+below) and never touches the emulator in Terminal 1 at all, even if it
+happens to be running at the same time.
 
 **End of day:**
 1. `Ctrl+C` in the dev server terminal.
@@ -185,6 +187,55 @@ so no terminal session ever needs a temporary workaround again:
 Once this is done, no `$env:` / `export PATH=...` command is ever needed
 again in a fresh terminal — `npm run emulators` picks up the correctly
 configured `JAVA_HOME`/`PATH` automatically every time.
+
+### Isolated rules-test emulator (Module 08 hardening)
+
+`npm run test:rules` and `npm run test:storage-rules` used to connect
+directly to whatever Firestore/Storage emulator happened to already be
+running on `127.0.0.1:8080`/`9199` — the same ports, and the same
+`demo-artvault` project id, as the persistent dev emulator from
+`npm run emulators`. Both suites call `clearFirestore()` (and equivalent
+Storage clearing) in their own setup hooks; run directly against the dev
+emulator, that wiped its real, persistent Auth/Firestore data — a real
+incident, not a hypothetical one (see ARTVAULT_PROJECT_STATE.md's Module 08
+write-up).
+
+The fix is two independent layers, both required, neither optional:
+
+1. **Process isolation.** `scripts/run-isolated-emulator-tests.mjs` (what
+   `test:rules`/`test:storage-rules` actually invoke) launches a dedicated,
+   disposable emulator via `firebase emulators:exec`, configured by
+   `firebase.test.json` on ports (`8280` Firestore, `9399` Storage) that are
+   physically distinct from the dev emulator's (`8080`/`9199`/`9099`), under
+   project id `demo-artvault-test` — never `demo-artvault`. `emulators:exec`
+   starts the emulator, runs the test suite inside it, then shuts it back
+   down; there is no `--import`/`--export-on-exit`, so it never reads or
+   writes `./emulator-data` at all. A connection attempt to the wrong port
+   simply fails — it cannot silently succeed against the dev instance.
+2. **A runtime guard**, independent of the above: every file in
+   `firestore-tests/` and `storage-tests/` calls
+   `assertIsolatedFirestoreTestEnvironment()`/
+   `assertIsolatedStorageTestEnvironment()` (see
+   `test-support/emulatorTestEnv.ts`) before its first destructive call.
+   Each is fail-closed — it throws immediately, before any
+   `initializeTestEnvironment()`/`clearFirestore()` call ever runs, unless
+   the relevant `*_EMULATOR_HOST` environment variable (which
+   `emulators:exec` sets for whatever it actually started) is both present
+   and does **not** match a known dev-emulator port. A test file run via
+   bare `vitest run` — bypassing `npm run test:rules` entirely — has no such
+   variable set and is refused for that reason alone; there is no hardcoded
+   fallback host/port anywhere for it to silently default to.
+
+Because the isolated emulator starts cold every run (no persistent JVM to
+stay warm across sessions, unlike the dev emulator), `vitest.rules.config.ts`
+and `vitest.storage-rules.config.ts` both raise `hookTimeout`/`testTimeout`
+beyond Vitest's defaults — the very first Firestore/Storage call in a run
+can take longer while the JVM warms up.
+
+**Never** invoke `firebase emulators:exec` or `vitest run --config
+vitest.rules.config.ts` directly against a manually-started emulator for
+these suites — always go through `npm run test:rules`/
+`npm run test:storage-rules`, so both layers above are actually in effect.
 
 ### A note on re-exporting over an existing `./emulator-data`
 

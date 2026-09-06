@@ -7,7 +7,7 @@
 // Usage: `npm run emulators` (wraps this so `firebase emulators:start` never
 // needs to be typed/remembered with the right import/export flags by hand).
 
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   cpSync,
@@ -30,6 +30,7 @@ import {
   releaseLockIfOwnedBySelf,
   waitForPortsState,
 } from './lib/emulatorGuards.mjs'
+import { envWithResolvedJavaOnPath, resolveJavaOrExit } from './lib/javaRuntime.mjs'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const exportDir = path.join(projectRoot, 'emulator-data')
@@ -37,8 +38,6 @@ const exportMetadataFile = path.join(exportDir, 'firebase-export-metadata.json')
 const snapshotManifestFile = path.join(exportDir, 'artvault-snapshot-manifest.json')
 const backupDir = `${exportDir}.backup`
 const lockFile = path.join(projectRoot, '.emulator-launcher.lock')
-
-const MIN_JAVA_MAJOR_VERSION = 21
 
 // firebase.json's own emulator ports — the set this launcher requires to
 // actually be listening before it will ever call startup "ready".
@@ -159,35 +158,6 @@ acquireSingleInstanceLock()
 process.on('exit', releaseSingleInstanceLock)
 await cleanUpOrphanedEmulatorProcesses()
 
-// Deliberately `-version` (single dash), not `--version`: Java 8 and older
-// only understand the single-dash form and exit with "Unrecognized option"
-// on `--version` — which would make this check fail to report anything
-// useful for exactly the old-Java case it exists to catch. All JRE/JDK
-// versions, old and new, print their version line to stderr for `-version`.
-function getJavaMajorVersion(javaCommand) {
-  // No `shell: true` here: javaCommand may be an absolute path containing
-  // spaces (e.g. "C:\Program Files\...\java.exe"), and shell:true combined
-  // with a separate args array does not reliably quote that for cmd.exe.
-  // java.exe is a real executable, not a .cmd shim, so no shell is needed
-  // to invoke it directly.
-  const result = spawnSync(javaCommand, ['-version'], { encoding: 'utf8' })
-  if (result.error || result.status !== 0) return null
-
-  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
-  const match = output.match(/version "(\d+)(?:\.(\d+))?/)
-  if (!match) return null
-
-  const [, first, second] = match
-  // Legacy "1.8.0_..." version strings (Java 8 and earlier) report their
-  // real major version as the second component; Java 9+ reports it directly
-  // as the first ("21.0.12" → 21).
-  return first === '1' && second ? Number.parseInt(second, 10) : Number.parseInt(first, 10)
-}
-
-function javaBinPath(installDir) {
-  return path.join(installDir, 'bin', process.platform === 'win32' ? 'java.exe' : 'java')
-}
-
 function fileHash(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex')
 }
@@ -216,102 +186,7 @@ function writeSnapshotManifest(dirPath) {
   renameSync(tempPath, manifestPath)
 }
 
-// Common Windows locations JDK installers (Temurin/Adoptium, Oracle, Microsoft
-// Build of OpenJDK, Corretto) drop a versioned subdirectory into — scanned
-// only as a last-resort fallback, never relied on as the primary mechanism.
-function candidateInstallRoots() {
-  if (process.platform !== 'win32') return []
-  const programFiles = process.env['ProgramFiles'] ?? 'C:\\Program Files'
-  return [
-    path.join(programFiles, 'Eclipse Adoptium'),
-    path.join(programFiles, 'Java'),
-    path.join(programFiles, 'Microsoft'),
-    path.join(programFiles, 'Amazon Corretto'),
-  ]
-}
-
-// Last resort: JAVA_HOME isn't set (or doesn't point at a real JDK) and the
-// bare `java` on PATH isn't 21+ — rather than giving up immediately, look
-// for an already-installed JDK 21+ the user just hasn't pointed JAVA_HOME
-// at yet. Never installs anything; only reports what it finds.
-function findInstalledJdk21Plus() {
-  for (const root of candidateInstallRoots()) {
-    if (!existsSync(root)) continue
-    let entries
-    try {
-      entries = readdirSync(root, { withFileTypes: true })
-    } catch {
-      continue
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      const installDir = path.join(root, entry.name)
-      const javaBin = javaBinPath(installDir)
-      if (!existsSync(javaBin)) continue
-      const version = getJavaMajorVersion(javaBin)
-      if (version !== null && version >= MIN_JAVA_MAJOR_VERSION) {
-        return { command: javaBin, version, installDir }
-      }
-    }
-  }
-  return null
-}
-
-// The Firestore Emulator needs a JRE; firebase-tools itself requires 21+.
-// Resolution order: (1) JAVA_HOME, if set and pointing at a real JDK — even
-// if the raw system PATH still resolves an older `java` first, a common
-// half-fixed state on Windows; (2) bare `java` on PATH, in case it already
-// happens to be 21+; (3) a scan of common install directories for an
-// already-installed JDK 21+ the user just hasn't wired up via JAVA_HOME or
-// PATH yet. Only fails once none of the three produce a qualifying runtime.
-function resolveJava() {
-  const javaHome = process.env.JAVA_HOME
-  if (javaHome) {
-    const javaBin = javaBinPath(javaHome)
-    if (existsSync(javaBin)) {
-      const version = getJavaMajorVersion(javaBin)
-      if (version !== null) return { command: javaBin, version, source: `JAVA_HOME (${javaHome})` }
-    }
-  }
-
-  const pathVersion = getJavaMajorVersion('java')
-  if (pathVersion !== null && pathVersion >= MIN_JAVA_MAJOR_VERSION) {
-    return { command: 'java', version: pathVersion, source: 'PATH' }
-  }
-
-  const found = findInstalledJdk21Plus()
-  if (found) return { command: found.command, version: found.version, source: `found at ${found.installDir}` }
-
-  // Nothing 21+ available anywhere we looked — report the PATH java (if any)
-  // so the error message is concrete rather than a bare "not found".
-  if (pathVersion !== null) return { command: 'java', version: pathVersion, source: 'PATH' }
-  return null
-}
-
-const resolved = resolveJava()
-
-if (resolved === null) {
-  console.error(
-    `Could not detect any Java runtime (checked JAVA_HOME, PATH, and common install directories).\n` +
-      `The Firestore Emulator requires a Java Runtime Environment, JDK ${MIN_JAVA_MAJOR_VERSION}+.\n` +
-      `See docs/DEPLOYMENT.md → "Permanent Windows Java setup" for how to install and configure it.`,
-  )
-  process.exit(1)
-}
-
-if (resolved.version < MIN_JAVA_MAJOR_VERSION) {
-  console.error(
-    `Detected Java ${resolved.version} (via ${resolved.source}), but the Firebase Emulator Suite requires ` +
-      `Java ${MIN_JAVA_MAJOR_VERSION}+.\n` +
-      `This is almost always a PATH ordering issue — an older Java installation resolves before a newer ` +
-      `JDK ${MIN_JAVA_MAJOR_VERSION}+ one that's already on this machine.\n` +
-      `See docs/DEPLOYMENT.md → "Permanent Windows Java setup" to fix this once, for every future terminal ` +
-      `session — not just this one.`,
-  )
-  process.exit(1)
-}
-
-const javaCommand = resolved.command
+const resolved = resolveJavaOrExit()
 console.log(`Using Java ${resolved.version} (via ${resolved.source}).`)
 
 function sleep(ms) {
@@ -539,14 +414,10 @@ const commandLine = [command, ...commandArgs, ...emulatorArgs].join(' ')
 // in *this child's* PATH — so the spawned Firestore Emulator reliably uses
 // that exact runtime too, however it was found (JAVA_HOME, an already-good
 // PATH, or the install-directory fallback scan), even when the user's own
-// raw system PATH would otherwise resolve an older `java` first. Skipped
-// only when the resolved command is the bare `java` already found correctly
-// on PATH (source === 'PATH') — there's no different directory to prepend.
-const childEnv = { ...process.env }
-if (javaCommand !== 'java') {
-  const javaBinDir = path.dirname(javaCommand)
-  childEnv.PATH = `${javaBinDir}${path.delimiter}${process.env.PATH ?? ''}`
-}
+// raw system PATH would otherwise resolve an older `java` first. See
+// lib/javaRuntime.mjs — the same helper the isolated test-emulator launcher
+// (run-isolated-emulator-tests.mjs) uses for the exact same reason.
+const childEnv = envWithResolvedJavaOnPath(resolved)
 
 const child = spawn(commandLine, {
   cwd: projectRoot,

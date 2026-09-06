@@ -286,9 +286,68 @@ excluded by the query itself, not filtered client-side after the fact, and
 the page still shows the same honest "no public artworks yet" empty state
 from Module 06 when a seller has zero `PUBLISHED` artworks. Two equality
 filters on different fields (`sellerId`, `status`) do not require a
-Firestore composite index. Public *browsing/search* across all sellers'
-published artworks (a Marketplace) remains a future module's job — this
-query is scoped to one seller at a time, matching the page it serves.
+Firestore composite index. This query is scoped to one seller at a time,
+matching the page it serves; public browsing/search across every seller's
+published artworks is Module 08's own, separate query — see below.
+
+## Marketplace query architecture (Module 08)
+
+`/explore` (`src/app/routes/MarketplacePage.tsx`) is ArtVault's first
+cross-seller public read: `fetchMarketplacePage` in
+`src/features/marketplace/api/marketplaceRepository.ts` queries `artworks`
+for `status == 'PUBLISHED'` with no `sellerId` filter at all, optionally
+narrowed by an equality `category` filter and/or a `price` range, and
+always ordered by exactly one of `createdAt desc` (newest), `price asc`, or
+`price desc`, with the document id as a deterministic tiebreaker
+(`orderBy(documentId(), ...)`, matching the primary field's own direction)
+so cursor pagination never skips or repeats a result when two artworks
+share the same `createdAt`/`price` value.
+
+This is a one-shot, cursor-paginated read (`getDocs` + `startAfter`/
+`limit`), not a live subscription like every other `subscribeX` function in
+this codebase — Marketplace is intentionally the first feature read through
+TanStack Query (`useMarketplaceArtworks`, an `useInfiniteQuery`) rather than
+a `subscribeX`/`useX` pair, matching docs/ARCHITECTURE.md's own scope for
+TanStack Query ("one-shot reads"): a "load more" paginated browse doesn't
+have a natural "keep every already-loaded page live and reordered as new
+artworks are published mid-browse" semantics the way a single artist's
+small catalog does.
+
+**No new field was added to `artworks/{artworkId}` for this.** The artist's
+display name shown on each Marketplace card is resolved separately, one
+one-shot `getArtistDisplayName(sellerId)` read per distinct seller on the
+current page (`useArtistDisplayNames`, deduplicated and cached by TanStack
+Query) — denormalizing an artist name onto every artwork document was
+deliberately rejected in favor of reusing the already-public
+`artists/{artistId}` projection Module 06 established.
+
+**Why a price range forces the sort onto `price`:** Firestore requires any
+inequality-filtered field (`price >=`/`price <=` here) to be the query's
+first `orderBy` field. A price range therefore cannot be combined with the
+`createdAt`-based "newest" sort in one query; when both are requested at
+once, the repository silently serves `price-asc` instead (see
+`marketplaceRepository.ts`'s `effectiveSort`) rather than either rejecting
+the combination or issuing two queries — a real Firestore constraint, not
+an arbitrary product decision, and the UI surfaces a small note when this
+substitution happens.
+
+**Deliberately not built in Module 08:** a tag-based filter
+(`tags array-contains`). Unlike `category` — a small, closed, hardcoded
+enum — `tags` are freeform per-artwork strings with no fixed taxonomy or
+"known tags" index anywhere in the schema; a real tag-browsing facet would
+need either a new aggregation collection (inventing schema not yet
+justified by any confirmed need) or scanning every artwork client-side
+(defeats the purpose of a server-side filter). Querying a *specific* known
+tag via `array-contains` is technically supported by the existing schema,
+but *discovering* which tags exist to filter by is not — see
+ARTVAULT_PROJECT_STATE.md's Module 08 entry for the full reasoning.
+**Also deliberately not built:** free-text/fuzzy title search. A Firestore
+prefix-range trick (`where('title', '>=', p).where('title', '<=', p +
+'')`) could technically serve a case-sensitive "starts with" match,
+but it would force yet another mutually-exclusive sort/index family for
+comparatively little real value over structured filtering — true
+full-text/fuzzy search needs a dedicated search provider, which
+docs/ARCHITECTURE.md already defers pending explicit owner approval.
 
 ## Guiding rule: no unbounded arrays
 

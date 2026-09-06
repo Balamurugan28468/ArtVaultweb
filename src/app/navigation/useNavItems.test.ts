@@ -9,25 +9,25 @@ describe('useNavItems', () => {
   it('shows only guest-available items while loading (no premature role-gated links)', () => {
     useAuth.mockReturnValue({ status: 'loading', role: null })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace'])
   })
 
   it('shows only guest-available items when signed out', () => {
     useAuth.mockReturnValue({ status: 'unauthenticated', role: null })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace'])
   })
 
   it('adds Account for an authenticated CUSTOMER', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'CUSTOMER' })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home', 'account'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'account'])
   })
 
-  it('never renders a comingSoon item regardless of role', () => {
+  it('never renders a comingSoon item regardless of role (Marketplace, Module 08, is now genuinely available)', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'ADMIN' })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.every((item) => item.id === 'home' || item.id === 'account')).toBe(true)
+    expect(result.current.every((item) => ['home', 'marketplace', 'account'].includes(item.id))).toBe(true)
   })
 
   it('adds Seller Studio (now available) for an authenticated SELLER, but not for a CUSTOMER', () => {

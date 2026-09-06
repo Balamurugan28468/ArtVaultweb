@@ -1,4 +1,9 @@
-export { subscribeArtistProfile, toArtistProfileError, updateArtistProfile } from './api/artistProfileRepository'
+export {
+  getArtistDisplayName,
+  subscribeArtistProfile,
+  toArtistProfileError,
+  updateArtistProfile,
+} from './api/artistProfileRepository'
 export { ArtistProfileEditForm } from './components/ArtistProfileEditForm'
 export { PublicArtistArtworks } from './components/PublicArtistArtworks'
 export { PublicArtistHeader } from './components/PublicArtistHeader'

@@ -2,22 +2,62 @@
 
 **Status: foundation + authentication + customer account + seller/artwork
 foundation + artwork media + public artist profiles + artwork moderation &
-publishing.** Module 00 shipped a deny-by-default rules skeleton. Module 01
-added the first real rule, the first Cloud Function, and the real role
-model described below. Module 03 hardens that rule into a genuine
-field-level allow-list for customer profile self-service edits. Module 04
-adds `sellers/{uid}` and `artworks/{artworkId}`, both backend-authoritative
-about the one thing that actually matters (who may become a SELLER, who
-owns which artwork) exactly the way Module 01 already established for
-`ADMIN`/`SUPER_ADMIN`. Module 05 opens `storage.rules` for the first time,
-scoped to exactly the artwork photos an already-verified SELLER may touch.
-Module 06 opens `firestore.rules` to an unauthenticated public read for the
-first time, scoped to a deliberately narrow, physically separate public
-projection (`artists/{artistId}`) that structurally cannot expose anything
-from the private `sellers/{uid}` record it's derived from. Module 07 opens
-the first unauthenticated public read path onto `artworks/{artworkId}`
-itself, scoped to exactly one status value, and closes a real pre-existing
-field-forgery gap found while writing this module's own security tests.
+publishing + public marketplace.** Module 00 shipped a deny-by-default
+rules skeleton. Module 01 added the first real rule, the first Cloud
+Function, and the real role model described below. Module 03 hardens that
+rule into a genuine field-level allow-list for customer profile
+self-service edits. Module 04 adds `sellers/{uid}` and
+`artworks/{artworkId}`, both backend-authoritative about the one thing that
+actually matters (who may become a SELLER, who owns which artwork) exactly
+the way Module 01 already established for `ADMIN`/`SUPER_ADMIN`. Module 05
+opens `storage.rules` for the first time, scoped to exactly the artwork
+photos an already-verified SELLER may touch. Module 06 opens
+`firestore.rules` to an unauthenticated public read for the first time,
+scoped to a deliberately narrow, physically separate public projection
+(`artists/{artistId}`) that structurally cannot expose anything from the
+private `sellers/{uid}` record it's derived from. Module 07 opens the first
+unauthenticated public read path onto `artworks/{artworkId}` itself, scoped
+to exactly one status value, and closes a real pre-existing field-forgery
+gap found while writing this module's own security tests. Module 08 adds
+no new rule at all — it proves, with a dedicated new test suite, that
+Module 07's own PUBLISHED-read rule was already safe for the
+first genuinely cross-seller query this app has ever issued.
+
+## Implemented in Module 08
+
+- **No `firestore.rules` change.** Module 08's Marketplace
+  (`fetchMarketplacePage` in `src/features/marketplace/api/
+  marketplaceRepository.ts`) issues the first query in this codebase with no
+  `sellerId` filter at all — `where('status', '==', 'PUBLISHED')` across
+  every seller, optionally narrowed by `category`/`price`. Firestore
+  evaluates security rules per-document, never by query shape, so the exact
+  same `allow read` branch Module 07 added (`resource.data.status ==
+  'PUBLISHED'`) already covered this: any query that can only ever match
+  `PUBLISHED` documents is provably safe by that one rule branch alone,
+  regardless of how many sellers it spans. Module 07's own rule comment
+  predicted this in advance ("this broader browsing surface is a later
+  module's job") — Module 08 is that module, and changes zero lines of
+  `firestore.rules` to deliver it.
+- **New test coverage proves this, rather than just asserting it.**
+  `firestore-tests/artworks.rules.test.ts`'s new "cross-seller marketplace
+  query" suite seeds `PUBLISHED`/`DRAFT`/`SUBMITTED`/`REJECTED` artworks
+  across two different sellers and confirms: a signed-out visitor and an
+  authenticated non-owner customer can both run the unscoped
+  `status == 'PUBLISHED'` query and get back every seller's `PUBLISHED`
+  artwork and nothing else; a signed-in seller running the same query still
+  never sees another seller's non-`PUBLISHED` artwork; and a structurally
+  unsafe variant of the same query shape (`status == 'SUBMITTED'`, still no
+  `sellerId`) is rejected outright by Firestore as un-provable, not merely
+  returned empty — the negative case a rule change could have silently
+  gotten wrong.
+- **No new field was added to `artworks/{artworkId}` to support this.** The
+  artist display name shown on each Marketplace card is resolved via a
+  one-shot read of the already-public `artists/{artistId}` projection
+  (`getArtistDisplayName`), never a denormalized field on the artwork
+  document — keeping exactly one authoritative place for that value, the
+  same principle Module 06 established for artist identity.
+- **Test suite: 135/135 Firestore rules tests pass** (up from 131 after
+  Module 07), and the full frontend suite (see below) passes unchanged.
 
 ## Implemented in Module 07
 

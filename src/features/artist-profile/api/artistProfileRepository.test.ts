@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const { doc, onSnapshot, updateDoc, serverTimestamp } = vi.hoisted(() => ({
+const { doc, getDoc, onSnapshot, updateDoc, serverTimestamp } = vi.hoisted(() => ({
   doc: vi.fn(() => ({ path: 'artists/alice' })),
+  getDoc: vi.fn(),
   onSnapshot: vi.fn(),
   updateDoc: vi.fn(),
   serverTimestamp: vi.fn(() => 'SERVER_TIMESTAMP'),
@@ -9,11 +10,13 @@ const { doc, onSnapshot, updateDoc, serverTimestamp } = vi.hoisted(() => ({
 
 vi.mock('firebase/firestore', async (importOriginal) => {
   const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, doc, onSnapshot, updateDoc, serverTimestamp }
+  return { ...actual, doc, getDoc, onSnapshot, updateDoc, serverTimestamp }
 })
 vi.mock('@/lib/firebase/config', () => ({ db: {} }))
 
-const { subscribeArtistProfile, toArtistProfileError, updateArtistProfile } = await import('./artistProfileRepository')
+const { getArtistDisplayName, subscribeArtistProfile, toArtistProfileError, updateArtistProfile } = await import(
+  './artistProfileRepository'
+)
 
 describe('subscribeArtistProfile', () => {
   it('subscribes exactly once and returns the underlying unsubscribe function', () => {
@@ -88,6 +91,28 @@ describe('updateArtistProfile', () => {
       code: 'permission-denied',
       message: 'You do not have permission to do that.',
     })
+  })
+})
+
+describe('getArtistDisplayName', () => {
+  it('returns the display name for an existing profile', async () => {
+    getDoc.mockResolvedValueOnce({ exists: () => true, data: () => ({ displayName: 'Alice Fine Art' }) })
+    await expect(getArtistDisplayName('alice')).resolves.toBe('Alice Fine Art')
+  })
+
+  it('returns null for a nonexistent profile', async () => {
+    getDoc.mockResolvedValueOnce({ exists: () => false })
+    await expect(getArtistDisplayName('nobody')).resolves.toBeNull()
+  })
+
+  it('returns null for a malformed document rather than throwing', async () => {
+    getDoc.mockResolvedValueOnce({ exists: () => true, data: () => ({}) })
+    await expect(getArtistDisplayName('alice')).resolves.toBeNull()
+  })
+
+  it('returns null (never throws) when the read itself fails', async () => {
+    getDoc.mockRejectedValueOnce({ code: 'unavailable' })
+    await expect(getArtistDisplayName('alice')).resolves.toBeNull()
   })
 })
 

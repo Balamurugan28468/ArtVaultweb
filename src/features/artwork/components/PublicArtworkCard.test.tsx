@@ -49,4 +49,19 @@ describe('PublicArtworkCard', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
     expect(screen.queryByText(/draft|submitted|rejected|published/i)).not.toBeInTheDocument()
   })
+
+  it('shows the artist display name when one is passed (Module 08, Marketplace)', () => {
+    render(<PublicArtworkCard artwork={buildArtwork()} artistDisplayName="Alice Fine Art" />)
+    expect(screen.getByText('Alice Fine Art')).toBeInTheDocument()
+  })
+
+  it('renders no artist name line at all when none is passed — unchanged from the artist page’s own usage', () => {
+    const { container } = render(<PublicArtworkCard artwork={buildArtwork()} />)
+    expect(container.querySelectorAll('p')).toHaveLength(1)
+  })
+
+  it('renders no artist name line when explicitly null (e.g. the artist has no display name resolved yet)', () => {
+    render(<PublicArtworkCard artwork={buildArtwork()} artistDisplayName={null} />)
+    expect(screen.queryByText('Alice Fine Art')).not.toBeInTheDocument()
+  })
 })

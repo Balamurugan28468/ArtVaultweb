@@ -1,13 +1,20 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-06 — Module 05 (Artwork Media/Image Upload) —
-Storage-backed photo upload for Seller Studio DRAFT artworks, plus the
-Firebase emulator launcher lifecycle hardening it surfaced (stale-lock
-identity verification, tree-aware orphan-process cleanup covering dynamic
-Functions-worker ports) — **implementation, tests, and the owner's own
-real upload/restart verification all complete, verified, and committed**;
-see "Module 05 — Artwork Media/Image Upload & Emulator Lifecycle Hardening"
-below for the full write-up. Module 04 Final Hardening & Firebase Emulator
+_Last updated: 2026-09-06 — Module 06 (Artist Profiles) — ArtVault's first
+public-facing feature: a public `artists/{artistId}` projection, a public
+`/artists/:artistId` page, and a Seller Studio surface for managing it —
+**implementation, tests, real-emulator verification, and the owner's own
+manual verification (including the real signed-out/incognito route retest)
+all complete, verified — pending commit approval only**; see "Module 06 —
+Artist Profiles" below for the full write-up. Module 05 (Artwork Media/Image
+Upload) — Storage-backed photo upload for Seller Studio DRAFT artworks,
+plus the Firebase emulator launcher lifecycle hardening it surfaced
+(stale-lock identity verification, tree-aware orphan-process cleanup
+covering dynamic Functions-worker ports) — **implementation, tests, and
+the owner's own real upload/restart verification all complete, verified,
+and committed** (`3265194`); see "Module 05 — Artwork Media/Image Upload &
+Emulator Lifecycle Hardening" below for the full write-up. Module 04 Final
+Hardening & Firebase Emulator
 Persistence / Seller-Authorization Reconciliation: implementation, tests,
 and the **owner's own real Windows Ctrl+C manual restart verification** all
 **complete, verified, and committed** (`877f3ba`, full hash
@@ -32,17 +39,28 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 05 — Artwork Media/Image Upload: implementation complete,
-verified, owner manually accepted end to end, and committed** — Storage-
-backed photo upload (add/preview/reorder/remove, progress/retry/cancel) for
-Seller Studio DRAFT artworks, plus the emulator launcher lifecycle
-hardening (stale-lock identity verification, tree-aware orphan-process
-cleanup) it surfaced. See "Module 05 — Artwork Media/Image Upload &
-Emulator Lifecycle Hardening" below for the full writeup. Module 04
-(Seller Foundation & Artwork Draft Management: `d483994`, `1f8ca5a`,
-`1f0deb7`; Emulator Persistence & Seller-Authorization Reconciliation:
-`877f3ba`) remains complete, verified, and committed. Module 06 has not
-been started. See "Completed modules" for the checkpoint entry.
+**Module 06 — Artist Profiles: implementation complete, verified, owner
+manually accepted end to end — pending commit approval only.** A public
+`artists/{artistId}` projection (ArtVault's first unauthenticated-readable
+Firestore collection), a public `/artists/:artistId` page, and a Seller
+Studio surface (`/seller-studio/profile`) for the approved seller to
+manage their public `displayName`/`bio`. The document is only ever created
+by the trusted `promoteSeller.ts`/`reconcileRoles.ts` operator scripts —
+never by a client — and the real owner account (approved before this
+module existed) was automatically backfilled a real profile by
+`reconcileRoles.ts` on the very first restart after this module's code
+landed, verified via the Admin SDK and a real signed-out browser session.
+A real signed-out/incognito route regression was reported during the
+owner's first manual pass, root-caused, could not be reproduced against
+the current code by an exhaustive 11-scenario live re-test, and the owner's
+own retest then confirmed PASS — see "Module 06 — Artist Profiles" below
+for the full writeup. Module 05
+(Artwork Media/Image Upload & Emulator Lifecycle Hardening: `3265194`) and
+Module 04 (Seller Foundation & Artwork Draft Management: `d483994`,
+`1f8ca5a`, `1f0deb7`; Emulator Persistence & Seller-Authorization
+Reconciliation: `877f3ba`) remain complete, verified, and committed.
+Module 07 has not been started. See "Completed modules" for the checkpoint
+entry once Module 06 itself is committed.
 
 ## Authentication methods — current scope
 
@@ -62,6 +80,216 @@ happened; the working tree was verified byte-identical to the prior
 approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
+
+## Module 06 — Artist Profiles (COMPLETE, owner manually accepted, pending commit)
+
+**Status:** implementation, automated tests, real-emulator verification, and
+the owner's own full manual acceptance walkthrough (including a real
+signed-out/incognito retest after a reported-and-resolved routing
+regression — see "Signed-out route regression" below) all complete. Review
+result: **PASS — owner manually accepted**. Not yet committed — waiting on
+final pre-commit verification and explicit commit approval, exactly as
+every prior module.
+
+### Objective and scope decision
+
+No document in this repository ever assigned the literal number "Module
+06" to a specific feature — `ARTVAULT_PROJECT_STATE.md`'s own stated policy
+is that module selection is an explicit owner decision each time, not a
+fixed roadmap. Three independent sources (`docs/ARCHITECTURE.md`'s
+feature-folder order, `docs/DATABASE.md`'s draft-collection order, and this
+file's own "Pending modules" list) all agreed Artist Profiles was the most
+natural next candidate; a scope-discovery report was produced and the
+owner explicitly confirmed Artist Profiles as Module 06, at the **medium**
+scope: a public artist identity + Seller Studio editing, explicitly
+excluding followers/reviews/Marketplace/social feeds/AR/payments/
+messaging/analytics — those remain later modules' work.
+
+### Architectural decision: a separate public projection
+
+`artists/{artistId}` is a **physically separate Firestore document** from
+`sellers/{uid}` — never the same document opened to public reads.
+`artistId` is the same value as the approved seller's own auth uid (no
+conflict was found with this choice — it matches the existing
+`sellers/{uid}`/`users/{uid}` precedent exactly, so no alternative identity
+model was needed). See `docs/DATABASE.md` for the full schema and
+`docs/SECURITY.md` for the full rules rationale.
+
+```
+uid: string                    == the document id == the approved seller's own auth uid
+displayName: string            public display name; 2-80 chars
+bio: string                    public bio; 10-500 chars
+createdAt: Timestamp (server)
+updatedAt: Timestamp (server)
+```
+
+Public fields only — `contactEmail`, application `status`, `appliedAt`,
+`reviewedAt`, and every other private `sellers/{uid}` field simply do not
+exist in this document. No `location` field was added: the existing data
+model has no location concept anywhere to draw one from, and inventing one
+would have violated "do not invent unnecessary personal information."
+
+### Profile creation and synchronization — never client-triggered
+
+Preserving the Module 04/05 invariant ("never trust the browser to grant
+authorization or fabricate identity"), `artists/{uid}` is created only by
+two trusted, Admin-SDK-only operator scripts — no new Cloud Function was
+needed:
+
+- **`functions/src/promoteSeller.ts`** now also creates the profile at the
+  exact moment a seller is approved, seeded from that same application's
+  `businessName`/`description`.
+- **`functions/src/reconcileRoles.ts`** now also backfills a missing
+  profile for any already-APPROVED seller (idempotent — never overwrites
+  an existing one, so a seller's own later public-field edits are never at
+  risk). This covers a seller approved before this module existed — see
+  "Real owner verification" below, where this is exactly what happened.
+
+After creation, the owning approved seller may edit `displayName`/`bio`
+themselves directly via a tightly-scoped `firestore.rules` allow-list
+(`isOwner(artistId) && hasRole('SELLER')`, matching the Module 04 invariant
+that the SELLER claim — never a Firestore mirror — is the sole
+authorization signal), the same self-service pattern Module 03 established
+for `users/{uid}`.
+
+### Artwork visibility — deliberately not opened
+
+Per the owner's explicit instruction, this module does **not** treat
+`SUBMITTED` as a public artwork state. `DRAFT`/`SUBMITTED` remain the only
+two lifecycle states that exist, and neither is genuinely public —
+`SUBMITTED` means "locked, awaiting a reviewer/Marketplace that doesn't
+exist yet." `artworks/{artworkId}`'s rules are completely untouched by this
+module. The public artist page always shows an honest "No public artworks
+yet" empty state (`PublicArtistArtworks.tsx`) without ever reading
+`artworks` at all — a real public artwork lifecycle state and the query/
+rule that serves it are the Marketplace/Publishing module's job.
+
+### Security — `firestore.rules`
+
+- `allow read: if true` on `artists/{artistId}` — ArtVault's first
+  unauthenticated Firestore read, deliberately isolated to this narrow
+  collection (see "Architectural decision" above for why this can never
+  leak a private field).
+- `allow create: if false` unconditionally — not even the profile's own
+  eventual owner can create it; only the two trusted scripts above ever
+  do, via the Admin SDK (which bypasses rules entirely).
+- `allow update` requires `isOwner(artistId) && hasRole('SELLER')`, an
+  unchanged `uid`/`createdAt`, and
+  `diff(...).affectedKeys().hasOnly(['displayName', 'bio', 'updatedAt'])` —
+  both fields independently length-validated.
+- `allow delete: if false`.
+- `sellers/{uid}` and `artworks/{artworkId}`'s own rules are completely
+  unchanged.
+
+### Dedicated public vs. seller-management components
+
+`src/features/artist-profile/components/PublicArtistHeader.tsx` and
+`PublicArtistArtworks.tsx` are read-only and never render any edit/manage
+control — verified by a component test asserting no `button`/`textbox`
+role exists in their output. `ArtistProfileEditForm.tsx` (Seller Studio
+only, rendered from a route already gated by `RequireRole allow={['SELLER']}`)
+is a fully separate component tree — no component is shared or prop-toggled
+between the public and owner-management surfaces, avoiding the exact
+leakage risk the owner's instructions called out.
+
+### Real owner verification
+
+- **Real backfill against pre-existing data:** the real owner account was
+  approved as SELLER before this module existed, so it had no
+  `artists/{uid}` document at all. Restarting the real emulator after this
+  module's code landed ran the updated `reconcile-roles` automatically,
+  which logged `ppqIaap00MbYNY9RGDQmTwBb54bP: already-consistent (+ created
+  missing artist profile)` — confirmed via the Admin SDK: `displayName:
+  "Balamurugan Fine Art"`, `bio` matching the real seller application's
+  description, both correctly seeded from the real `sellers/{uid}` record
+  with zero manual intervention.
+- **Real public page, real signed-out session:** `/artists/ppqIaap00MbYNY9RGDQmTwBb54bP`
+  rendered the owner's real display name, real bio, the generated
+  initials avatar, and the honest "No public artworks yet" state — in a
+  genuinely separate, signed-out browser context (top bar showed
+  "Sign in"/"Sign up"), zero console errors.
+- **Real nonexistent-artist check:** a fabricated uid correctly showed
+  "Artist not found," never an error.
+- **Real Seller Studio edit surface:** signed in as the real owner,
+  `/seller-studio/profile` correctly pre-filled both fields from the real,
+  backfilled profile.
+- Auth/Firestore/Storage/Functions emulator health and the owner's
+  SELLER/APPROVED status, real artwork, and both real uploaded Storage
+  images (from Module 05) were all independently re-confirmed unchanged,
+  via the Admin SDK, both before and after this module's rules-test
+  protect/restore cycle.
+
+### Signed-out route regression — reported, investigated, resolved
+
+During the owner's first manual pass, a real signed-out/incognito visit to
+`/artists/:artistId` was redirected to `/sign-in` instead of showing the
+public profile. Investigated before touching any code, per instruction:
+
+- `router.tsx` was re-inspected and confirmed correct — `artists/:artistId`
+  is a top-level sibling of `sign-in`/`sign-up`, structurally outside the
+  `RequireAuth` subtree, not wrapped by `RequireRole`.
+- A repository-wide search for every `/sign-in` redirect found exactly one
+  source: `RequireAuth.tsx`'s own `<Navigate>` — nothing in `AppShell`,
+  `AuthProvider`, or anywhere else redirects independently of route
+  nesting.
+- An exhaustive, fresh, isolated-browser-context live re-test (11
+  scenarios: signed-out direct URL entry, refresh, and SPA back-navigation;
+  authenticated-CUSTOMER direct URL entry and refresh; a fake artist id) all
+  **passed** against the current code — the reported redirect could not be
+  reproduced.
+- **Most likely root cause:** a transient dev-server condition at the exact
+  moment of the original test — `createBrowserRouter`'s router object is a
+  module-level singleton computed once in `main.tsx`, and Vite HMR has no
+  explicit accept boundary registered for `router.tsx` in this project;
+  editing it during a live `npm run dev` session can leave an
+  already-open tab's in-memory router briefly out of sync with the latest
+  route table until a full reload occurs. This is a dev-server-only
+  characteristic, not an application code defect — no code change was made
+  as a result, since none was needed once the current state was proven
+  correct by both the automated re-test and the owner's own subsequent
+  retest (PASS).
+
+### Tests
+
+- **Firestore rules:** 113/113 (92 pre-existing + 21 new in
+  `firestore-tests/artistProfiles.rules.test.ts`) — public read by a
+  signed-out visitor/customer/other seller; nonexistent id and a PENDING
+  seller's (nonexistent) profile both fail safely; private `sellers/{uid}`
+  fields unreachable; creation blocked for everyone including the eventual
+  owner; cross-seller update blocked; protected-field/length-validation
+  update failures; delete blocked; and a regression check confirming a
+  public visitor still cannot read a SUBMITTED artwork.
+- **Storage rules:** 16/16 — unaffected (this module makes no Storage
+  changes), re-run as part of the full gate.
+- **Functions:** 27/27 (up from 22) — new coverage for
+  `promoteSeller.ts`'s artist-profile creation and `reconcileRoles.ts`'s
+  backfill (including "never overwrites an existing profile" and "backfill
+  happens alongside claim/mirror reconciliation in the same run").
+- **Frontend:** 397/397 (up from 361) — repository/hook/component tests for
+  the new `artist-profile` feature, plus `ArtistProfilePage`,
+  `SellerProfilePage`, and `SellerStudioHomePage`'s new nav link.
+- **Build/typecheck/lint:** all clean (pre-existing advisory warnings
+  only).
+
+### Known limitations / deferred features
+
+- No avatar upload — deferred per the owner's own explicit instruction to
+  avoid destabilizing the core module; the public page uses `Avatar`'s
+  existing initials-fallback. A future pass can reuse Module 05's proven
+  Storage-rules pattern for it.
+- No followers/following, reviews, Marketplace/Search, social feeds, AR,
+  payments/orders, messaging, or analytics counters — explicitly out of
+  scope per the owner's instructions; each is its own later module.
+- No `location` field — the existing data model has no location concept to
+  draw one from; not invented for this module.
+- No public artwork list yet — see "Artwork visibility" above; activates
+  with the Marketplace/Publishing module.
+- `router.test.tsx` (the real-router integration suite) was not extended
+  to cover the new public route — it currently only exercises routes that
+  don't touch Firestore, and the new route's own dedicated page-level test
+  (with the feature layer properly mocked) already covers its behavior;
+  extending the shared integration file would have required adding
+  Firestore mocking that no existing case there needs yet.
 
 ## Module 05 — Artwork Media/Image Upload & Emulator Lifecycle Hardening (COMPLETE / VERIFIED / COMMITTED)
 
@@ -1821,20 +2049,36 @@ untouched.
   SELLER/APPROVED authorization held throughout; the fixed launcher
   correctly recovered from two independently-reproduced real broken states
   with zero unidentified processes and zero manual intervention. Review
-  result: **PASS — owner manually accepted**. Checkpoint commit: this
-  closeout's own commit (see `git log`).
+  result: **PASS — owner manually accepted**. Checkpoint commit: `3265194`.
+- **Module 06 — Artist Profiles:** ArtVault's first public-facing feature —
+  a public `artists/{artistId}` projection (physically separate from
+  `sellers/{uid}`, never exposing any private field), a public
+  `/artists/:artistId` page, and a Seller Studio surface for managing the
+  public `displayName`/`bio`. The profile is created only by the trusted
+  `promoteSeller.ts`/`reconcileRoles.ts` operator scripts, never a client;
+  artwork visibility was deliberately not opened (no lifecycle state is
+  genuinely public yet). Verified against the real owner account,
+  including an automatic real-data backfill via `reconcileRoles.ts` and a
+  real signed-out browser session; a reported signed-out-route regression
+  was investigated, could not be reproduced against the code via an
+  11-scenario live re-test, and the owner's own retest then confirmed
+  PASS. Review result: **PASS — owner manually accepted**. Checkpoint
+  commit: this closeout's own commit (see `git log`).
 
 ## Pending modules (not started, order not yet committed)
 
-Artist Profiles, Marketplace/Search, Wishlist/Likes/Follows/Sharing, Cart,
-Checkout/Payments, Orders, Reviews, Notifications, AI (analysis / assistant
-/ search / recommendations), Auctions, AR Engine, Admin Control Center
-(including seller-application review UI), Audit Logs, Analytics, hardened
-Security Rules, Production Deployment. (Customer Account & Profile
-Foundation is Module 03, complete and committed; Seller Foundation &
-Artwork Draft Management is Module 04, complete and committed; Artwork
-Media/Image Upload is Module 05, complete and committed — see above. A
-dedicated Inventory feature beyond the single `inventoryCount` field
+Marketplace/Search, Wishlist/Likes/Follows/Sharing, Cart, Checkout/Payments,
+Orders, Reviews, Notifications, AI (analysis / assistant / search /
+recommendations), Auctions, AR Engine, Admin Control Center (including
+seller-application review UI), Audit Logs, Analytics, hardened Security
+Rules, Production Deployment. (Customer Account & Profile Foundation is
+Module 03, complete and committed; Seller Foundation & Artwork Draft
+Management is Module 04, complete and committed; Artwork Media/Image
+Upload is Module 05, complete and committed; Artist Profiles is Module 06,
+implementation complete and pending owner review — see above. Followers/
+following specifically remain deferred from Module 06 to whichever later
+module actually builds the Follows feature. A dedicated Inventory feature
+beyond the single `inventoryCount` field
 remains deferred, not started. Avatar *upload* specifically also remains
 deferred to a future module.)
 
@@ -1896,17 +2140,21 @@ collection remains a draft — not created in a live project. See
 
 - **Implemented:** `users/{uid}` (Module 01, extended in Module 03 with
   `photoURL`/`phoneNumber`/`bio`/`profileCompleted` and a field-level update
-  rule) — see `docs/DATABASE.md` for its schema and rule.
-- **Draft (not yet created):** `sellers`, `artists`, `artworks`,
-  `carts/{uid}/items`, `orders`, `orders/{orderId}/items`,
-  `wishlists/{uid}/items`, `likes/{artworkId}/by`, `follows`
-  (bidirectional), `reviews`, `notifications`, `auctions`,
+  rule); `sellers/{uid}` and `artworks/{artworkId}` (Module 04);
+  `artists/{artistId}` (Module 06, ArtVault's first publicly-readable
+  collection) — see `docs/DATABASE.md` for each one's schema and rule.
+- **Draft (not yet created):** `carts/{uid}/items`, `orders`,
+  `orders/{orderId}/items`, `wishlists/{uid}/items`, `likes/{artworkId}/by`,
+  `follows` (bidirectional), `reviews`, `notifications`, `auctions`,
   `auctions/{auctionId}/bids`, `auditLogs`.
 
 ## Indexes
 
-None defined yet (`firestore.indexes.json` is an empty skeleton — the
-Module 01 `users/{uid}` rule needs no composite index).
+None defined yet (`firestore.indexes.json` is an empty skeleton). Every
+implemented query so far (`sellers`/`artworks` by `sellerId`, `artists` by
+document id) is either a single-field equality or a direct document read,
+needing no composite index; Module 06's public artist-page query pattern is
+likewise a single document read (`artists/{artistId}`), not a query at all.
 
 ## Cloud Functions
 

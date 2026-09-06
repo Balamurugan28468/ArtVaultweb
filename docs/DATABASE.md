@@ -1,17 +1,19 @@
 # ArtVault — Database Architecture (Firestore)
 
 **Status: foundation + authentication + customer account + seller/artwork
-foundation.** Module 00 created a deny-by-default rules skeleton. Module 01
-(Authentication) created `users/{uid}`, written once by the `onUserCreate`
-Cloud Function right after sign-up (see `functions/src/index.ts`). Module 03
-(Customer Account & Profile Foundation) extends that same document with the
-editable profile fields below and adds the field-level update rule that
-protects them — see `docs/SECURITY.md`. Module 04 (Seller Foundation &
-Artwork Draft Management) implements `sellers/{uid}` and
-`artworks/{artworkId}` as described below. Every other collection remains
-design-only — not created, read, or written by any code yet — recorded here
-so later modules build toward one consistent shape instead of improvising
-per-feature.
+foundation + public artist profiles.** Module 00 created a deny-by-default
+rules skeleton. Module 01 (Authentication) created `users/{uid}`, written
+once by the `onUserCreate` Cloud Function right after sign-up (see
+`functions/src/index.ts`). Module 03 (Customer Account & Profile Foundation)
+extends that same document with the editable profile fields below and adds
+the field-level update rule that protects them — see `docs/SECURITY.md`.
+Module 04 (Seller Foundation & Artwork Draft Management) implements
+`sellers/{uid}` and `artworks/{artworkId}` as described below. Module 06
+(Artist Profiles) implements `artists/{artistId}` — ArtVault's first
+genuinely public (unauthenticated-readable) collection. Every other
+collection remains design-only — not created, read, or written by any code
+yet — recorded here so later modules build toward one consistent shape
+instead of improvising per-feature.
 
 ## `users/{uid}` (implemented in Module 01, extended in Module 03)
 
@@ -165,6 +167,76 @@ No public read path exists for `artworks/{artworkId}` yet — that's the
 Marketplace module's job, once one is actually built to consume it; until
 then, an artwork (`DRAFT` or `SUBMITTED`) is visible only to its own seller.
 
+## `artists/{artistId}` (implemented in Module 06 — public projection)
+
+```
+uid: string                    == the document id; the approved seller's own auth uid — never a separately generated id
+displayName: string            public display name; 2-80 chars; seeded from sellers/{uid}.businessName, then independently seller-editable
+bio: string                    public bio; 10-500 chars; seeded from sellers/{uid}.description, then independently seller-editable
+createdAt: Timestamp (server)  set once, when the profile is first created
+updatedAt: Timestamp (server)  set on every update
+```
+
+**ArtVault's first genuinely public (unauthenticated-readable) collection.**
+`artistId` is deliberately the same value as the underlying approved
+seller's own auth uid (matching the `sellers/{uid}` precedent: keyed by
+uid, no indirection until a real multi-storefront-per-seller concept
+exists), but `artists/{artistId}` is a **physically separate document**
+from `sellers/{uid}` — not the same document opened to public reads, and
+not a rules-level projection of it. This is deliberate: `contactEmail`,
+`status`, `appliedAt`, `reviewedAt`, and every other field on the private
+`sellers/{uid}` application record simply do not exist anywhere in this
+document, so a public visitor can never reach one by reading it, no matter
+how the rules evolve later. `sellers/{uid}` remains the sole authoritative
+*private* seller/application record; `artists/{uid}` is a narrow, curated
+*public* one, and the two are kept in sync one-way (private → public,
+never the reverse) by the mechanism below — never by opening the private
+document itself.
+
+### Profile creation and synchronization
+
+An `artists/{uid}` document is **never created by a client** —
+`firestore.rules` denies `create` unconditionally, the same structural
+guarantee `sellers/{uid}` already has for `update`/`delete`. It is created
+by exactly two trusted, Admin-SDK-only, never-client-reachable operator
+scripts, both seeding `displayName`/`bio` from that seller's own
+already-validated `sellers/{uid}` record at the moment of creation:
+
+- **`functions/src/promoteSeller.ts`** — creates it at the exact moment
+  (and only the moment) a seller application is approved, immediately
+  after granting the `SELLER` custom claim. This is the normal, forward-
+  going path for every seller approved from this point on.
+- **`functions/src/reconcileRoles.ts`** — backfills a missing `artists/{uid}`
+  for any seller already APPROVED before this module existed (a real,
+  needed case — see "Real owner verification" in
+  `ARTVAULT_PROJECT_STATE.md`), or in the rare case `promoteSeller.ts`'s own
+  write sequence failed partway. Idempotent and non-destructive: it only
+  ever creates a profile that's missing, and never overwrites one that
+  already exists — a seller's own later edits to their public
+  `displayName`/`bio` are never at risk of being clobbered by a later
+  reconciliation run.
+
+After creation, the owning approved seller may edit `displayName`/`bio`
+themselves directly (client-writable, via a tightly-scoped `firestore.rules`
+allow-list — see `docs/SECURITY.md`), the same self-service pattern
+Module 03 established for `users/{uid}`'s editable fields. `uid` and
+`createdAt` are immutable from the client forever.
+
+### Artwork visibility boundary — deliberately not opened by this module
+
+Module 06 does **not** add any public read path for `artworks/{artworkId}`.
+`DRAFT` and `SUBMITTED` remain the only two lifecycle states that exist
+(see above), and neither represents a genuinely *public* state — `SUBMITTED`
+means "locked, awaiting a reviewer/Marketplace that doesn't exist yet," not
+"published." Opening artwork reads on the strength of `SUBMITTED` alone
+would have been exactly the kind of silent scope/security expansion this
+module was scoped to avoid. The public artist page therefore always shows
+an honest "no public artworks yet" empty state (see
+`src/features/artist-profile/components/PublicArtistArtworks.tsx`) — no
+Firestore read against `artworks` happens from that page at all. A real
+public artwork lifecycle state (e.g. `PUBLISHED`) and the query/rule that
+serves it are the Marketplace/Publishing module's job.
+
 ## Guiding rule: no unbounded arrays
 
 Any relationship that can grow open-endedly (cart contents, order line
@@ -176,16 +248,17 @@ computed by reading an entire subcollection.
 
 ## Draft collection layout
 
-(`users/{uid}`, `sellers/{uid}`, and `artworks/{artworkId}` are now
-implemented as described above; everything below remains design-only. Note
-`artworks/{artworkId}` will gain an `ar: {...}` sub-object — see that
-section above — and further status values, once the AR and
-review/Marketplace modules that would actually use them exist.)
+(`users/{uid}`, `sellers/{uid}`, `artworks/{artworkId}`, and
+`artists/{artistId}` are now implemented as described above; everything
+below remains design-only. Note `artworks/{artworkId}` will gain an
+`ar: {...}` sub-object — see that section above — and further status
+values, once the AR and review/Marketplace modules that would actually use
+them exist. The `follows/{artistId}/followers/{followerUid}` entry below
+refers to that same now-implemented `artists/{artistId}` id — follower
+counts and the follow relationship itself remain entirely unbuilt; Module 06
+deliberately does not implement them.)
 
 ```
-artists/{artistId}
-  public artist profile (may coincide with a sellerId)
-
 carts/{uid}/items/{artworkId}
   quantity, unitPriceSnapshot, addedAt
 

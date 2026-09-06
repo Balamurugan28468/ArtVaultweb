@@ -12,6 +12,9 @@ export function SellerStudioHomePage() {
         <Link to="/seller-studio/artworks/new" className={buttonClassName('primary', 'md')}>
           Create Artwork
         </Link>
+        <Link to="/seller-studio/profile" className={buttonClassName('secondary', 'md')}>
+          Public Profile
+        </Link>
       </div>
     </SellerStudioShell>
   )

@@ -40,6 +40,11 @@ export interface ReconcileResult {
     | 'restored-role-mirror'
     | 'restored-profile-and-claim'
     | 'restored-both'
+  // Module 06 — Artist Profiles: orthogonal to `action` above (which only
+  // ever describes claim/users-mirror reconciliation) — 'not-applicable'
+  // for a non-approved uid (no artist profile should exist for one), so
+  // this never implies anything was granted that shouldn't have been.
+  artistProfile: 'exists' | 'created' | 'not-applicable'
 }
 
 async function reconcileOne(uid: string): Promise<ReconcileResult> {
@@ -50,7 +55,7 @@ async function reconcileOne(uid: string): Promise<ReconcileResult> {
   // Reconciliation only ever restores a proven APPROVED state; it is not a
   // path to APPROVED for anyone who isn't already there.
   if (!sellerSnap.exists || sellerSnap.data()?.status !== 'APPROVED') {
-    return { uid, action: 'already-consistent' }
+    return { uid, action: 'already-consistent', artistProfile: 'not-applicable' }
   }
 
   let userRecord
@@ -70,8 +75,29 @@ async function reconcileOne(uid: string): Promise<ReconcileResult> {
   const profileNeedsFix = !userDocSnap.exists
   const mirrorNeedsFix = userDocSnap.exists && currentMirrorRole !== 'SELLER'
 
+  // Restores a missing artists/{uid} public projection for an
+  // already-APPROVED seller — covers both a seller approved before this
+  // module existed, and the rare case of promoteSeller.ts's own write
+  // failing partway. Seeded from the same trusted sellers/{uid} record
+  // promoteSeller.ts itself seeds from; never overwrites an existing one
+  // (a seller's own edits to their public displayName/bio must never be
+  // clobbered by a later reconciliation run).
+  const artistSnap = await db.collection('artists').doc(uid).get()
+  const artistProfileNeedsFix = !artistSnap.exists
+  if (artistProfileNeedsFix) {
+    const sellerData = sellerSnap.data() ?? {}
+    await db.collection('artists').doc(uid).set({
+      uid,
+      displayName: typeof sellerData.businessName === 'string' ? sellerData.businessName : '',
+      bio: typeof sellerData.description === 'string' ? sellerData.description : '',
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+  }
+  const artistProfile: ReconcileResult['artistProfile'] = artistProfileNeedsFix ? 'created' : 'exists'
+
   if (!claimNeedsFix && !mirrorNeedsFix) {
-    return { uid, action: 'already-consistent' }
+    return { uid, action: 'already-consistent', artistProfile }
   }
 
   if (claimNeedsFix) {
@@ -94,10 +120,10 @@ async function reconcileOne(uid: string): Promise<ReconcileResult> {
     await db.collection('users').doc(uid).update({ role: 'SELLER', updatedAt: FieldValue.serverTimestamp() })
   }
 
-  if (profileNeedsFix) return { uid, action: 'restored-profile-and-claim' }
-  if (claimNeedsFix && mirrorNeedsFix) return { uid, action: 'restored-both' }
-  if (claimNeedsFix) return { uid, action: 'restored-seller-claim' }
-  return { uid, action: 'restored-role-mirror' }
+  if (profileNeedsFix) return { uid, action: 'restored-profile-and-claim', artistProfile }
+  if (claimNeedsFix && mirrorNeedsFix) return { uid, action: 'restored-both', artistProfile }
+  if (claimNeedsFix) return { uid, action: 'restored-seller-claim', artistProfile }
+  return { uid, action: 'restored-role-mirror', artistProfile }
 }
 
 export async function reconcileRoles(uid?: string): Promise<ReconcileResult[]> {
@@ -120,7 +146,8 @@ async function main(): Promise<void> {
   initializeApp()
   const results = await reconcileRoles(uid)
   for (const result of results) {
-    console.log(`${result.uid}: ${result.action}`)
+    const artistNote = result.artistProfile === 'created' ? ' (+ created missing artist profile)' : ''
+    console.log(`${result.uid}: ${result.action}${artistNote}`)
   }
   console.log(`Reconciled ${results.length} account(s) against their sellers/{uid} record.`)
 }

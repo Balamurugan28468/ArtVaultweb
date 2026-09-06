@@ -1,16 +1,69 @@
 # ArtVault — Security Architecture
 
 **Status: foundation + authentication + customer account + seller/artwork
-foundation + artwork media.** Module 00 shipped a deny-by-default rules
-skeleton. Module 01 added the first real rule, the first Cloud Function,
-and the real role model described below. Module 03 hardens that rule into a
-genuine field-level allow-list for customer profile self-service edits.
-Module 04 adds `sellers/{uid}` and `artworks/{artworkId}`, both
-backend-authoritative about the one thing that actually matters (who may
-become a SELLER, who owns which artwork) exactly the way Module 01 already
-established for `ADMIN`/`SUPER_ADMIN`. Module 05 opens `storage.rules` for
-the first time, scoped to exactly the artwork photos an already-verified
-SELLER may touch.
+foundation + artwork media + public artist profiles.** Module 00 shipped a
+deny-by-default rules skeleton. Module 01 added the first real rule, the
+first Cloud Function, and the real role model described below. Module 03
+hardens that rule into a genuine field-level allow-list for customer
+profile self-service edits. Module 04 adds `sellers/{uid}` and
+`artworks/{artworkId}`, both backend-authoritative about the one thing that
+actually matters (who may become a SELLER, who owns which artwork) exactly
+the way Module 01 already established for `ADMIN`/`SUPER_ADMIN`. Module 05
+opens `storage.rules` for the first time, scoped to exactly the artwork
+photos an already-verified SELLER may touch. Module 06 opens
+`firestore.rules` to an unauthenticated public read for the first time,
+scoped to a deliberately narrow, physically separate public projection
+(`artists/{artistId}`) that structurally cannot expose anything from the
+private `sellers/{uid}` record it's derived from.
+
+## Implemented in Module 06
+
+- **ArtVault's first genuinely public (unauthenticated) Firestore read.**
+  `artists/{artistId}` has `allow read: if true` — no other collection in
+  this project has ever allowed a read without at least `isSignedIn()`.
+  The blast radius is deliberately minimized by never opening this on the
+  private `sellers/{uid}` document itself: `artists/{artistId}` is a
+  physically separate document containing only two fields
+  (`displayName`, `bio`) plus `uid`/timestamps — `contactEmail`, `status`,
+  `appliedAt`, `reviewedAt`, and every other private field simply don't
+  exist in it, so there is no rule to get wrong that would leak them.
+  `sellers/{uid}`'s own rules are completely unchanged by this module —
+  still `isOwner(uid)`-only for read, exactly as Module 04 left them.
+- **Creation is not client-reachable at all.** `allow create: if false`
+  unconditionally — not even the profile's own eventual owner can create
+  it directly. The only two writers are `functions/src/promoteSeller.ts`
+  (Admin SDK, at the moment of SELLER approval) and
+  `functions/src/reconcileRoles.ts` (Admin SDK, backfilling one for an
+  already-approved seller) — both operator scripts, never deployed or
+  client-callable, mirroring exactly how `ADMIN`/`SUPER_ADMIN` and SELLER
+  approval already work. This closes "a PENDING seller cannot obtain a
+  public profile" and "a client cannot create an arbitrary artist
+  identity" structurally, the same way `sellers/{uid}`'s own
+  `allow update/delete: if false` closes "no second application" for free.
+- **Owner self-service update is field-level allow-listed**, the same
+  pattern Module 03 established for `users/{uid}`: `isOwner(artistId) &&
+  hasRole('SELLER')` (the token claim, never a Firestore mirror — the
+  Module 04 invariant, unchanged) plus `diff(...).affectedKeys().hasOnly(
+  ['displayName', 'bio', 'updatedAt'])`, with `uid`/`createdAt` required
+  unchanged. There is no "protected metadata" field on this document for a
+  client to reach in the first place — the allow-list is really "these are
+  the only two fields that exist to be edited."
+- **Artwork visibility is deliberately unchanged.** `artworks/{artworkId}`'s
+  rules are untouched — Module 06 does not open any public read path for
+  artworks. `DRAFT`/`SUBMITTED` are the only lifecycle states that exist,
+  and neither is a genuinely public one (see `docs/DATABASE.md`); the
+  public artist page shows a static "no public artworks yet" state instead
+  of ever reading `artworks` at all. A public artwork read path is the
+  Marketplace/Publishing module's job, once a real public status exists.
+- **Verified against the real Firebase Local Emulator Suite** — see
+  `firestore-tests/artistProfiles.rules.test.ts` (21 tests): public read by
+  a signed-out visitor, an authenticated customer, and another seller;
+  a nonexistent id and a PENDING seller's (nonexistent) profile both fail
+  safely; private `sellers/{uid}` fields are unreachable; creation is
+  blocked for everyone including the profile's own eventual owner;
+  cross-seller update is blocked; protected-field/oversized/undersized
+  update attempts are blocked; and a regression check confirming a public
+  visitor still cannot read a SUBMITTED artwork.
 
 ## Implemented in Module 05
 

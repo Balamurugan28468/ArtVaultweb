@@ -43,7 +43,22 @@ export async function promoteSellerByUid(uid: string): Promise<void> {
     updatedAt: FieldValue.serverTimestamp(),
   })
 
-  console.log(`Approved uid=${uid} as SELLER.`)
+  // Module 06 — Artist Profiles: the public artists/{uid} projection is
+  // created here, at the exact moment (and only the moment) a seller
+  // becomes APPROVED, seeded from the just-approved application's own
+  // businessName/description. A client can never create this document
+  // itself (firestore.rules denies it outright) — this Admin SDK write is
+  // the sole path, mirroring exactly how the SELLER claim above is granted.
+  const sellerData = sellerSnapshot.data() ?? {}
+  await db.collection('artists').doc(uid).set({
+    uid,
+    displayName: typeof sellerData.businessName === 'string' ? sellerData.businessName : '',
+    bio: typeof sellerData.description === 'string' ? sellerData.description : '',
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  })
+
+  console.log(`Approved uid=${uid} as SELLER and created their public artist profile.`)
 }
 
 async function main(): Promise<void> {

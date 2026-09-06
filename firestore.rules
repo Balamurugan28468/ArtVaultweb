@@ -146,6 +146,61 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    function isValidArtistDisplayName(value) {
+      return value is string && value.size() >= 2 && value.size() <= 80;
+    }
+
+    function isValidArtistBio(value) {
+      return value is string && value.size() >= 10 && value.size() <= 500;
+    }
+
+    // Module 06 — Artist Profiles. ArtVault's first genuinely public read
+    // surface: `artists/{artistId}` is a deliberately separate collection
+    // from `sellers/{uid}` (never the same document opened to public reads)
+    // so a public visitor can never reach `contactEmail`, application
+    // status, or any other private field — those fields simply do not
+    // exist in this document at all, not just hidden by a projection.
+    // `artistId` is the same value as the approved seller's own auth uid
+    // (matching the `sellers/{uid}` precedent of "keyed by uid, no separate
+    // generated id"), but this collection has no other relationship to
+    // `sellers/{uid}` as far as rules are concerned — reading one grants no
+    // access to the other.
+    //
+    // Only ever created by the trusted `promoteSeller.ts` (at the moment a
+    // seller becomes APPROVED) or `reconcileRoles.ts` (backfilling one for
+    // an already-approved seller) operator scripts, both Admin SDK and
+    // never client-reachable — `allow create: if false` makes this
+    // structural, not just discouraged, closing "users cannot create
+    // arbitrary artist identities" and "PENDING sellers cannot obtain a
+    // public profile" in one line, the same way `sellers/{uid}`'s own
+    // client-side immutability is enforced.
+    match /artists/{artistId} {
+      // Public — no authentication required. A nonexistent artistId simply
+      // returns an empty snapshot (Firestore's standard "not found" idiom
+      // for an unconditional read), never a permission error, so an unknown
+      // id fails safely by construction rather than needing a special case.
+      allow read: if true;
+
+      allow create: if false;
+
+      // Only the approved seller this profile belongs to may edit it, and
+      // only the two public fields declared below — `uid`/`createdAt` are
+      // immutable, and `hasOnly` structurally forbids introducing any new
+      // field (there is no "protected metadata" field on this document at
+      // all for a client to reach in the first place).
+      allow update: if
+        isOwner(artistId) &&
+        hasRole('SELLER') &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'bio', 'updatedAt']) &&
+        isValidArtistDisplayName(request.resource.data.displayName) &&
+        isValidArtistBio(request.resource.data.bio) &&
+        request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
+    }
+
     function artworkCategories() {
       return ['painting', 'sculpture', 'photography', 'digital', 'other'];
     }

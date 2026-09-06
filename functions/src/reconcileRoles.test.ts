@@ -7,6 +7,8 @@ const sellersWhereGet = vi.fn()
 const usersGet = vi.fn()
 const usersUpdate = vi.fn()
 const usersSet = vi.fn()
+const artistsGet = vi.fn()
+const artistsSet = vi.fn()
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }))
 vi.mock('firebase-admin/auth', () => ({ getAuth: () => ({ setCustomUserClaims, getUser }) }))
@@ -20,6 +22,7 @@ vi.mock('firebase-admin/firestore', () => ({
         }
       }
       if (name === 'users') return { doc: () => ({ get: usersGet, update: usersUpdate, set: usersSet }) }
+      if (name === 'artists') return { doc: () => ({ get: artistsGet, set: artistsSet }) }
       throw new Error(`unexpected collection: ${name}`)
     },
   }),
@@ -36,6 +39,13 @@ beforeEach(() => {
   usersGet.mockReset()
   usersUpdate.mockReset()
   usersSet.mockReset()
+  artistsGet.mockReset()
+  artistsSet.mockReset()
+  // Default: the artist profile already exists, so most existing
+  // claim/mirror-focused tests below don't also need to reason about
+  // artist-profile creation — the dedicated describe block further down
+  // overrides this per test.
+  artistsGet.mockResolvedValue({ exists: true })
 })
 
 describe('reconcileRoles', () => {
@@ -48,7 +58,7 @@ describe('reconcileRoles', () => {
 
     expect(setCustomUserClaims).toHaveBeenCalledWith('alice', { role: 'SELLER' })
     expect(usersUpdate).toHaveBeenCalledWith(expect.objectContaining({ role: 'SELLER' }))
-    expect(result).toEqual({ uid: 'alice', action: 'restored-both' })
+    expect(result).toEqual({ uid: 'alice', action: 'restored-both', artistProfile: 'exists' })
   })
 
   it('restores only the claim when the users/{uid} mirror is already correct', async () => {
@@ -72,7 +82,7 @@ describe('reconcileRoles', () => {
 
     expect(setCustomUserClaims).not.toHaveBeenCalled()
     expect(usersUpdate).not.toHaveBeenCalled()
-    expect(result).toEqual({ uid: 'alice', action: 'already-consistent' })
+    expect(result).toEqual({ uid: 'alice', action: 'already-consistent', artistProfile: 'exists' })
   })
 
   it('refuses to act on a PENDING (not yet approved) seller application', async () => {
@@ -82,7 +92,8 @@ describe('reconcileRoles', () => {
 
     expect(getUser).not.toHaveBeenCalled()
     expect(setCustomUserClaims).not.toHaveBeenCalled()
-    expect(result).toEqual({ uid: 'alice', action: 'already-consistent' })
+    expect(artistsGet).not.toHaveBeenCalled()
+    expect(result).toEqual({ uid: 'alice', action: 'already-consistent', artistProfile: 'not-applicable' })
   })
 
   it('refuses to act when no seller application exists at all', async () => {
@@ -92,7 +103,8 @@ describe('reconcileRoles', () => {
 
     expect(getUser).not.toHaveBeenCalled()
     expect(setCustomUserClaims).not.toHaveBeenCalled()
-    expect(result).toEqual({ uid: 'alice', action: 'already-consistent' })
+    expect(artistsGet).not.toHaveBeenCalled()
+    expect(result).toEqual({ uid: 'alice', action: 'already-consistent', artistProfile: 'not-applicable' })
   })
 
   it('creates a SELLER profile when an approved seller has no profile document', async () => {
@@ -132,5 +144,68 @@ describe('reconcileRoles', () => {
     expect(results).toHaveLength(2)
     expect(setCustomUserClaims).toHaveBeenCalledWith('alice', { role: 'SELLER' })
     expect(setCustomUserClaims).toHaveBeenCalledWith('bob', { role: 'SELLER' })
+  })
+})
+
+describe('reconcileRoles — Module 06 artist-profile backfill', () => {
+  it('creates a missing artists/{uid} public profile for an approved seller, seeded from the trusted application', async () => {
+    sellersGet.mockResolvedValueOnce({
+      exists: true,
+      data: () => ({ status: 'APPROVED', businessName: 'Alice Fine Art', description: 'Oil paintings.' }),
+    })
+    getUser.mockResolvedValueOnce({ customClaims: { role: 'SELLER' } })
+    usersGet.mockResolvedValueOnce({ exists: true, data: () => ({ role: 'SELLER' }) })
+    artistsGet.mockResolvedValueOnce({ exists: false })
+
+    const [result] = await reconcileRoles('alice')
+
+    expect(artistsSet).toHaveBeenCalledWith({
+      uid: 'alice',
+      displayName: 'Alice Fine Art',
+      bio: 'Oil paintings.',
+      createdAt: 'SERVER_TIMESTAMP',
+      updatedAt: 'SERVER_TIMESTAMP',
+    })
+    expect(result).toEqual({ uid: 'alice', action: 'already-consistent', artistProfile: 'created' })
+  })
+
+  it('never overwrites an already-existing artist profile (a seller’s own public-field edits survive reconciliation)', async () => {
+    sellersGet.mockResolvedValueOnce({
+      exists: true,
+      data: () => ({ status: 'APPROVED', businessName: 'Alice Fine Art', description: 'Oil paintings.' }),
+    })
+    getUser.mockResolvedValueOnce({ customClaims: { role: 'SELLER' } })
+    usersGet.mockResolvedValueOnce({ exists: true, data: () => ({ role: 'SELLER' }) })
+    artistsGet.mockResolvedValueOnce({ exists: true })
+
+    const [result] = await reconcileRoles('alice')
+
+    expect(artistsSet).not.toHaveBeenCalled()
+    expect(result.artistProfile).toBe('exists')
+  })
+
+  it('backfills the artist profile even when claim/mirror reconciliation is also needed in the same run', async () => {
+    sellersGet.mockResolvedValueOnce({
+      exists: true,
+      data: () => ({ status: 'APPROVED', businessName: 'Alice Fine Art', description: 'Oil paintings.' }),
+    })
+    getUser.mockResolvedValueOnce({ customClaims: { role: 'CUSTOMER' } })
+    usersGet.mockResolvedValueOnce({ exists: true, data: () => ({ role: 'CUSTOMER' }) })
+    artistsGet.mockResolvedValueOnce({ exists: false })
+
+    const [result] = await reconcileRoles('alice')
+
+    expect(setCustomUserClaims).toHaveBeenCalledWith('alice', { role: 'SELLER' })
+    expect(artistsSet).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ uid: 'alice', action: 'restored-both', artistProfile: 'created' })
+  })
+
+  it('is never applicable for a non-approved uid — no artist-profile read or write is even attempted', async () => {
+    sellersGet.mockResolvedValueOnce({ exists: true, data: () => ({ status: 'PENDING' }) })
+
+    await reconcileRoles('mallory')
+
+    expect(artistsGet).not.toHaveBeenCalled()
+    expect(artistsSet).not.toHaveBeenCalled()
   })
 })

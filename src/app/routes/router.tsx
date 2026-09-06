@@ -20,6 +20,12 @@ const ArtworkListPage = lazy(() =>
 const ArtworkFormPage = lazy(() =>
   import('@/app/routes/ArtworkFormPage').then((m) => ({ default: m.ArtworkFormPage })),
 )
+const ArtistProfilePage = lazy(() =>
+  import('@/app/routes/ArtistProfilePage').then((m) => ({ default: m.ArtistProfilePage })),
+)
+const SellerProfilePage = lazy(() =>
+  import('@/app/routes/SellerProfilePage').then((m) => ({ default: m.SellerProfilePage })),
+)
 
 export const router = createBrowserRouter([
   {
@@ -29,6 +35,7 @@ export const router = createBrowserRouter([
       { index: true, element: <HomePage /> },
       { path: 'sign-in', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
+      { path: 'artists/:artistId', element: <ArtistProfilePage /> },
       {
         element: <RequireAuth />,
         children: [
@@ -38,6 +45,7 @@ export const router = createBrowserRouter([
             element: <RequireRole allow={['SELLER']} />,
             children: [
               { path: 'seller-studio', element: <SellerStudioHomePage /> },
+              { path: 'seller-studio/profile', element: <SellerProfilePage /> },
               { path: 'seller-studio/artworks', element: <ArtworkListPage /> },
               { path: 'seller-studio/artworks/new', element: <ArtworkFormPage mode="create" /> },
               { path: 'seller-studio/artworks/:id/edit', element: <ArtworkFormPage mode="edit" /> },

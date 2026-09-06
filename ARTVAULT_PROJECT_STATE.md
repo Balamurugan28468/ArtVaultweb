@@ -11,8 +11,9 @@ automated tests (including a real pre-existing security gap found and
 closed by this module's own new tests), and real end-to-end verification
 (real owner account, real Playwright-driven UI submit, real trusted-CLI
 publish/reject, real signed-out public-page checks, and a real emulator
-restart) all complete — pending owner review and explicit commit
-approval**; see "Module 07 — Artwork Moderation & Publishing" below for the
+restart) all complete, owner-reviewed and approved, and **committed**
+(`a6aa668`, full hash `a6aa668775ecad86e625ff1458fdbc0fef870c85`, on top of
+`d917e4f`)**; see "Module 07 — Artwork Moderation & Publishing" below for the
 full write-up. Module 06 (Artist Profiles) — ArtVault's first
 public-facing feature: a public `artists/{artistId}` projection, a public
 `/artists/:artistId` page, and a Seller Studio surface for managing it —
@@ -53,8 +54,8 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 ## Current module
 
 **Module 07 — Artwork Moderation & Publishing: implementation, automated
-tests, and real end-to-end verification complete — pending owner review
-and explicit commit approval.** Extends the artwork lifecycle by exactly
+tests, and real end-to-end verification complete — owner-reviewed,
+approved, and committed (`a6aa668`).** Extends the artwork lifecycle by exactly
 two states (`PUBLISHED`, `REJECTED`) beyond Module 04's `DRAFT`/`SUBMITTED`,
 with `SUBMITTED → PUBLISHED`/`SUBMITTED → REJECTED` performed exclusively
 by a new trusted, Admin-SDK-only operator script
@@ -74,13 +75,14 @@ end (real Playwright-driven "Submit for review" click, real trusted-CLI
 publish, real signed-out public-page check, real emulator restart) and
 against a disposable test-fixture account for the REJECTED path (never the
 owner's own artwork). See "Module 07 — Artwork Moderation & Publishing"
-below for the full write-up. Module 06 (Artist Profiles: pending commit),
+below for the full write-up. Module 06 (Artist Profiles: `d917e4f`),
 Module 05 (Artwork Media/Image Upload & Emulator Lifecycle Hardening:
 `3265194`), and Module 04 (Seller Foundation & Artwork Draft Management:
 `d483994`, `1f8ca5a`, `1f0deb7`; Emulator Persistence & Seller-Authorization
-Reconciliation: `877f3ba`) remain complete, verified. Module 08 has not
-been started. See "Completed modules" for the checkpoint entries once
-Modules 06 and 07 are committed.
+Reconciliation: `877f3ba`) remain complete, verified, and committed.
+Module 08 has not been started — see "Module 08" scope discovery below.
+See "Completed modules" for the checkpoint entry once Module 07's own
+checkpoint is added.
 
 ## Authentication methods — current scope
 
@@ -101,13 +103,13 @@ approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
 
-## Module 07 — Artwork Moderation & Publishing (COMPLETE, pending owner review and commit approval)
+## Module 07 — Artwork Moderation & Publishing (COMPLETE, VERIFIED, COMMITTED)
 
 **Status:** implementation, automated tests (frontend unit/component,
 Firestore rules, Cloud Functions), and real end-to-end verification via the
 Firebase Local Emulator Suite and a real browser (Playwright) all complete.
-Not yet committed — waiting on the owner's own review and explicit commit
-approval, exactly as every prior module.
+Owner-reviewed and approved, and committed as `a6aa668` (full hash
+`a6aa668775ecad86e625ff1458fdbc0fef870c85`, on top of `d917e4f`).
 
 ### Objective and scope decision
 
@@ -277,15 +279,13 @@ yet" and leaks neither the rejected title nor the rejection reason text.
 - Every commerce/auction/AI/admin lifecycle state remains unimplemented,
   deliberately, per the scope decision above.
 
-## Module 06 — Artist Profiles (COMPLETE, owner manually accepted, pending commit)
+## Module 06 — Artist Profiles (COMPLETE, owner manually accepted, committed `d917e4f`)
 
 **Status:** implementation, automated tests, real-emulator verification, and
 the owner's own full manual acceptance walkthrough (including a real
 signed-out/incognito retest after a reported-and-resolved routing
 regression — see "Signed-out route regression" below) all complete. Review
-result: **PASS — owner manually accepted**. Not yet committed — waiting on
-final pre-commit verification and explicit commit approval, exactly as
-every prior module.
+result: **PASS — owner manually accepted**. Committed as `d917e4f`.
 
 ### Objective and scope decision
 

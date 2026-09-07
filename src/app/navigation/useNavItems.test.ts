@@ -9,25 +9,25 @@ describe('useNavItems', () => {
   it('shows only guest-available items while loading (no premature role-gated links)', () => {
     useAuth.mockReturnValue({ status: 'loading', role: null })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'wishlist'])
   })
 
-  it('shows only guest-available items when signed out', () => {
+  it('shows only guest-available items when signed out (Wishlist, Module 09, is available to guests too)', () => {
     useAuth.mockReturnValue({ status: 'unauthenticated', role: null })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'wishlist'])
   })
 
   it('adds Account for an authenticated CUSTOMER', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'CUSTOMER' })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'account'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'wishlist', 'account'])
   })
 
-  it('never renders a comingSoon item regardless of role (Marketplace, Module 08, is now genuinely available)', () => {
+  it('never renders a comingSoon item regardless of role (Marketplace/Wishlist are now genuinely available)', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'ADMIN' })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.every((item) => ['home', 'marketplace', 'account'].includes(item.id))).toBe(true)
+    expect(result.current.every((item) => ['home', 'marketplace', 'wishlist', 'account'].includes(item.id))).toBe(true)
   })
 
   it('adds Seller Studio (now available) for an authenticated SELLER, but not for a CUSTOMER', () => {

@@ -74,27 +74,36 @@ export function MarketplaceFilters({ filters, onChange }: { filters: Filters; on
       <div className="flex flex-col gap-2">
         <p className="text-xs font-semibold tracking-[0.1em] text-text-muted uppercase">Price range (₹)</p>
         <div className="flex flex-wrap items-center gap-2">
-          <Input
-            type="number"
-            inputMode="numeric"
-            min={0}
-            aria-label="Minimum price"
-            placeholder="Min"
-            className="w-28"
-            value={minDraft}
-            onChange={(event) => setMinDraft(event.target.value)}
-          />
+          {/* Input's own base class already includes w-full — wrapping it
+              in a fixed-width div (rather than passing a narrower w-28
+              via className on the input itself) sidesteps a same-specificity
+              CSS conflict where Tailwind's generated stylesheet order, not
+              this component's className order, decides which "w-*" utility
+              actually wins. Found during Module 09's design-quality audit:
+              both fields rendered full-width in the real browser. */}
+          <div className="w-28">
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              aria-label="Minimum price"
+              placeholder="Min"
+              value={minDraft}
+              onChange={(event) => setMinDraft(event.target.value)}
+            />
+          </div>
           <span className="text-text-muted">–</span>
-          <Input
-            type="number"
-            inputMode="numeric"
-            min={0}
-            aria-label="Maximum price"
-            placeholder="Max"
-            className="w-28"
-            value={maxDraft}
-            onChange={(event) => setMaxDraft(event.target.value)}
-          />
+          <div className="w-28">
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              aria-label="Maximum price"
+              placeholder="Max"
+              value={maxDraft}
+              onChange={(event) => setMaxDraft(event.target.value)}
+            />
+          </div>
           <Button type="button" variant="secondary" size="sm" onClick={applyPriceRange}>
             Apply
           </Button>

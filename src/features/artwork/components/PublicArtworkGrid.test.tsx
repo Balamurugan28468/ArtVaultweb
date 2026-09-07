@@ -8,6 +8,7 @@ const usePublishedArtworks = vi.fn()
 vi.mock('../hooks/usePublishedArtworks', () => ({
   usePublishedArtworks: (...args: unknown[]) => usePublishedArtworks(...args),
 }))
+vi.mock('@/features/wishlist/components/WishlistButton', () => ({ WishlistButton: () => null }))
 
 beforeEach(() => {
   usePublishedArtworks.mockReset()

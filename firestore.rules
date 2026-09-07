@@ -353,6 +353,27 @@ service cloud.firestore {
       allow delete: if hasRole('SELLER') && isOwner(resource.data.sellerId) && resource.data.status == 'DRAFT';
     }
 
+    // Module 09 — Wishlist. Deliberately minimal: `addedAt` is the only
+    // field, and the artworkId is the document id itself, never duplicated
+    // as a field to validate. Only the owning uid may ever read or write
+    // their own wishlist — no other branch grants any access to it, for
+    // anyone else, under any condition. A wishlist entry never makes a
+    // private artwork readable: it stores no artwork data at all, so
+    // resolving a saved id's real title/price/image still goes entirely
+    // through the existing, unmodified `artworks/{artworkId}` rules above —
+    // a wishlisted DRAFT/SUBMITTED/REJECTED artwork id simply fails to
+    // resolve any data when a client tries to read it, exactly as it would
+    // for anyone else. `allow update: if false` because a saved item has no
+    // legitimate "edit" — it is only ever created or deleted.
+    match /wishlists/{uid}/items/{artworkId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) &&
+        request.resource.data.keys().hasOnly(['addedAt']) &&
+        request.resource.data.addedAt == request.time;
+      allow update: if false;
+      allow delete: if isOwner(uid);
+    }
+
     // Deny-by-default foundation for every other collection. Each later
     // feature module adds its own explicit, narrowly-scoped rules (with
     // role checks against custom auth claims) when that module is built.

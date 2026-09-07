@@ -2,11 +2,11 @@
 
 **Status: foundation + authentication + customer account + seller/artwork
 foundation + artwork media + public artist profiles + artwork moderation &
-publishing + public marketplace.** Module 00 shipped a deny-by-default
-rules skeleton. Module 01 added the first real rule, the first Cloud
-Function, and the real role model described below. Module 03 hardens that
-rule into a genuine field-level allow-list for customer profile
-self-service edits. Module 04 adds `sellers/{uid}` and
+publishing + public marketplace + wishlist.** Module 00 shipped a
+deny-by-default rules skeleton. Module 01 added the first real rule, the
+first Cloud Function, and the real role model described below. Module 03
+hardens that rule into a genuine field-level allow-list for customer
+profile self-service edits. Module 04 adds `sellers/{uid}` and
 `artworks/{artworkId}`, both backend-authoritative about the one thing that
 actually matters (who may become a SELLER, who owns which artwork) exactly
 the way Module 01 already established for `ADMIN`/`SUPER_ADMIN`. Module 05
@@ -21,7 +21,46 @@ to exactly one status value, and closes a real pre-existing field-forgery
 gap found while writing this module's own security tests. Module 08 adds
 no new rule at all — it proves, with a dedicated new test suite, that
 Module 07's own PUBLISHED-read rule was already safe for the
-first genuinely cross-seller query this app has ever issued.
+first genuinely cross-seller query this app has ever issued. Module 09
+adds one new, narrowly-scoped owner-only collection
+(`wishlists/{uid}/items/{artworkId}`) and changes nothing about any
+existing rule, including `artworks/{artworkId}`'s own.
+
+## Implemented in Module 09
+
+- **One new collection, `wishlists/{uid}/items/{artworkId}`, owner-only for
+  read/create/delete, `update` always denied.** Create is field-locked to
+  exactly `{ addedAt: request.time }` (`hasOnly(['addedAt'])` plus a
+  server-timestamp check) — no other field, and no client-supplied
+  timestamp, can ever land in this collection.
+- **Zero changes to any existing rule.** In particular,
+  `artworks/{artworkId}`'s rule (Module 04/07) is completely untouched — a
+  serious alternative considered for this module, Likes, was deliberately
+  *not* built specifically because it would have required opening a new
+  write exception on that already-hardened document (a public,
+  denormalized `likeCount`), which is a materially different, higher-risk
+  kind of change than a brand-new private collection. See
+  ARTVAULT_PROJECT_STATE.md's Module 09 write-up for the full reasoning.
+- **A wishlist entry can never make a private artwork readable.** It stores
+  no artwork data at all — not even a title — so resolving what a saved id
+  actually refers to still goes entirely through the existing
+  `artworks/{artworkId}` read rule. A new rules test proves this directly:
+  a wishlist entry is seeded referencing another seller's real `DRAFT`
+  artwork id, and confirms the wishlist entry itself is readable (just an
+  id + timestamp) while the referenced artwork document is still denied,
+  exactly as it would be for anyone else.
+- **Guest (signed-out) wishlist state never touches Firestore at all** — it
+  lives in this browser's `localStorage` only, so there is no new
+  signed-out write path to reason about. Signing in merges local ids into
+  the account's real, rules-protected wishlist through the same
+  `addWishlistItem`/create path already covered above — never a special,
+  looser path for the merge itself.
+- **Test suite**: a new `firestore-tests/wishlists.rules.test.ts` — owner
+  read/create/delete allowed; another signed-in user and a signed-out
+  visitor both denied on every operation; a forged/incomplete create
+  payload denied; `update` denied unconditionally; the guessed-private-
+  artwork-id case above. Full regression on the existing artworks/artist/
+  seller/user rules suites, unchanged.
 
 ## Implemented in Module 08
 

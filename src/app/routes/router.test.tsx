@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppProviders } from '@/app/providers/AppProviders'
 import { AuthProvider } from '@/app/providers/AuthProvider'
 import { router } from '@/app/routes/router'
+import { WishlistProvider } from '@/features/wishlist'
 
 vi.mock('@/lib/firebase/config', () => ({ auth: { currentUser: null }, db: {} }))
 vi.mock('firebase/auth', () => ({
@@ -36,7 +37,9 @@ describe('router', () => {
     const { container } = render(
       <AppProviders>
         <AuthProvider>
-          <RouterProvider router={router} />
+          <WishlistProvider>
+            <RouterProvider router={router} />
+          </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
     )
@@ -63,7 +66,9 @@ describe('router', () => {
     render(
       <AppProviders>
         <AuthProvider>
-          <RouterProvider router={router} />
+          <WishlistProvider>
+            <RouterProvider router={router} />
+          </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
     )
@@ -79,7 +84,9 @@ describe('router', () => {
     render(
       <AppProviders>
         <AuthProvider>
-          <RouterProvider router={router} />
+          <WishlistProvider>
+            <RouterProvider router={router} />
+          </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
     )
@@ -95,7 +102,9 @@ describe('router', () => {
     render(
       <AppProviders>
         <AuthProvider>
-          <RouterProvider router={router} />
+          <WishlistProvider>
+            <RouterProvider router={router} />
+          </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
     )
@@ -109,7 +118,9 @@ describe('router', () => {
     render(
       <AppProviders>
         <AuthProvider>
-          <RouterProvider router={router} />
+          <WishlistProvider>
+            <RouterProvider router={router} />
+          </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
     )
@@ -123,7 +134,9 @@ describe('router', () => {
     render(
       <AppProviders>
         <AuthProvider>
-          <RouterProvider router={router} />
+          <WishlistProvider>
+            <RouterProvider router={router} />
+          </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
     )
@@ -137,7 +150,9 @@ describe('router', () => {
     render(
       <AppProviders>
         <AuthProvider>
-          <RouterProvider router={router} />
+          <WishlistProvider>
+            <RouterProvider router={router} />
+          </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
     )
@@ -146,5 +161,21 @@ describe('router', () => {
     fireEvent.click(screen.getAllByRole('link', { name: 'Explore' })[0])
 
     expect(await screen.findByRole('heading', { name: 'Explore' })).toBeInTheDocument()
+  })
+
+  it('lazy-loads the real Wishlist page on direct navigation to "/wishlist", without requiring authentication (Module 09)', async () => {
+    render(
+      <AppProviders>
+        <AuthProvider>
+          <WishlistProvider>
+            <RouterProvider router={router} />
+          </WishlistProvider>
+        </AuthProvider>
+      </AppProviders>,
+    )
+    await router.navigate('/wishlist')
+
+    expect(await screen.findByRole('heading', { name: 'Wishlist' })).toBeInTheDocument()
+    expect(screen.queryByText(/sign in/i, { selector: 'h1,h2,p' })).not.toBeInTheDocument()
   })
 })

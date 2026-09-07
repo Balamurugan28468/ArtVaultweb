@@ -1,19 +1,23 @@
 # ArtVault — Database Architecture (Firestore)
 
 **Status: foundation + authentication + customer account + seller/artwork
-foundation + public artist profiles.** Module 00 created a deny-by-default
-rules skeleton. Module 01 (Authentication) created `users/{uid}`, written
-once by the `onUserCreate` Cloud Function right after sign-up (see
+foundation + public artist profiles + artwork moderation + public
+marketplace + wishlist.** Module 00 created a deny-by-default rules
+skeleton. Module 01 (Authentication) created `users/{uid}`, written once by
+the `onUserCreate` Cloud Function right after sign-up (see
 `functions/src/index.ts`). Module 03 (Customer Account & Profile Foundation)
 extends that same document with the editable profile fields below and adds
 the field-level update rule that protects them — see `docs/SECURITY.md`.
 Module 04 (Seller Foundation & Artwork Draft Management) implements
 `sellers/{uid}` and `artworks/{artworkId}` as described below. Module 06
 (Artist Profiles) implements `artists/{artistId}` — ArtVault's first
-genuinely public (unauthenticated-readable) collection. Every other
-collection remains design-only — not created, read, or written by any code
-yet — recorded here so later modules build toward one consistent shape
-instead of improvising per-feature.
+genuinely public (unauthenticated-readable) collection. Module 07 extends
+`artworks/{artworkId}` with `PUBLISHED`/`REJECTED`. Module 08 adds no new
+collection at all (a cross-seller query over the existing `artworks`
+collection). Module 09 implements `wishlists/{uid}/items/{artworkId}` —
+see below. Every other collection remains design-only — not created, read,
+or written by any code yet — recorded here so later modules build toward
+one consistent shape instead of improvising per-feature.
 
 ## `users/{uid}` (implemented in Module 01, extended in Module 03)
 
@@ -349,6 +353,49 @@ comparatively little real value over structured filtering — true
 full-text/fuzzy search needs a dedicated search provider, which
 docs/ARCHITECTURE.md already defers pending explicit owner approval.
 
+## `wishlists/{uid}/items/{artworkId}` (implemented in Module 09)
+
+`{ addedAt: Timestamp }` — deliberately the only field. The artwork id is
+the document id itself, never duplicated as a field, and no artwork
+snapshot (title/price/image) is ever stored here: `/wishlist`
+(`src/app/routes/WishlistPage.tsx`) resolves each saved id's *current*
+data at render time (one one-shot `getArtwork` read per id, deduplicated
+and cached by TanStack Query — see `useWishlistArtworks`), so a later price
+change or unpublish is reflected immediately, and a since-deleted or
+no-longer-`PUBLISHED` artwork simply resolves to nothing rather than
+showing stale data — the page counts and reports this honestly instead of
+silently showing fewer saved items than the user actually saved.
+
+**Guest (signed-out) state lives entirely outside Firestore** — a plain id
+list in this browser's `localStorage` (`src/features/wishlist/api/
+guestWishlistStorage.ts`), read/written directly by the client with no
+security rule involved at all, matching the deliberate low-friction UX
+decision that a signed-out visitor can save artwork immediately, with no
+sign-in wall. Signing in triggers a one-time merge: any locally-saved ids
+not already present in that account's real Firestore wishlist are written
+there (existing server entries are never touched, and nothing is written
+twice), and local storage is cleared only once every write has actually
+succeeded — see `WishlistProvider` for the exact sequencing. A failed merge
+leaves local storage intact rather than silently dropping saved items; it
+is retried the next time that same account signs in.
+
+**Security**: only `isOwner(uid)` may read, create, or delete a wishlist
+item (see `firestore.rules`); `allow update: if false`, since a saved item
+is only ever created or removed, never edited. Create is also field-locked
+to exactly `{ addedAt: request.time }`. A wishlist entry can never make a
+private artwork readable — it stores no artwork data of any kind, so
+resolving what a saved id actually refers to still goes entirely through
+`artworks/{artworkId}`'s own existing, unmodified rule; a wishlist entry
+referencing someone else's `DRAFT`/`SUBMITTED`/`REJECTED` artwork id simply
+fails to resolve any data when read, exactly as it would for anyone else.
+No change was made to the `artworks/{artworkId}` rule to support Wishlist.
+
+**Performance**: exactly one Firestore listener for a signed-in account's
+whole wishlist (`subscribeWishlistIds`), shared by every save button and
+the `/wishlist` page via one `WishlistProvider` mounted near the app root —
+never one listener per artwork card, regardless of how many cards are on
+screen at once.
+
 ## Guiding rule: no unbounded arrays
 
 Any relationship that can grow open-endedly (cart contents, order line
@@ -360,15 +407,19 @@ computed by reading an entire subcollection.
 
 ## Draft collection layout
 
-(`users/{uid}`, `sellers/{uid}`, `artworks/{artworkId}`, and
-`artists/{artistId}` are now implemented as described above; everything
-below remains design-only. Note `artworks/{artworkId}` will gain an
-`ar: {...}` sub-object — see that section above — and further status
-values, once the AR and review/Marketplace modules that would actually use
-them exist. The `follows/{artistId}/followers/{followerUid}` entry below
-refers to that same now-implemented `artists/{artistId}` id — follower
-counts and the follow relationship itself remain entirely unbuilt; Module 06
-deliberately does not implement them.)
+(`users/{uid}`, `sellers/{uid}`, `artworks/{artworkId}`, `artists/{artistId}`,
+and `wishlists/{uid}/items/{artworkId}` are now implemented as described
+above; everything below remains design-only. Note `artworks/{artworkId}`
+will gain an `ar: {...}` sub-object — see that section above — and further
+status values, once the AR and review modules that would actually use them
+exist. The `follows/{artistId}/followers/{followerUid}` entry below refers
+to that same now-implemented `artists/{artistId}` id — follower counts and
+the follow relationship itself remain entirely unbuilt; Module 06
+deliberately does not implement them. `likes/{artworkId}/by/{uid}` was
+seriously considered for Module 09 and deliberately deferred instead — see
+ARTVAULT_PROJECT_STATE.md's Module 09 entry for why it's a meaningfully
+different (and riskier) kind of change than Wishlist, not merely a
+same-shaped feature bundled in for free.)
 
 ```
 carts/{uid}/items/{artworkId}
@@ -380,9 +431,6 @@ orders/{orderId}/items/{itemId}
   artworkId, titleSnapshot, unitPriceSnapshot, quantity
   -- an immutable snapshot taken at purchase time; never re-reads the live
      artwork price after the fact.
-
-wishlists/{uid}/items/{artworkId}
-  addedAt
 
 likes/{artworkId}/by/{uid}
   likedAt

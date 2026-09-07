@@ -25,7 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'marketplace', label: 'Explore', href: '/explore', icon: Grid2x2, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'categories', label: 'Categories', href: '/categories', icon: Grid2x2, status: 'comingSoon', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'auction', label: 'Auction', href: '/auction', icon: Gavel, status: 'comingSoon', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
-  { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Heart, status: 'comingSoon', audiences: ['CUSTOMER', 'SELLER'] },
+  { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Heart, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'cart', label: 'Cart', href: '/cart', icon: ShoppingCart, status: 'comingSoon', audiences: ['CUSTOMER', 'SELLER'] },
   { id: 'orders', label: 'Orders', href: '/orders', icon: Package, status: 'comingSoon', audiences: ['CUSTOMER', 'SELLER'] },
   { id: 'account', label: 'Account', href: '/account', icon: User, status: 'available', audiences: ['CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },

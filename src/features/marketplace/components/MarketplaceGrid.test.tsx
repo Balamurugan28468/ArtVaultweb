@@ -9,6 +9,8 @@ vi.mock('../hooks/useMarketplaceArtworks', () => ({ useMarketplaceArtworks: (...
 const useArtistDisplayNames = vi.fn((..._args: unknown[]) => ({}) as Record<string, string | null>)
 vi.mock('../hooks/useArtistDisplayNames', () => ({ useArtistDisplayNames: (...args: unknown[]) => useArtistDisplayNames(...args) }))
 
+vi.mock('@/features/wishlist/components/WishlistButton', () => ({ WishlistButton: () => null }))
+
 const { MarketplaceGrid } = await import('./MarketplaceGrid')
 
 function renderGrid() {

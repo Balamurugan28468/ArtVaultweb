@@ -1,8 +1,15 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { Timestamp } from 'firebase/firestore'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { PublicArtworkCard } from './PublicArtworkCard'
 import type { Artwork } from '../types'
+
+const WishlistButton = vi.fn((props: { artworkId: string; className?: string }) => (
+  <button aria-label="Save to wishlist">heart-{props.artworkId}</button>
+))
+vi.mock('@/features/wishlist/components/WishlistButton', () => ({
+  WishlistButton: (props: { artworkId: string; className?: string }) => WishlistButton(props),
+}))
 
 const now = Timestamp.now()
 
@@ -44,10 +51,24 @@ describe('PublicArtworkCard', () => {
     expect(container.querySelector('img')).toHaveAttribute('src', 'https://example.test/img1.jpg')
   })
 
-  it('never renders an edit/delete/status-badge control — read-only by construction', () => {
+  it('falls back to the placeholder icon when the image fails to load', () => {
+    const artwork = buildArtwork({
+      images: [{ id: 'img1.jpg', path: 'artworks/alice/a1/img1.jpg', url: 'https://example.test/broken.jpg', order: 0, contentType: 'image/jpeg', size: 100 }],
+    })
+    const { container } = render(<PublicArtworkCard artwork={artwork} />)
+    fireEvent.error(container.querySelector('img')!)
+    expect(container.querySelector('img')).not.toBeInTheDocument()
+  })
+
+  it('never renders an owner-only edit/delete/status-badge control — read-only by construction', () => {
     render(<PublicArtworkCard artwork={buildArtwork()} />)
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit|delete|publish|reject/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/draft|submitted|rejected|published/i)).not.toBeInTheDocument()
+  })
+
+  it('always renders the Wishlist save control for the given artwork (Module 09) — never an opt-in prop', () => {
+    render(<PublicArtworkCard artwork={buildArtwork({ id: 'a7' })} />)
+    expect(WishlistButton).toHaveBeenCalledWith(expect.objectContaining({ artworkId: 'a7' }))
   })
 
   it('shows the artist display name when one is passed (Module 08, Marketplace)', () => {

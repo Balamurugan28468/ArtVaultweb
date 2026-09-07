@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   query,
   runTransaction,
@@ -144,6 +145,24 @@ export function subscribePublishedArtworks(
     },
     (error) => onError(toArtworkError(error)),
   )
+}
+
+/**
+ * A single one-shot read — never a live subscription — for contexts that
+ * need many artworks' current data at once without opening one listener
+ * per artwork (e.g. resolving a saved Wishlist's items, Module 09). Returns
+ * `null` for a nonexistent, malformed, or permission-denied document rather
+ * than throwing: a wishlist entry whose artwork was since deleted or
+ * unpublished is an ordinary, expected case for that caller to render as
+ * "no longer available," not an error.
+ */
+export async function getArtwork(id: string): Promise<Artwork | null> {
+  try {
+    const snapshot = await getDoc(artworkDocRef(id))
+    return snapshot.exists() ? mapToArtwork(snapshot.id, snapshot.data()) : null
+  } catch {
+    return null
+  }
 }
 
 /** Exactly one Firestore listener per call — callers own cleanup via the returned Unsubscribe. */

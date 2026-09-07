@@ -26,6 +26,9 @@ const ArtistProfilePage = lazy(() =>
 const MarketplacePage = lazy(() =>
   import('@/app/routes/MarketplacePage').then((m) => ({ default: m.MarketplacePage })),
 )
+const WishlistPage = lazy(() =>
+  import('@/app/routes/WishlistPage').then((m) => ({ default: m.WishlistPage })),
+)
 const SellerProfilePage = lazy(() =>
   import('@/app/routes/SellerProfilePage').then((m) => ({ default: m.SellerProfilePage })),
 )
@@ -39,6 +42,7 @@ export const router = createBrowserRouter([
       { path: 'sign-in', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
       { path: 'explore', element: <MarketplacePage /> },
+      { path: 'wishlist', element: <WishlistPage /> },
       { path: 'artists/:artistId', element: <ArtistProfilePage /> },
       {
         element: <RequireAuth />,

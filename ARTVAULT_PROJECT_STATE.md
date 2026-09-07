@@ -1,7 +1,27 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-06 — Module 08 (Marketplace — Public Artwork Browsing
-& Search/Filtering) — ArtVault's first cross-seller public discovery
+_Last updated: 2026-09-07 — Module 09 (Wishlist) — a save/heart control on
+every public artwork card (Marketplace and the artist page) and a public
+`/wishlist` page. Signed-out visitors save locally (`localStorage`, no
+sign-in wall — a deliberate, explicitly-approved low-friction UX decision)
+and a one-time, duplicate-safe merge moves those ids into a real Firestore
+wishlist (`wishlists/{uid}/items/{artworkId}`) the moment they sign in.
+Exactly one Firestore listener for a signed-in account's whole wishlist,
+shared by every card and the page itself, never one per card. Required
+**no change to any existing rule**, including `artworks/{artworkId}`'s own
+— a wishlist entry stores no artwork data at all, so it can never make a
+private artwork readable. Likes and Follows were seriously considered
+alongside Wishlist and deliberately deferred instead, specifically because
+either would have required opening a new write exception on an
+already-hardened public document (`artworks`/`artists`), a materially
+different and riskier kind of change than a brand-new private collection.
+**Implementation, automated tests, and real end-to-end verification
+(guest save → refresh → sign-in merge → cross-page consistency → a second
+real account confirmed unable to see it, all in a real browser against the
+real owner's own account and artwork) all complete — awaiting owner
+review; not yet committed**; see "Module 09 — Wishlist" below for the full
+write-up. Module 08 (Marketplace — Public Artwork Browsing &
+Search/Filtering) — ArtVault's first cross-seller public discovery
 surface: a public `/explore` route querying `artworks` for
 `status == 'PUBLISHED'` across every seller (no `sellerId` filter at all,
 the first query of its kind in this codebase), with Firestore-native
@@ -13,10 +33,13 @@ TanStack Query rather than a live `subscribeX` listener. Required **no**
 covered a cross-seller query, since Firestore evaluates rules per-document,
 never by query shape — proven by a new dedicated rules-test suite, not just
 asserted. **Implementation, automated tests, and real end-to-end
-verification (real signed-out browser session against the real owner's own
-`PUBLISHED` "3d" artwork alongside disposable cross-seller fixtures) all
-complete — awaiting owner review; not yet committed**; see "Module 08 —
-Marketplace" below for the full write-up. Module 07 (Artwork Moderation &
+verification all complete, owner-reviewed and approved, and committed**
+(`64fbcf5`) — this same commit also introduced permanent isolated
+Firestore/Storage rules-test infrastructure (`firebase.test.json`,
+`firebase emulators:exec`, a fail-closed runtime guard in
+`test-support/emulatorTestEnv.ts`) after an incident where running those
+suites directly against the persistent dev emulator wiped its real data;
+see "Module 08 — Marketplace" below for the full write-up. Module 07 (Artwork Moderation &
 Publishing) — ArtVault's first genuine public artwork lifecycle: two new
 artwork statuses (`PUBLISHED`, `REJECTED`), a trusted Admin-SDK-only
 operator script (`functions/src/publishArtwork.ts`) as the sole path from
@@ -70,33 +93,39 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 08 — Marketplace (Public Artwork Browsing & Search/Filtering):
-implementation, automated tests, and real end-to-end verification
-complete — awaiting owner review; not yet committed.** A public `/explore`
-route (`src/app/routes/MarketplacePage.tsx`) queries `artworks` for
-`status == 'PUBLISHED'` across every seller — no `sellerId` filter at all,
-the first cross-seller query this codebase has ever issued — with optional
-category/price-range filtering, three sort orders (`newest`, `price-asc`,
-`price-desc`), and real cursor-based "load more" pagination
-(`fetchMarketplacePage`, `useMarketplaceArtworks`). Required **zero**
-`firestore.rules` changes: Module 07's own additive `PUBLISHED`-read branch
-already covered this, since Firestore evaluates security rules
-per-document, never by query shape — a new dedicated rules-test suite
-proves this directly rather than merely relying on that reasoning holding.
-No new `artworks/{artworkId}` field was added; the artist name on each card
-resolves via a new one-shot `getArtistDisplayName` read of the existing
-public `artists/{artistId}` projection. Deliberately not built: a
-tag-based filter (no fixed taxonomy exists to filter by) and free-text/
-fuzzy title search (needs a dedicated search provider, already deferred in
-`docs/ARCHITECTURE.md` pending owner approval) — see "Module 08 —
-Marketplace" below for the full reasoning and write-up. Module 07 (Artwork
+**Module 09 — Wishlist: implementation, automated tests, and real
+end-to-end verification complete — awaiting owner review; not yet
+committed.** A save/heart toggle on `PublicArtworkCard` (so it appears on
+both Marketplace and the artist page for free) and a public `/wishlist`
+page. `wishlists/{uid}/items/{artworkId}` stores only `{ addedAt }` — no
+artwork snapshot; the page resolves each saved id's *current* data at
+render time. Signed-out visitors save to `localStorage` immediately, no
+sign-in wall; signing in merges any local ids into the real Firestore
+wishlist exactly once, skipping ids already present server-side, clearing
+local storage only once every write confirms. One shared `WishlistProvider`
+listener for a whole signed-in session — never one per card. Required
+**zero** changes to any existing rule, including `artworks/{artworkId}`'s
+own — proven, not just argued, by a new rules test that seeds a wishlist
+entry referencing another seller's real `DRAFT` artwork id and confirms
+the wishlist entry itself reads fine while the referenced artwork still
+does not. Likes and Follows were both seriously considered and explicitly
+deferred instead of bundled in, because either would require opening a
+new write exception on an already-hardened public document — a
+meaningfully different, higher-risk change than Wishlist's brand-new
+private collection. A real UI/visual audit (screenshots of the actual
+running app, not source-reading alone) found and fixed one pre-existing
+bug along the way: Marketplace's price-range inputs rendered full-width
+due to a Tailwind class-specificity conflict. See "Module 09 — Wishlist"
+below for the full write-up. Module 08 (Marketplace — Public Artwork
+Browsing & Search/Filtering: `64fbcf5`, which also introduced the
+permanent isolated rules-test infrastructure), Module 07 (Artwork
 Moderation & Publishing: `a6aa668`), Module 06 (Artist Profiles:
 `d917e4f`), Module 05 (Artwork Media/Image Upload & Emulator Lifecycle
 Hardening: `3265194`), and Module 04 (Seller Foundation & Artwork Draft
 Management: `d483994`, `1f8ca5a`, `1f0deb7`; Emulator Persistence &
 Seller-Authorization Reconciliation: `877f3ba`) remain complete, verified,
-and committed. See "Completed modules" for the checkpoint entry once
-Module 08's own checkpoint is added.
+and committed. See "Completed modules" for the checkpoint entries once
+Module 08's and Module 09's own checkpoints are added.
 
 ## Authentication methods — current scope
 
@@ -117,12 +146,198 @@ approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
 
-## Module 08 — Marketplace (Public Artwork Browsing & Search/Filtering) (COMPLETE, VERIFIED — awaiting owner review, not committed)
+## Module 09 — Wishlist (COMPLETE, VERIFIED — awaiting owner review, not committed)
+
+**Status:** implementation, automated tests, and real end-to-end
+verification (real browser, real owner account) all complete. Owner review
+pending; **not yet committed**.
+
+### Objective and scope decision
+
+Scope discovery (see the Module 08 write-up's own recommendation)
+identified Wishlist as the only remaining candidate with zero unmet
+dependencies, zero owner-provider decisions, and zero risk to any
+already-hardened rule, while still giving real standalone value. Likes and
+Follows were both seriously weighed as possible companions and explicitly
+rejected from this module's scope: each needs a public, denormalized
+counter field on an already-shipped, carefully-locked document
+(`artworks.likeCount` / `artists.followerCount`), which means opening a
+new write exception on a rule Module 04/06/07 deliberately hardened — a
+materially different, higher-risk kind of change than a brand-new private
+collection, and one that deserves its own dedicated review rather than
+riding along because it's thematically similar. Cart, Checkout, Payments,
+Orders, Reviews, Notifications, Auctions, AI, AR, and Admin/Moderation UI
+all remain out of scope, matching Module 08's own discovery report.
+
+### What was built
+
+- **`src/features/wishlist/`** (new feature) — `types.ts`; `api/
+  wishlistRepository.ts` (`subscribeWishlistIds` — one listener for a
+  whole account's wishlist; `addWishlistItem`/`removeWishlistItem`); `api/
+  guestWishlistStorage.ts` (a plain `localStorage` id list, wrapped in
+  try/catch throughout so a browser that blocks storage degrades to
+  "doesn't persist across a refresh," never a crash); `context/
+  WishlistProvider.tsx` (the single owner of wishlist state for the whole
+  session — guest vs. account mode, optimistic toggle with rollback on
+  failure, the guest→account merge); `components/WishlistButton.tsx` (the
+  heart toggle); `hooks/useWishlistArtworks.ts` (resolves saved ids to
+  live `Artwork` data, one deduplicated one-shot read per id via TanStack
+  Query, never a listener per artwork — the same pattern
+  `useArtistDisplayNames` established in Module 08).
+- **`src/app/routes/WishlistPage.tsx`** — new public route at `/wishlist`
+  (deliberately outside `RequireAuth`, since a guest can use it too),
+  flipping the nav item pre-scaffolded since Module 02 (`{ id: 'wishlist',
+  href: '/wishlist' }`) from `comingSoon` to `available`, and adding
+  `'guest'` to its visible audiences.
+- **`src/features/artwork/components/PublicArtworkCard.tsx`** — gains an
+  unconditional `WishlistButton` overlay (top-right of the image, a
+  semi-opaque blurred backdrop so it reads over any artwork's own colors)
+  plus a visual/interaction audit pass mandated before touching this
+  component: a subtle hover border, a graceful `onError` image fallback,
+  and heavier price typography (`font-semibold`) for clearer visual
+  hierarchy — all directly serving the "premium marketplace card" bar, not
+  scope creep. Imports `WishlistButton` from its concrete file, not the
+  `wishlist` barrel, deliberately — importing the barrel here would make
+  the `artwork` and `wishlist` feature barrels import each other.
+- **`src/features/artwork/api/artworkRepository.ts`** — new one-shot
+  `getArtwork(id)` (a `getDoc`, never a subscription), added specifically
+  so resolving many saved wishlist items never means opening many
+  listeners.
+- **`src/main.tsx`** — mounts `WishlistProvider` between `AuthProvider` and
+  `RouterProvider`, so its state survives navigating between Marketplace,
+  an artist page, and `/wishlist` itself.
+- **`firestore.rules`** — one new, self-contained block:
+  `wishlists/{uid}/items/{artworkId}` — read/create/delete restricted to
+  `isOwner(uid)`, `update` always denied, create field-locked to exactly
+  `{ addedAt: request.time }`. Zero lines of any existing rule changed.
+- **Bug fix found during the mandated pre-Wishlist visual audit** (real
+  screenshots of `/explore` and an artist page, not source-reading alone):
+  `MarketplaceFilters`' price-range inputs rendered full-width in the real
+  browser, not the intended compact width — a Tailwind class-specificity
+  conflict between the shared `Input` component's own `w-full` base class
+  and a narrower `className` override, which generated-stylesheet order
+  (not JSX class-list order) was silently winning. Fixed by constraining a
+  wrapping `<div>` instead of the input itself.
+- **`src/index.css`** — added a `prefers-reduced-motion` blanket floor
+  (Tailwind's own `motion-safe:`/`motion-reduce:` variants are used
+  deliberately in `WishlistButton`'s press feedback; this catches anything
+  else, e.g. `Skeleton`'s pre-existing `animate-pulse`, without a separate
+  audit of every existing animation).
+- **Documentation** — `docs/DATABASE.md` and `docs/SECURITY.md` updated
+  with the full schema, the guest/merge semantics, and the security
+  reasoning; this file.
+
+### Guest → account UX (the core product decision this module made)
+
+A signed-out visitor's tap on the heart updates instantly (optimistic,
+`localStorage`-backed) with a one-time "Saved — sign in to keep your
+wishlist across devices" toast (shown once per browser, not on every
+save) — never a sign-in wall or a blocking modal. `/wishlist` itself works
+signed out, showing whatever is saved locally. The moment that browser
+signs in, `WishlistProvider` diffs the local id list against the
+already-loaded server set and writes only the ids genuinely missing
+(existing server entries are never touched, nothing is ever written
+twice); local storage is cleared only once every write has actually
+succeeded, so a failed merge leaves nothing lost — it is simply retried
+the next time that same account signs in.
+
+### Testing
+
+- Firestore rules (`npm run test:rules`, isolated emulator — see Module
+  08's "Final hardening"): **148/148 passing** (135 + 13 new), including
+  owner read/create/delete allowed; another signed-in user and a
+  signed-out visitor denied on every operation; a forged/incomplete create
+  payload denied; `update` denied unconditionally; and the
+  guessed-private-artwork-id case (a wishlist entry referencing another
+  seller's real `DRAFT` artwork reads fine on its own terms, while the
+  referenced artwork itself is still denied, exactly as before).
+- Storage rules (isolated emulator): **16/16 passing**, unchanged.
+- Full frontend suite: **514/514 passing** across 73 files (up from
+  460/67 after Module 08) — new coverage across
+  `guestWishlistStorage.test.ts`, `wishlistRepository.test.ts`,
+  `WishlistProvider.test.tsx`, `WishlistButton.test.tsx`,
+  `useWishlistArtworks.test.tsx`, `WishlistPage.test.tsx`, plus extensions
+  to `PublicArtworkCard.test.tsx`, `PublicArtworkGrid.test.tsx`,
+  `MarketplaceGrid.test.tsx`, `useNavItems.test.ts`, and `router.test.tsx`.
+  Several runs this session showed timeout/worker-startup failures — this
+  time traced to a genuine machine-level constraint (as little as 1.15 GB
+  free RAM on a 7.67 GB system after a long session of concurrent
+  emulator/build/test activity), confirmed by `vitest`'s own "Failed to
+  start threads worker" errors (not test-logic failures) hitting a
+  different, unrelated set of pre-existing files each time. Resolved by
+  freeing memory and reducing test concurrency (`--maxWorkers=2`) for one
+  clean run, which passed completely — never a code regression.
+- `npm run typecheck`, `npm run build` (`WishlistPage` code-splits into its
+  own ~1.8 KB lazy chunk), `npm run lint` (0 errors — 2 new warnings, both
+  matching patterns already accepted elsewhere: `WishlistProvider.tsx`
+  exports both a component and a hook from one file, exactly like
+  `AuthProvider.tsx` already does), and `npm run test:scripts` (68/68, 21
+  new — covering `scripts/lib/javaRuntime.mjs`, extracted from
+  `start-emulators.mjs` during Module 08 for reuse by the isolated
+  test-emulator launcher) all pass.
+- `functions` test suite: 37/37, unchanged — no `functions/` source
+  touched.
+- `git diff --check`: exit 0 — only pre-existing LF/CRLF warnings.
+
+### Real browser verification
+
+Performed against the real owner's account (`bm440946@gmail.com`) and
+real `PUBLISHED` artwork ("3d"), plus the existing disposable fixture
+account, end to end:
+
+1. Signed out, on `/explore`: the real "3d" card shows an unsaved heart;
+   clicking it flips instantly to saved (no network wait visible) with the
+   one-time guest-save toast.
+2. Refreshing the page: the saved state survives (real `localStorage`
+   persistence, not a fabrication).
+3. `/wishlist`, still signed out: shows the real saved artwork.
+4. Signing in as the real owner: the merge completes automatically; the
+   wishlist still shows the artwork immediately after, and the
+   signed-out-only "saved on this device" banner correctly disappears.
+5. Refreshing again, now signed in: still shows the artwork — this time
+   from the real Firestore wishlist, confirmed independently via the
+   Admin SDK (`wishlists/{ownerUid}/items/{artworkId}` exists with exactly
+   `{ addedAt }`, nothing else).
+6. Consistent saved state confirmed on both `/explore` and the artist page
+   without re-navigating through `/wishlist` first.
+7. A second real account (the disposable fixture seller) signed in and
+   visited its own `/wishlist`: shows its own genuine empty state, zero
+   leakage of the owner's saved artwork, zero console errors.
+8. Responsive: 390px viewport shows no horizontal overflow on either
+   `/explore` or `/wishlist`, and the save button's real measured touch
+   target is exactly 44×44px.
+9. Firestore persistence was verified without a further emulator restart
+   (given two earlier restart-related incidents already logged against
+   this same session — see Module 08's "Final hardening"): a live export
+   via `firebase emulators:export` against the already-running hub was
+   inspected directly and confirmed to contain the `wishlists` collection
+   data, proving it would survive a restart via the exact same mechanism
+   already relied on for every other collection, without actually forcing
+   one.
+
+### Known limitations / deliberately deferred
+
+- No Likes, no Follows, no Sharing — see "Objective and scope decision"
+  above for why, specifically, rather than "later."
+- No cross-tab sync for a signed-out guest's wishlist (each tab reads
+  `localStorage` independently; a change in one tab isn't reflected live
+  in another already-open tab without a refresh) — not required by the
+  approved scope ("survives a refresh"), and out of proportion to add for
+  a guest-only, pre-account convenience.
+- No global "you have N saved items" indicator in the nav bar itself
+  (e.g. a badge count on the Wishlist nav icon) — the count lives on the
+  `/wishlist` page itself only.
+
+## Module 08 — Marketplace (Public Artwork Browsing & Search/Filtering) (COMPLETE, VERIFIED, COMMITTED)
 
 **Status:** implementation, automated tests (frontend unit/component,
 Firestore rules), and real end-to-end verification via the Firebase Local
-Emulator Suite and a real browser (Playwright) all complete. Owner review
-pending; **not yet committed**.
+Emulator Suite and a real browser (Playwright) all complete. Owner-reviewed
+and approved, and committed as `64fbcf5` — this commit also introduced
+permanent isolated Firestore/Storage rules-test infrastructure (see its own
+"Final hardening" addendum near the end of this section) after an incident,
+found during that same review round, where running those suites directly
+against the persistent dev emulator wiped its real Auth/Firestore data.
 
 ### Objective and scope decision
 
@@ -394,6 +609,34 @@ corrected state is now durably persisted, not just held in memory.
   sort combinations Module 08's own UI can produce; a future filter
   dimension (e.g. tags) would need its own new indexes, not a reuse of
   these.
+
+### Final hardening: permanent test/dev emulator isolation
+
+Before commit, running the Firestore/Storage rules test suites directly
+against the already-running dev emulator was found to wipe its real
+Auth/Firestore data (both suites call `clearFirestore()`/equivalent in
+their own setup, and both had hardcoded the dev emulator's own ports and
+project id). Fixed permanently: `npm run test:rules`/`test:storage-rules`
+now launch a dedicated, disposable emulator (`scripts/
+run-isolated-emulator-tests.mjs`, `firebase.test.json` — ports `8280`/
+`9399`, project id `demo-artvault-test`, no persistence) via `firebase
+emulators:exec`, and every rules-test file additionally calls a
+fail-closed runtime guard (`test-support/emulatorTestEnv.ts`) that refuses
+to run at all unless it can prove it is connected to that isolated
+instance. Proven safe with a real before/after check against the live dev
+emulator (Auth uid/email/role claim, `users.role`, `sellers.status`,
+`artists.displayName`, `artworks.status`, and Storage image byte sizes,
+byte-identical before and after both isolated suites ran). A second,
+unrelated incident during this same hardening pass is recorded honestly
+too: the dev emulator's own Functions subsystem separately crashed from
+accumulated reload instability after repeated manual `tsc` rebuilds during
+the session — independently confirmed to have nothing to do with the new
+isolated test-emulator work — losing the in-memory-only `PUBLISHED`/
+`REJECTED` correction from the first incident (Auth accounts and
+`DRAFT`-state artwork data were untouched, since those came from the
+on-disk `emulator-data` import). Recovered via the same trusted-CLI flow
+already used once, then immediately exported to disk so the corrected
+state would not be lost to a third incident.
 
 ## Module 07 — Artwork Moderation & Publishing (COMPLETE, VERIFIED, COMMITTED)
 
@@ -2567,10 +2810,23 @@ untouched.
   Firestore rules tests, 37/37 Cloud Functions tests. Review result:
   **PASS — owner reviewed and approved**. Checkpoint commit: `a6aa668`
   (docs-accuracy follow-up: `87626d0`).
+- **Module 08 — Marketplace (Public Artwork Browsing & Search/Filtering):**
+  ArtVault's first cross-seller public discovery surface — a public
+  `/explore` route querying every seller's `PUBLISHED` artwork at once,
+  with Firestore-native category/price filtering, three sort orders, and
+  real cursor-based pagination, requiring zero `firestore.rules` changes
+  (proven by a dedicated new rules-test suite, not just argued). Also
+  delivered permanent isolated Firestore/Storage rules-test infrastructure
+  after discovering, during final pre-commit hardening, that those suites
+  had been running directly against the persistent dev emulator and wiping
+  its real data. 460/460 unit/component tests, 135/135 Firestore rules
+  tests (isolated emulator), 16/16 Storage rules tests (isolated emulator),
+  37/37 Cloud Functions tests. Review result: **PASS — owner reviewed and
+  approved**. Checkpoint commit: `64fbcf5`.
 
 ## Pending modules (not started, order not yet committed)
 
-Wishlist/Likes/Follows/Sharing, Cart, Checkout/Payments, Orders, Reviews,
+Likes/Follows/Sharing, Cart, Checkout/Payments, Orders, Reviews,
 Notifications, AI (analysis / assistant / recommendations), Auctions, AR
 Engine, Admin Control Center (including seller-application review UI and an
 in-app moderation UI for the `publishArtwork.ts` decision), Audit Logs,
@@ -2580,12 +2836,15 @@ Foundation & Artwork Draft Management is Module 04, complete and committed;
 Artwork Media/Image Upload is Module 05, complete and committed; Artist
 Profiles is Module 06, complete and committed; Artwork Moderation &
 Publishing is Module 07, complete and committed; Marketplace (public
-browsing/search/filtering) is Module 08, complete and verified, pending
-owner review — see above. A tag-based filter and free-text/fuzzy search
-specifically remain deferred from Module 08 — see its write-up. Followers/
-following specifically remain deferred from Module 06 to whichever later
-module actually builds the Follows feature. A dedicated Inventory feature
-beyond the single `inventoryCount` field
+browsing/search/filtering) is Module 08, complete and committed; Wishlist
+is Module 09, complete and verified, pending owner review — see above. A
+tag-based filter and free-text/fuzzy search specifically remain deferred
+from Module 08 — see its write-up. Likes and Follows specifically remain
+deferred from Module 09, not merely bundled elsewhere — see its write-up
+for why they're a meaningfully different kind of change, not just a
+same-shaped feature. Followers/following specifically remain deferred from
+Module 06 to whichever later module actually builds the Follows feature. A
+dedicated Inventory feature beyond the single `inventoryCount` field
 remains deferred, not started. Avatar *upload* specifically also remains
 deferred to a future module.)
 

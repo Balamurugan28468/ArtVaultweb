@@ -67,3 +67,19 @@ body {
   outline: 2px solid var(--color-brand-primary);
   outline-offset: 2px;
 }
+
+/* A blanket floor under Tailwind's own motion-safe:/motion-reduce: variants
+   (used deliberately, e.g. WishlistButton's press feedback) — anything that
+   still slips through with its own unconditional transition/animation
+   (e.g. Skeleton's animate-pulse) is calmed too, rather than only the
+   handful of places that opted in explicitly. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

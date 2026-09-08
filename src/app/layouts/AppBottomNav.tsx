@@ -22,7 +22,7 @@ export function AppBottomNav() {
               to={item.href}
               aria-current={isActive ? 'page' : undefined}
               className={`flex min-w-11 flex-1 flex-col items-center justify-center gap-1 text-xs ${
-                isActive ? 'text-brand-primary' : 'text-text-secondary'
+                isActive ? 'text-brand-primary-on-dark' : 'text-text-secondary'
               }`}
             >
               <item.icon className="h-5 w-5" />

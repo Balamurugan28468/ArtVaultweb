@@ -40,13 +40,13 @@ export function SignInPage() {
       />
       <BrandLogo />
       <Card className="mt-6 w-full border-t-2 border-t-accent-gold/40 p-4 sm:p-6">
-        <h1 className="text-xl font-semibold text-text-primary">Sign in</h1>
+        <h1 className="font-display text-2xl font-medium text-text-primary">Sign in</h1>
         <div className="mt-4">
           <SignInForm onSuccess={() => setSubmitted(true)} />
         </div>
         <p className="mt-4 text-sm text-text-secondary">
           No account?{' '}
-          <Link to="/sign-up" className="font-medium text-brand-primary">
+          <Link to="/sign-up" className="font-medium text-brand-primary-on-dark">
             Sign up
           </Link>
         </p>

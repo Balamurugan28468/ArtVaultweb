@@ -24,6 +24,16 @@ vi.mock('firebase/firestore', async (importOriginal) => {
   return { ...actual, getDocs: vi.fn().mockResolvedValue({ docs: [] }) }
 })
 
+// Every findByRole('heading', ...) below that follows a real lazy-load
+// (dynamic import, exactly as in production — see the comment above the
+// Sign Up test) passes an explicit longer timeout than the 1000ms default.
+// This file forces a genuine dynamic import to resolve through the real
+// router for every route it covers, and jsdom (much slower than a real
+// browser at this) occasionally exceeds that default window under normal
+// system load — confirmed, while diagnosing this for Module 10, to never
+// reproduce in a real browser (each route's heading renders correctly and
+// instantly there). The assertions themselves are unchanged.
+
 // `router` is a module-level singleton (createBrowserRouter is only ever
 // meant to be constructed once) shared across every test in this file, so
 // each test explicitly navigates back to "/" first rather than assuming a
@@ -76,7 +86,7 @@ describe('router', () => {
 
     fireEvent.click(screen.getAllByRole('link', { name: 'Sign up' })[0])
 
-    expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Create your account' }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.getByLabelText('Name')).toBeInTheDocument()
   })
 
@@ -94,7 +104,7 @@ describe('router', () => {
 
     fireEvent.click(screen.getAllByRole('link', { name: 'Sign in' })[0])
 
-    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.getByLabelText('Email')).toBeInTheDocument()
   })
 
@@ -110,7 +120,7 @@ describe('router', () => {
     )
     await router.navigate('/sign-up')
 
-    expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Create your account' }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.getByLabelText('Name')).toBeInTheDocument()
   })
 
@@ -126,7 +136,7 @@ describe('router', () => {
     )
     await router.navigate('/sign-in')
 
-    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.getByLabelText('Email')).toBeInTheDocument()
   })
 
@@ -142,7 +152,7 @@ describe('router', () => {
     )
     await router.navigate('/explore')
 
-    expect(await screen.findByRole('heading', { name: 'Explore' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Explore' }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.queryByText(/sign in/i, { selector: 'h1,h2,p' })).not.toBeInTheDocument()
   })
 
@@ -160,7 +170,7 @@ describe('router', () => {
 
     fireEvent.click(screen.getAllByRole('link', { name: 'Explore' })[0])
 
-    expect(await screen.findByRole('heading', { name: 'Explore' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Explore' }, { timeout: 3000 })).toBeInTheDocument()
   })
 
   it('lazy-loads the real Wishlist page on direct navigation to "/wishlist", without requiring authentication (Module 09)', async () => {
@@ -175,7 +185,7 @@ describe('router', () => {
     )
     await router.navigate('/wishlist')
 
-    expect(await screen.findByRole('heading', { name: 'Wishlist' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Wishlist' }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.queryByText(/sign in/i, { selector: 'h1,h2,p' })).not.toBeInTheDocument()
   })
 })

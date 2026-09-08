@@ -4,8 +4,13 @@ export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'gold'
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
+  // Measured WCAG AA fix (Module 10 Phase 2): white text on the base
+  // --color-brand-primary only reached 4.23:1 (fails the 4.5:1 minimum).
+  // Rather than introduce a new color, the resting state reuses the
+  // already-existing --color-brand-primary-hover (5.70:1, passes) and
+  // hover/active shift one step darker to --color-brand-primary-active.
   primary:
-    'bg-brand-primary text-white hover:bg-brand-primary-hover active:bg-brand-primary-active disabled:hover:bg-brand-primary',
+    'bg-brand-primary-hover text-white hover:bg-brand-primary-active active:bg-brand-primary-active disabled:hover:bg-brand-primary-hover',
   secondary:
     'bg-surface-elevated text-text-primary border border-border-strong hover:border-brand-primary disabled:hover:border-border-strong',
   ghost: 'bg-transparent text-text-primary hover:bg-surface-elevated',

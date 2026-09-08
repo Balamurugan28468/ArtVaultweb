@@ -1,6 +1,9 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-07 — Module 09 (Wishlist) — a save/heart control on
+_Last updated: 2026-09-07 — Module 10 (Product UI/UX Foundation) Phase 1 +
+Phase 2 complete, awaiting owner review; not yet committed — see "Module 10
+— Product UI/UX Foundation" below for the full write-up. Module 09
+(Wishlist) — a save/heart control on
 every public artwork card (Marketplace and the artist page) and a public
 `/wishlist` page. Signed-out visitors save locally (`localStorage`, no
 sign-in wall — a deliberate, explicitly-approved low-friction UX decision)
@@ -18,9 +21,17 @@ different and riskier kind of change than a brand-new private collection.
 **Implementation, automated tests, and real end-to-end verification
 (guest save → refresh → sign-in merge → cross-page consistency → a second
 real account confirmed unable to see it, all in a real browser against the
-real owner's own account and artwork) all complete — awaiting owner
-review; not yet committed**; see "Module 09 — Wishlist" below for the full
-write-up. Module 08 (Marketplace — Public Artwork Browsing &
+real owner's own account and artwork) all complete, owner-reviewed and
+approved, and committed** (`e573d6d`); see "Module 09 — Wishlist" below for
+the full write-up. Module 10 (Product UI/UX Foundation — desktop shell
+width, Newsreader display typography, width-driven ResponsiveGrid,
+measured WCAG AA contrast remediation, and a real Home-page composition
+sourced entirely from live marketplace data) has Phase 1 and Phase 2 both
+**implemented, fully tested (519/519), typechecked, linted, and built
+clean, with real-browser visual verification across 1920/1440/1280/1024/
+768/430/390/360 — complete and awaiting owner review; not yet committed**;
+see "Module 10 — Product UI/UX Foundation" below for the full write-up.
+Module 08 (Marketplace — Public Artwork Browsing &
 Search/Filtering) — ArtVault's first cross-seller public discovery
 surface: a public `/explore` route querying `artworks` for
 `status == 'PUBLISHED'` across every seller (no `sellerId` filter at all,
@@ -93,39 +104,33 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 09 — Wishlist: implementation, automated tests, and real
-end-to-end verification complete — awaiting owner review; not yet
-committed.** A save/heart toggle on `PublicArtworkCard` (so it appears on
-both Marketplace and the artist page for free) and a public `/wishlist`
-page. `wishlists/{uid}/items/{artworkId}` stores only `{ addedAt }` — no
-artwork snapshot; the page resolves each saved id's *current* data at
-render time. Signed-out visitors save to `localStorage` immediately, no
-sign-in wall; signing in merges any local ids into the real Firestore
-wishlist exactly once, skipping ids already present server-side, clearing
-local storage only once every write confirms. One shared `WishlistProvider`
-listener for a whole signed-in session — never one per card. Required
-**zero** changes to any existing rule, including `artworks/{artworkId}`'s
-own — proven, not just argued, by a new rules test that seeds a wishlist
-entry referencing another seller's real `DRAFT` artwork id and confirms
-the wishlist entry itself reads fine while the referenced artwork still
-does not. Likes and Follows were both seriously considered and explicitly
-deferred instead of bundled in, because either would require opening a
-new write exception on an already-hardened public document — a
-meaningfully different, higher-risk change than Wishlist's brand-new
-private collection. A real UI/visual audit (screenshots of the actual
-running app, not source-reading alone) found and fixed one pre-existing
-bug along the way: Marketplace's price-range inputs rendered full-width
-due to a Tailwind class-specificity conflict. See "Module 09 — Wishlist"
-below for the full write-up. Module 08 (Marketplace — Public Artwork
-Browsing & Search/Filtering: `64fbcf5`, which also introduced the
-permanent isolated rules-test infrastructure), Module 07 (Artwork
-Moderation & Publishing: `a6aa668`), Module 06 (Artist Profiles:
-`d917e4f`), Module 05 (Artwork Media/Image Upload & Emulator Lifecycle
-Hardening: `3265194`), and Module 04 (Seller Foundation & Artwork Draft
-Management: `d483994`, `1f8ca5a`, `1f0deb7`; Emulator Persistence &
-Seller-Authorization Reconciliation: `877f3ba`) remain complete, verified,
-and committed. See "Completed modules" for the checkpoint entries once
-Module 08's and Module 09's own checkpoints are added.
+**Module 10 — Product UI/UX Foundation: Phase 1 (typography/shell/grid
+architecture) and Phase 2 (Home real composition, contrast remediation,
+responsive/visual QA) both implemented, fully tested, and real-browser
+verified — complete, awaiting owner review; not yet committed.** A
+Newsreader display-serif role (page H1s, section H2s, artwork
+titles/prices only — never navigation/buttons/forms/body text), a 90rem
+(`--max-width-shell`) desktop shell replacing the previous `max-w-7xl` that
+capped the *entire* sidebar+content row (not just a reading column) and
+caused large-viewport pages to show a narrow floating column in a mostly-
+empty 1920px/1440px viewport, a width-driven (`auto-fill`/`minmax`)
+`ResponsiveGrid` that sizes column count from real container width instead
+of jumping between fixed breakpoint counts, a real Home-page "Recently
+published" section sourced from the same `useMarketplaceArtworks` query
+Explore uses (never fabricated content, never duplicated to fill space),
+and a measured (real W3C relative-luminance formula, not eyeballed) WCAG AA
+contrast audit that found and fixed 3 genuine failures. See "Module 10 —
+Product UI/UX Foundation" below for the full write-up. Module 09
+(Wishlist: `e573d6d`), Module 08 (Marketplace — Public Artwork Browsing &
+Search/Filtering: `64fbcf5`, which also introduced the permanent isolated
+rules-test infrastructure), Module 07 (Artwork Moderation & Publishing:
+`a6aa668`), Module 06 (Artist Profiles: `d917e4f`), Module 05 (Artwork
+Media/Image Upload & Emulator Lifecycle Hardening: `3265194`), and
+Module 04 (Seller Foundation & Artwork Draft Management: `d483994`,
+`1f8ca5a`, `1f0deb7`; Emulator Persistence & Seller-Authorization
+Reconciliation: `877f3ba`) remain complete, verified, and committed. See
+"Completed modules" for the checkpoint entries once Module 09's and
+Module 10's own checkpoints are added.
 
 ## Authentication methods — current scope
 
@@ -146,7 +151,280 @@ approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
 
-## Module 09 — Wishlist (COMPLETE, VERIFIED — awaiting owner review, not committed)
+## Module 10 — Product UI/UX Foundation (COMPLETE, VERIFIED — awaiting owner review, not committed)
+
+**Status:** Phase 1 (typography/shell/grid architecture) and Phase 2 (Home
+real composition, contrast remediation, responsive completion, visual QA)
+both implemented. 519/519 unit/component tests passing, `tsc --noEmit`
+clean, `oxlint` clean (only pre-existing warnings, none new), production
+build clean, real-browser (Playwright, Chromium) verification across
+1920/1440/1280/1024/768/430/390/360 on Home/Explore/Artist/Wishlist/
+Sign-in. **Not committed — awaiting owner review.**
+
+**Why this module exists:** an explicit owner audit judged the product as
+built through Module 09 to read as a generic Firebase-demo/Tailwind-
+dashboard rather than a premium art marketplace — narrow inconsistent
+content width, no typographic hierarchy, unfinished-looking sparse grids.
+This module is presentation/foundation only: no Firestore schema, security
+rule, authentication, business-logic, routing, or query-behavior change
+anywhere in either phase.
+
+**Visual direction.** Dark, editorial, restrained — one warm serif display
+role layered onto the existing system-sans UI, one desktop content-width
+fix, one grid-sizing mechanism fix, measured (not guessed) contrast
+correctness. Deliberately not a redesign: every existing token, color, and
+component that already worked (Card, Button, EmptyState/ErrorState,
+Skeleton, the wishlist/marketplace business logic) was reused as-is.
+
+**Typography system.** A new `--font-display: 'Newsreader', ui-serif,
+Georgia, serif` token (`src/index.css`), loaded via a real Google Fonts
+`<link>` in `index.html` (`font-display: swap`, so text is never blocked
+waiting on the font). Applied via a plain `font-display` Tailwind utility
+**only** where a component explicitly assigns the display role: page H1s
+(`PageHeader`, Home's hero H1, Sign In/Sign Up H1s), section H2s
+(`SectionHeader`), artist-name H1 (`PublicArtistHeader`), and artwork
+title/price on `PublicArtworkCard`. Navigation, buttons, forms, body text,
+labels, captions, and all other utility UI keep Tailwind's default
+system-sans stack untouched, per the owner's explicit "do not overuse the
+serif" instruction — this is a two-role type system, not a full-page
+serif reskin.
+
+**Shell/container architecture.** `AppShell.tsx`'s sidebar+content row
+previously carried `max-w-7xl` (1280px) on the *entire* row (sidebar
+included), not a reading column — the actual root cause of large-viewport
+pages showing a narrow floating content island in a mostly-empty 1920px/
+1440px browser window. Replaced with a new `--max-width-shell: 90rem`
+token, consumed as `max-w-[var(--max-width-shell)]` (an arbitrary-value
+utility, not a Tailwind theme-namespace key, so its effect never depends on
+guessing Tailwind v4's internal max-width scale name) — an explicit,
+owner-approved 1440px desktop cap with responsive gutters, not edge-to-edge
+at very large viewports. `Container.tsx` (previously defined but unused
+anywhere in the real app) was refactored to drop its own padding, since
+`AppShell`'s `<main>` already supplies `px-4 sm:px-6 lg:px-8` globally —
+double padding would have shrunk the usable content width further. Applied
+to Home/Explore/Wishlist/Artist pages; Sign In/Sign Up keep their
+pre-existing `max-w-sm` centered-card layout unchanged (a different,
+intentionally narrow composition, not an oversight).
+
+**Responsive grid behavior.** `ResponsiveGrid.tsx` changed from fixed
+Tailwind breakpoint column counts (2/3/4 at sm/lg/xl, regardless of the
+container's real available width) to `sm:grid-cols-[repeat(auto-fill,
+minmax(15rem,1fr))]` — column count is now derived from real container
+width. This is what makes a 768px tablet container render a genuine 2–3
+column layout instead of inheriting whichever hardcoded breakpoint was
+nearest, and — critically — what makes a sparse result set (as few as one
+artwork) render as a normally-sized card that simply doesn't stretch to
+fill the row, rather than either a forced multi-column grid with empty
+cells or one card awkwardly stretched to the full container width
+(`auto-fill`, deliberately not `auto-fit`, which would collapse the empty
+tracks and let the single item's `1fr` stretch to fill the space instead).
+Verified with real, temporary Firestore fixtures (Admin SDK, deleted
+immediately after screenshotting — see "Testing" below) at 2, 4, and 8
+published-artwork counts across 768/1024/1920: 2 and 4 results render as
+natural-width, non-stretched, left-starting rows; 8 results render a clean
+4-column × 2-row grid at 1920 with no narrow-trapped cards.
+
+**Spacing/alignment fix found via real screenshots.** `MarketplaceGrid.tsx`'s
+"Load more" button and "You've reached the end of the marketplace." message
+were `justify-center`/`text-center` inside the grid's *full-width* flex
+column — harmless at high density, but at low density (1–2 results) this
+centered them in the empty space to the right of the sparse grid instead of
+under the actual cards, reading as visually disconnected. Changed to
+`justify-start`/`text-left` so both elements sit naturally below the grid's
+actual content, matching where the cards themselves start. Presentation-only
+— no query, pagination, or filter behavior touched.
+
+**Accessibility — WCAG AA contrast audit (the item explicitly flagged as
+"still owed" after Phase 1).** A Node script implementing the real W3C
+relative-luminance/contrast-ratio formulas (not an estimate) was run
+against every actual token-pair combination in `src/index.css`. It found
+exactly 3 genuine failures, all now fixed with the smallest change that
+resolves each without touching anything that already passed:
+1. `--color-text-muted` (`#6b7280`) scored 3.44–4.04:1 against the app's
+   three dark surfaces (fails the 4.5:1 normal-text minimum). Changed to
+   `#8890a0` — passes at 5.17–6.09:1 across all three, while staying
+   visibly less prominent than `--color-text-secondary` so the intended
+   3-tier text hierarchy (`primary` > `secondary` > `muted`) is preserved.
+2. White button text on `--color-brand-primary` (`#8b5cf6`) scored 4.23:1
+   (fails). Darkening the base token would have fixed this but *worsened*
+   `--color-brand-primary` used as small text on dark surfaces (a second,
+   independently-failing case — see #3) in the opposite direction; the two
+   contexts have opposite contrast requirements and cannot share one token
+   value. Resolved by leaving `--color-brand-primary` itself untouched and
+   having `Button.tsx`'s primary variant reuse the *already-existing*
+   `--color-brand-primary-hover` (`#7c3aed`, 5.70:1 — passes) as its
+   resting-state background, with hover/active shifting one step further to
+   `--color-brand-primary-active` — a non-arbitrary reuse of an existing
+   token, not a new color.
+3. `--color-brand-primary` used directly as small link/label text on flat
+   dark surfaces (not a tinted/translucent background) scored 3.92–4.30:1
+   (fails). An exhaustive `grep` for every `text-brand-primary` usage in
+   `src` found exactly 4 real instances on a flat surface background:
+   `AppBottomNav.tsx`'s active nav label, `SignInPage.tsx`'s "Sign up" link,
+   `SignUpPage.tsx`'s "Sign in" link, and `WishlistPage.tsx`'s guest-banner
+   "Sign in" link (other matches — `AppSidebar.tsx`, `Avatar.tsx`,
+   `Chip.tsx` — sit on a translucent `bg-brand-primary/15`-style tint, not a
+   flat surface, and were left alone). A new, separate token,
+   `--color-brand-primary-on-dark` (`#9c74f7`, a lightened interpolation
+   toward white from the base brand hue — passes at 4.95–5.43:1), was added
+   for exactly this text-on-dark-surface use and applied to all 4 instances.
+   `--color-brand-primary` itself was never touched, so every existing
+   background/tint/icon usage of it is unaffected.
+All 6 previously-failing measurements were re-run against the final values
+and now pass; nothing that already passed was touched.
+
+**Home page real composition.** Previously a static Card with placeholder
+copy ("The full marketplace experience will appear here..."). Now renders
+a real "Recently published" section through the *same*
+`useMarketplaceArtworks`/`DEFAULT_MARKETPLACE_FILTERS` infrastructure
+Explore uses (capped at 8 items via a local `HOME_PREVIEW_COUNT`, so Home
+never grows into a second full Marketplace page), with its own
+loading/error/empty states — the empty state is honest ("No artworks
+published yet... check back soon, or explore the marketplace") rather than
+faked, and the current single real artwork is rendered once, never
+duplicated to fill space. Hero copy was trimmed of a prior mention of
+AI-powered discovery/live auctions/AR previews — features that do not
+exist yet — to avoid promising unbuilt functionality.
+
+**Artist and Wishlist page review.** Both already inherit the new shell/
+Container/typography/grid system correctly from Phase 1 with no further
+change needed — reviewed against the new system and found consistent; no
+artist-data logic, wishlist persistence, guest-wishlist behavior, guest→
+account merge, or Firestore document structure was touched, per explicit
+instruction.
+
+**AI Assistant launcher / card-control collision — investigated, no
+regression found requiring a structural fix.** Source review first
+suggested no collision was possible (`WishlistButton` sits top-right
+*inside* each card; the AI launcher is a `fixed` bottom-right viewport
+element). A real-browser screenshot at 390px then showed the launcher
+sitting close to/slightly over a card's bottom-right info-panel corner on
+Home's very first (unscrolled) viewport when only one short artwork exists
+above it. A zoomed crop confirmed this is visual proximity — the launcher
+does not actually cover the artist-name/price text, which stays fully
+legible — consistent with ordinary floating-action-button behavior used
+across the web (a FAB is expected to sit "on top of" whatever content
+happens to scroll beneath its fixed position). Two candidate fixes were
+evaluated and rejected: adding bottom padding to `<main>` doesn't move
+already-visible initial-viewport content, so it wouldn't have changed this
+specific screenshot at all, only added unwanted trailing empty space on
+every mobile page; no other minimal, non-arbitrary fix was identified. Left
+as-is and documented here rather than silently ignored, matching the
+explicit "if anything still looks weak, say so instead of hiding it"
+instruction. Worth revisiting once the AI Assistant becomes a real,
+interactive feature (a real feature's own design would replace this
+placeholder anyway) or once more real content naturally pushes the fold
+further down.
+
+**Known limitation — sparse real content.** The environment has exactly
+one real published artwork. Home/Explore/Artist necessarily show
+significant whitespace at large viewports as a result — this is now
+*intentional* whitespace (the grid mechanism correctly leaves it unfilled
+rather than stretching the one card, and the copy/empty-states are honest
+about it) rather than a layout bug, but it will only visually resolve once
+more real artworks are published. Multi-card behavior (2/4/8 results) was
+verified via temporary, automatically-deleted Firestore fixtures (see
+"Testing") specifically so this limitation didn't block verifying the grid
+mechanism itself.
+
+**Reusable-component decisions.** No new shared UI primitives were created;
+`PageHeader`/`SectionHeader`/`Container`/`ResponsiveGrid`/`Button` were all
+extended in place rather than duplicated. `buttonClassName` (the existing
+non-`<button>` link-styled-as-button helper) was used for every new
+`<Link>`-as-CTA in `HomePage.tsx`, matching the codebase's established
+pattern (`WishlistPage.tsx`, `SellerStudioHomePage.tsx`, etc.) rather than
+introducing a `Button`-wrapping-`Link` pattern that would nest an `<a>`
+inside a `<button>`.
+
+**Performance.** No new runtime dependencies. Newsreader loads via
+`font-display: swap` (never blocks text rendering). Home's marketplace
+query reuses the existing `useMarketplaceArtworks` TanStack Query cache —
+no new listener, no new query shape. Production build: clean, no new
+chunk-size regressions (the one pre-existing >500kB chunk warning is
+unrelated to this module, unchanged).
+
+**Files changed (both phases):** `index.html`; `src/index.css`;
+`src/app/layouts/AppShell.tsx`; `src/app/layouts/AppBottomNav.tsx`;
+`src/app/routes/HomePage.tsx` + `HomePage.test.tsx` (rewritten);
+`src/app/routes/{ArtistProfilePage,MarketplacePage,WishlistPage,
+SignInPage,SignUpPage}.tsx`; `src/app/routes/router.test.tsx` (jsdom
+timing fix, see below); `src/features/artist-profile/components/
+PublicArtistHeader.tsx`; `src/features/artwork/components/
+PublicArtworkCard.tsx`; `src/features/marketplace/components/
+MarketplaceGrid.tsx`; `src/shared/ui/{Button,Container,PageHeader,
+ResponsiveGrid,SectionHeader}.tsx`.
+
+**A genuine, pre-existing jsdom-only test-timing bug** (unrelated to this
+module's own changes, found while adding Phase 1's real lazy-loaded-route
+coverage) was root-caused and fixed in `router.test.tsx`: `findByRole`
+calls following a real dynamic `import()` occasionally exceeded RTL's
+default 1000ms poll window under jsdom specifically — confirmed via a
+direct-render bypass (passes instantly) and a real Playwright browser check
+(renders instantly, zero console errors) that this never reproduces outside
+jsdom. Fixed with an explicit `{ timeout: 3000 }` on the affected
+assertions, not a blanket global timeout increase.
+
+**Testing.** 519/519 unit/component tests (`vitest`, reduced worker
+concurrency throughout to respect this machine's tight available RAM — see
+"Machine resource constraints" below), `tsc --noEmit` clean, `oxlint` clean
+(pre-existing warnings only), production build clean. No Firestore/Storage
+rules changed, so no rules-test suite needed re-running. Multi-card grid
+behavior was verified via a disposable script (Admin SDK, connected to the
+existing isolated-safe *dev* emulator with real owner data — not the
+permanent isolated rules-test infrastructure, which is Firestore/Storage
+*rules* only) that seeded temporary `PUBLISHED` artworks under the real
+seller account, screenshotted the resulting grids via Playwright, then
+deleted every temporary document in a `finally` block and re-verified the
+`artworks` collection count returned to its real baseline (3 documents) —
+no temporary data was ever left behind or became seed/demo content.
+Real-browser (Playwright/Chromium, headless) screenshots were captured
+across Home/Explore/Artist/Wishlist/Sign-in at 1920/1440/1280/1024/768/
+430/390/360 and reviewed directly (not source-read) for: dead space,
+typographic hierarchy, grid intentionality at 1/2/4/8 results, tablet vs.
+stretched-phone feel at 768, mobile overflow/clipping, control legibility,
+and any remaining generic-template appearance.
+
+**Machine resource constraints encountered during this module.** This
+development machine has 7.67GB total RAM; free memory fluctuated as low as
+0.55GB during this module's work (other running applications, not this
+project, were the dominant consumer). A leftover orphaned dev-emulator
+Firestore process (its parent `firebase emulators:start` CLI had exited
+without a clean shutdown, most likely from the same memory pressure) was
+found, its live data safely captured via a direct Firestore-emulator REST
+export (bypassing the dead Hub coordinator), merged back into
+`./emulator-data`, and verified intact via a read-only Admin SDK check
+(2 sellers, 3 artworks, 1 wishlist item, 5 auth users — all real,
+pre-existing data) before the emulator was restarted through its normal
+launcher script. No data was lost. Per standing project practice, every
+test run used reduced/serialized concurrency (`--maxWorkers=1` or `=2`)
+under memory pressure, and every failure observed under contention was
+independently re-run in isolation before being treated as a real
+regression rather than assumed. One genuine regression *was* found this
+way (not resource contention): `HomePage.test.tsx` still asserted the old
+static placeholder copy after Home's real-composition rewrite — rewritten
+to cover loading/error/empty/success states against the new real data
+flow, `MemoryRouter`-wrapped and mocking `useMarketplaceArtworks`/
+`useArtistDisplayNames` exactly like `MarketplaceGrid.test.tsx` already
+does, not deleted or weakened.
+
+**Future UI/UX rules future modules must inherit** (do not reinvent):
+serif (`font-display`) is reserved for page H1s/section H2s/artwork
+titles+prices only; all UI chrome stays system-sans. Desktop content width
+is `max-w-[var(--max-width-shell)]` (90rem/1440px), never a raw `max-w-7xl`
+or similar hardcoded cap on a sidebar+content row. Any new artwork-card
+grid should reuse `ResponsiveGrid` (`auto-fill`/`minmax`, not fixed
+breakpoint column counts) rather than a new ad hoc grid. Any new
+brand-primary-colored text on a flat dark surface uses
+`text-brand-primary-on-dark`, never `text-brand-primary` directly (that
+token is reserved for backgrounds/icons/tinted-background text, which
+already pass contrast in that context). Any new primary-variant button
+reuses `Button`'s existing variant classes rather than hand-rolling
+`bg-brand-primary`, which alone fails white-text contrast. New pages with
+real but possibly-sparse data must render an honest empty/low-count state
+rather than fabricated content, exactly like Home's new section — never
+duplicate real content to fill visual space.
+
+## Module 09 — Wishlist (COMPLETE, VERIFIED, COMMITTED — `e573d6d`)
 
 **Status:** implementation, automated tests, and real end-to-end
 verification (real browser, real owner account) all complete. Owner review
@@ -2823,6 +3101,24 @@ untouched.
   tests (isolated emulator), 16/16 Storage rules tests (isolated emulator),
   37/37 Cloud Functions tests. Review result: **PASS — owner reviewed and
   approved**. Checkpoint commit: `64fbcf5`.
+- **Module 09 — Wishlist:** a save/heart toggle on `PublicArtworkCard`
+  (shared by Marketplace and the artist page) and a public `/wishlist`
+  page. `wishlists/{uid}/items/{artworkId}` stores only `{ addedAt }` — no
+  artwork snapshot. Signed-out visitors save to `localStorage` immediately
+  (no sign-in wall, an explicit low-friction UX decision); signing in
+  merges local ids into the real Firestore wishlist exactly once, skipping
+  ids already present server-side. One shared `WishlistProvider` listener
+  for a whole signed-in session — never one per card. Required zero changes
+  to any existing rule, proven (not just argued) by a new rules test
+  confirming a wishlist entry referencing another seller's private `DRAFT`
+  artwork stays itself readable while the referenced artwork does not. A
+  real UI/visual audit found and fixed one pre-existing bug: Marketplace's
+  price-range inputs rendered full-width due to a Tailwind
+  class-specificity conflict. Verified end to end in a real browser
+  against the real owner account (guest save → refresh → sign-in merge →
+  cross-page consistency → a second real account confirmed unable to see
+  it). Review result: **PASS — owner reviewed and approved**. Checkpoint
+  commit: `e573d6d`.
 
 ## Pending modules (not started, order not yet committed)
 

@@ -57,9 +57,9 @@ export function PublicArtworkCard({
         <WishlistButton artworkId={artwork.id} className="absolute top-2 right-2" />
       </div>
       <div className="flex flex-col gap-1 p-3">
-        <h3 className="truncate text-sm font-medium text-text-primary">{artwork.title}</h3>
+        <h3 className="font-display truncate text-base font-medium text-text-primary">{artwork.title}</h3>
         {artistDisplayName && <p className="truncate text-xs text-text-muted">{artistDisplayName}</p>}
-        <p className="text-sm font-semibold text-text-primary">₹{(artwork.price / 100).toFixed(0)}</p>
+        <p className="font-display text-base font-medium text-text-primary">₹{(artwork.price / 100).toFixed(0)}</p>
       </div>
     </Card>
   )

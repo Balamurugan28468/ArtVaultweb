@@ -40,7 +40,7 @@ export function AppShell() {
       <AppTopBar onOpenDrawer={() => setDrawerOpen(true)} />
       <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
 
-      <div className="mx-auto flex w-full max-w-7xl flex-1 overflow-hidden lg:flex-none lg:overflow-visible">
+      <div className="mx-auto flex w-full max-w-[var(--max-width-shell)] flex-1 overflow-hidden lg:flex-none lg:overflow-visible">
         <AppSidebar />
         <main
           ref={mainRef}

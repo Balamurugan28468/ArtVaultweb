@@ -68,13 +68,18 @@ export function MarketplaceGrid({ filters }: { filters: MarketplaceFilters }) {
       </ResponsiveGrid>
 
       {query.hasNextPage ? (
-        <div className="flex justify-center">
+        // Module 10 Phase 2: left-aligned, not centered in the outer flex
+        // column — the grid track (see ResponsiveGrid) only ever spans as
+        // many columns as there are results, so centering this against the
+        // *container's* full width drifted it away from a sparse result
+        // set's actual cards instead of sitting naturally below them.
+        <div className="flex justify-start">
           <Button variant="secondary" onClick={() => query.fetchNextPage()} disabled={query.isFetchingNextPage}>
             {query.isFetchingNextPage ? 'Loading more…' : 'Load more'}
           </Button>
         </div>
       ) : (
-        <p className="text-center text-sm text-text-muted">You've reached the end of the marketplace.</p>
+        <p className="text-left text-sm text-text-muted">You've reached the end of the marketplace.</p>
       )}
     </div>
   )

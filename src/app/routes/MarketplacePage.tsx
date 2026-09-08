@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { DEFAULT_MARKETPLACE_FILTERS, MarketplaceFilters, MarketplaceGrid, type MarketplaceFiltersState } from '@/features/marketplace'
-import { PageHeader } from '@/shared/ui'
+import { Container, PageHeader } from '@/shared/ui'
 
 /**
  * ArtVault's first cross-seller public discovery surface (Module 08) — the
@@ -16,10 +16,12 @@ export function MarketplacePage() {
   const [filters, setFilters] = useState<MarketplaceFiltersState>(DEFAULT_MARKETPLACE_FILTERS)
 
   return (
-    <section className="flex flex-col gap-6">
-      <PageHeader title="Explore" description="Browse published artworks from every artist on ArtVault." />
-      <MarketplaceFilters filters={filters} onChange={setFilters} />
-      <MarketplaceGrid filters={filters} />
-    </section>
+    <Container>
+      <section className="flex flex-col gap-6">
+        <PageHeader title="Explore" description="Browse published artworks from every artist on ArtVault." />
+        <MarketplaceFilters filters={filters} onChange={setFilters} />
+        <MarketplaceGrid filters={filters} />
+      </section>
+    </Container>
   )
 }

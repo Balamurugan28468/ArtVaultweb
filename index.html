@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ArtVault</title>
+    <!-- Module 10: the warm editorial display serif, used only where
+         src/index.css's --font-display role is applied (page H1s, artwork
+         titles, prices) — never the body/nav/control typeface, which stays
+         the existing system-sans stack untouched. font-display: swap via
+         the stylesheet's own @import means text never blocks on this load. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,500&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="root"></div>

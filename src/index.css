@@ -1,6 +1,27 @@
 @import 'tailwindcss';
 
 @theme {
+  /* Typography (Module 10). --font-display is the warm editorial serif
+     (Newsreader, loaded in index.html) — used ONLY where a component
+     explicitly assigns the display role (page H1s, section H2s, artwork
+     titles, prices). Everything else (nav, buttons, forms, body, labels,
+     metadata) intentionally keeps Tailwind's own default system-sans
+     stack, untouched — that stack was never the problem this module
+     fixes, so it isn't redefined here. */
+  --font-display: 'Newsreader', ui-serif, Georgia, serif;
+
+  /* Desktop shell width (Module 10). Replaces AppShell's previous
+     hardcoded max-w-7xl (1280px) — that cap, applied to the *entire*
+     sidebar+content row rather than just a reading column, was the root
+     cause of large-viewport pages showing a narrow floating column in a
+     mostly-empty 1920px/1440px viewport (see ARTVAULT_PROJECT_STATE.md's
+     Module 10 write-up). Kept as a plain CSS variable — not a Tailwind
+     max-w-* theme key — and consumed via the arbitrary-value utility
+     max-w-[var(--max-width-shell)], so its effect doesn't depend on
+     guessing Tailwind v4's exact internal theme-namespace name for the
+     max-width scale. */
+  --max-width-shell: 90rem;
+
   /* Surfaces */
   --color-bg: #0a0c12;
   --color-surface: #12151f;
@@ -15,13 +36,27 @@
   /* Text */
   --color-text-primary: #f5f6f8;
   --color-text-secondary: #a6adba;
-  --color-text-muted: #6b7280;
+  /* Measured WCAG AA fix (Module 10 Phase 2): the original #6b7280 scored
+     3.44-4.04:1 against the app's three dark surfaces (fails the 4.5:1
+     normal-text minimum). #8890a0 clears the worst case (surface-elevated)
+     at 5.17:1 while staying visibly less prominent than --color-text-secondary,
+     preserving the intended 3-tier text hierarchy. */
+  --color-text-muted: #8890a0;
   --color-text-on-light: #14161c;
 
   /* Brand */
   --color-brand-primary: #8b5cf6;
   --color-brand-primary-hover: #7c3aed;
   --color-brand-primary-active: #6d28d9;
+  /* Measured WCAG AA fix (Module 10 Phase 2): --color-brand-primary itself
+     only reaches 4.30/3.92:1 as small text directly on surface/surface-elevated
+     (fails 4.5:1) — but darkening the base token to fix that would in turn fail
+     the white-on-button case the other direction (buttons fixed below by reusing
+     the existing darker hover/active tokens instead). This is a separate,
+     lightened token reserved for brand-colored TEXT on dark surfaces only
+     (links, active nav labels) — never used as a background. Passes 4.95:1 /
+     5.43:1 on surface-elevated/surface. */
+  --color-brand-primary-on-dark: #9c74f7;
   --color-accent-gold: #f5a524;
   --color-accent-gold-hover: #dc9012;
 

@@ -14,7 +14,7 @@ export function PublicArtistHeader({ profile }: { profile: ArtistProfile }) {
     <Card className="flex flex-col items-center gap-4 p-6 text-center sm:flex-row sm:items-start sm:text-left">
       <Avatar name={profile.displayName} size="lg" />
       <div className="flex flex-col gap-2">
-        <h1 className="text-xl font-semibold text-text-primary">{profile.displayName}</h1>
+        <h1 className="font-display text-2xl font-medium text-text-primary">{profile.displayName}</h1>
         <p className="whitespace-pre-wrap text-sm text-text-secondary">{profile.bio}</p>
       </div>
     </Card>

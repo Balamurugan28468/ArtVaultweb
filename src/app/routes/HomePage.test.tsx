@@ -62,13 +62,14 @@ describe('HomePage', () => {
     expect(screen.getByRole('link', { name: 'Go to Explore' })).toHaveAttribute('href', '/explore')
   })
 
-  it('renders real published artworks from the marketplace query, each linking to its seller', () => {
+  it('renders real published artworks from the marketplace query, each linking to its own artwork page (Module 11)', () => {
     useMarketplaceArtworks.mockReturnValue({ status: 'success', data: { pages: [{ artworks: [ARTWORK] }] } })
     useArtistDisplayNames.mockReturnValue({ alice: 'Alice Fine Art' })
     renderHome()
 
     expect(screen.getByText('Sunset')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Sunset/i })).toHaveAttribute('href', '/artists/alice')
+    expect(screen.getByRole('link', { name: 'Sunset' })).toHaveAttribute('href', '/artworks/a1')
+    expect(screen.getByRole('link', { name: 'Alice Fine Art' })).toHaveAttribute('href', '/artists/alice')
   })
 
   it('never repeats the same artwork to fill space when only one is published', () => {

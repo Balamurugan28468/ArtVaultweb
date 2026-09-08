@@ -69,9 +69,7 @@ export function WishlistPage() {
           <>
             <ResponsiveGrid>
               {artworks.map((artwork) => (
-                <Link key={artwork.id} to={`/artists/${artwork.sellerId}`} className="block">
-                  <PublicArtworkCard artwork={artwork} />
-                </Link>
+                <PublicArtworkCard key={artwork.id} artwork={artwork} />
               ))}
             </ResponsiveGrid>
             {unavailableCount > 0 && (

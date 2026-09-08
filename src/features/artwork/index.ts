@@ -2,6 +2,7 @@ export {
   createArtworkDraft,
   deleteArtworkDraft,
   getArtwork,
+  getPublicArtwork,
   mapToArtwork,
   mutateArtworkImages,
   subscribeArtwork,
@@ -21,6 +22,7 @@ export {
   type FileValidationError,
 } from './api/artworkImageStorage'
 export { ArtworkForm } from './components/ArtworkForm'
+export { ArtworkGallery } from './components/ArtworkGallery'
 export { ArtworkImageManager } from './components/ArtworkImageManager'
 export { ArtworkList } from './components/ArtworkList'
 export { ArtworkListItem } from './components/ArtworkListItem'
@@ -29,6 +31,7 @@ export { PublicArtworkGrid } from './components/PublicArtworkGrid'
 export { useArtwork } from './hooks/useArtwork'
 export { useArtworkImages, type PendingArtworkImage } from './hooks/useArtworkImages'
 export { useCreateArtwork, type CreateStatus } from './hooks/useCreateArtwork'
+export { usePublicArtwork } from './hooks/usePublicArtwork'
 export { usePublishedArtworks } from './hooks/usePublishedArtworks'
 export { useSellerArtworks } from './hooks/useSellerArtworks'
 export { useUpdateArtwork, type UpdateStatus } from './hooks/useUpdateArtwork'

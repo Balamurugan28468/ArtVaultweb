@@ -220,6 +220,37 @@ an artwork whose `status` is `PUBLISHED` is readable by anyone. `DRAFT`,
 of this — that's a future module's job; the only public read path built so
 far is the per-seller query the public artist page uses (see below).
 
+### Artwork Detail page (Module 11) — no schema or rules change
+
+`/artworks/{artworkId}` (`src/app/routes/ArtworkDetailPage.tsx`) is
+ArtVault's first dedicated single-artwork public page. It reads exactly one
+`artworks/{artworkId}` document via a new `getPublicArtwork` (a one-shot
+`getDoc`, not a listener — `src/features/artwork/api/
+artworkRepository.ts`), which is the **same** direct single-document read
+Module 07's `PUBLISHED`-read rule already covers, and which
+`firestore-tests/artworks.rules.test.ts` has already proven for a
+signed-out visitor since Module 07 (see its "PUBLISHED is publicly
+readable" and "DRAFT/SUBMITTED/REJECTED stays private" suites — re-run
+unchanged for this module, still 148/148 passing). **No `firestore.rules`
+line was added, changed, or needed.**
+
+`getPublicArtwork` exists alongside the pre-existing `getArtwork` (used by
+Wishlist to resolve many saved ids at once) specifically because the two
+callers need different error semantics, not different security: a
+Wishlist item's own artwork failing to resolve — for any reason, including
+a real network error — should just look "unavailable," so `getArtwork`
+swallows every error into `null`. A dedicated detail page a stranger might
+land on cold needs a genuine network/unavailable failure to surface as a
+retryable error instead, so `getPublicArtwork` rethrows anything that
+isn't specifically `permission-denied` (which it still maps to `null`, for
+the same privacy reason `getArtwork` does — a private artwork must stay
+indistinguishable from a nonexistent one). The consuming hook,
+`usePublicArtwork`, additionally treats an artwork whose `status` isn't
+`PUBLISHED` as `null` too — even for the artwork's own owner — so the
+public detail route can never render unpublished content to anyone,
+regardless of what the underlying rule would technically allow that owner
+to read directly.
+
 ## `artists/{artistId}` (implemented in Module 06 — public projection)
 
 ```

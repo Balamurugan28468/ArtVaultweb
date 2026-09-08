@@ -56,14 +56,14 @@ describe('MarketplaceGrid', () => {
     expect(screen.getByText('No artworks match these filters')).toBeInTheDocument()
   })
 
-  it('renders each artwork card linking to its own seller’s public artist page', () => {
+  it('renders each artwork card linking to its own artwork page, and its resolved seller name linking to the artist page (Module 11)', () => {
     useMarketplaceArtworks.mockReturnValue({ status: 'success', data: { pages: [{ artworks: [ARTWORK] }] }, hasNextPage: false })
     useArtistDisplayNames.mockReturnValue({ alice: 'Alice Fine Art' })
     renderGrid()
 
     expect(screen.getByText('Sunset')).toBeInTheDocument()
-    expect(screen.getByText('Alice Fine Art')).toBeInTheDocument()
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/artists/alice')
+    expect(screen.getByRole('link', { name: 'Sunset' })).toHaveAttribute('href', '/artworks/a1')
+    expect(screen.getByRole('link', { name: 'Alice Fine Art' })).toHaveAttribute('href', '/artists/alice')
   })
 
   it('never renders an edit, delete, publish, or reject control', () => {

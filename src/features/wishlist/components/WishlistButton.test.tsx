@@ -47,7 +47,7 @@ describe('WishlistButton', () => {
     expect(button).toHaveAttribute('type', 'button')
   })
 
-  it('stops click propagation so a wrapping <Link> to the artist page is not also triggered', () => {
+  it('stops click propagation so a wrapping <Link> (the artwork detail page, in PublicArtworkCard) is not also triggered', () => {
     const toggle = vi.fn()
     useWishlist.mockReturnValue({ isSaved: () => false, toggle })
     const onParentClick = vi.fn()

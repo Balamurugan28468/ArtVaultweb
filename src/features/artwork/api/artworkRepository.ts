@@ -165,6 +165,32 @@ export async function getArtwork(id: string): Promise<Artwork | null> {
   }
 }
 
+/**
+ * The public Artwork Detail page's own read (Module 11) — same one-shot
+ * `getDoc` as `getArtwork` above, but with deliberately different error
+ * semantics. `getArtwork` exists to resolve *many* ids at once (a saved
+ * Wishlist), where any single failure — including a genuine network error —
+ * should just make that one item look "unavailable" rather than fail the
+ * whole list, so it swallows every error into `null`. A dedicated detail
+ * page needs the opposite: a real network/unavailable failure should
+ * surface as a retryable error to the one visitor looking at it, not
+ * collapse into the same "this doesn't exist" state a private or
+ * nonexistent artwork correctly gets. `permission-denied` is the one
+ * Firestore error still mapped to `null` here, for exactly the same privacy
+ * reason `getArtwork` maps it to `null` too: a private artwork the caller
+ * isn't allowed to read must stay indistinguishable from one that was never
+ * published or never existed, never leaked via a different code path.
+ */
+export async function getPublicArtwork(id: string): Promise<Artwork | null> {
+  try {
+    const snapshot = await getDoc(artworkDocRef(id))
+    return snapshot.exists() ? mapToArtwork(snapshot.id, snapshot.data()) : null
+  } catch (error) {
+    if (isFirestoreErrorLike(error) && error.code === 'permission-denied') return null
+    throw toArtworkError(error)
+  }
+}
+
 /** Exactly one Firestore listener per call — callers own cleanup via the returned Unsubscribe. */
 export function subscribeArtwork(
   id: string,

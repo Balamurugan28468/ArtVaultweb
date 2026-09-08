@@ -1,5 +1,6 @@
 import { ImageOff } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router'
 // Imports the concrete file, not the `@/features/wishlist` barrel:
 // WishlistGrid (that barrel's other consumer-facing export) needs Artwork
 // data from *this* feature's own barrel, and importing the wishlist
@@ -28,6 +29,16 @@ import { Card } from '@/shared/ui'
  * prop — this component is only ever used for genuinely public artwork
  * (this page and Marketplace), so there is no context where saving
  * shouldn't be offered.
+ *
+ * Navigation (Module 11) is owned entirely by this component, not by its
+ * callers: the image and title share one link into the artwork's own
+ * `/artworks/:id` detail page (merged into a single tab stop rather than
+ * two adjacent links to the same destination), and the artist name — when
+ * shown — is a second, separate link into `/artists/:sellerId`. Every
+ * caller (Marketplace, the artist page's own grid, Home, Wishlist) used to
+ * wrap this whole card in its own single "go to the artist" `<Link>`; that
+ * wrapping is gone now that the two destinations genuinely differ, so this
+ * component must never again be rendered outside a Router context.
  */
 export function PublicArtworkCard({
   artwork,
@@ -39,10 +50,11 @@ export function PublicArtworkCard({
   const cover = artwork.images[0]
   const [imageFailed, setImageFailed] = useState(false)
   const showImage = cover && !imageFailed
+  const artworkHref = `/artworks/${artwork.id}`
 
   return (
     <Card className="group flex flex-col gap-2 overflow-hidden p-0 transition-colors duration-150 ease-standard hover:border-brand-primary/60">
-      <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-surface-elevated">
+      <Link to={artworkHref} className="relative flex aspect-square items-center justify-center overflow-hidden bg-surface-elevated">
         {showImage ? (
           <img
             src={cover.url}
@@ -54,11 +66,25 @@ export function PublicArtworkCard({
         ) : (
           <ImageOff aria-hidden="true" className="h-8 w-8 text-text-muted" />
         )}
+        {/* Now nested inside the artwork Link above (previously nested
+            inside a Card with no ancestor Link at all) — WishlistButton's
+            own onClick already calls preventDefault()/stopPropagation()
+            before toggling (see WishlistButton.tsx), which is exactly what
+            stops this from ever triggering the surrounding Link's
+            navigation; no change needed here. */}
         <WishlistButton artworkId={artwork.id} className="absolute top-2 right-2" />
-      </div>
+      </Link>
       <div className="flex flex-col gap-1 p-3">
-        <h3 className="font-display truncate text-base font-medium text-text-primary">{artwork.title}</h3>
-        {artistDisplayName && <p className="truncate text-xs text-text-muted">{artistDisplayName}</p>}
+        <Link to={artworkHref}>
+          <h3 className="font-display truncate text-base font-medium text-text-primary hover:underline">
+            {artwork.title}
+          </h3>
+        </Link>
+        {artistDisplayName && (
+          <Link to={`/artists/${artwork.sellerId}`} className="truncate text-xs text-text-muted hover:text-text-secondary hover:underline">
+            {artistDisplayName}
+          </Link>
+        )}
         <p className="font-display text-base font-medium text-text-primary">₹{(artwork.price / 100).toFixed(0)}</p>
       </div>
     </Card>

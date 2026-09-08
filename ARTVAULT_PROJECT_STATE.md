@@ -1,8 +1,35 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-07 — Module 10 (Product UI/UX Foundation) Phase 1 +
-Phase 2 complete, awaiting owner review; not yet committed — see "Module 10
-— Product UI/UX Foundation" below for the full write-up. Module 09
+_Last updated: 2026-09-08 — Module 11 (Artwork Detail Page) — ArtVault's
+first dedicated public URL for one specific artwork, `/artworks/{artworkId}`.
+Full image gallery (real proportions preserved, keyboard-operable
+thumbnails), title, artist identity linking to the artist's own page, price,
+full description, category, tags, the existing WishlistButton, and real
+sharing (native Web Share with an honest copy-link fallback — no fabricated
+share counts). Every artwork-card consumer (Marketplace, the artist page's
+own grid, Home, Wishlist) now links its image/title into this page instead
+of straight to the seller's catalog; `PublicArtworkCard` owns this
+navigation split itself (image+title → the artwork, artist name → the
+artist — two genuinely different destinations). Required **zero**
+`firestore.rules` changes — the exact security property this page depends
+on (a signed-out visitor can read one `PUBLISHED` artwork directly; DRAFT/
+SUBMITTED/REJECTED cannot) was already fully proven since Module 07, re-run
+unchanged and still 148/148 passing. A new `getPublicArtwork` repository
+function (distinct from Wishlist's `getArtwork`) gives this page real
+error/retry behavior instead of collapsing a genuine network failure into
+the same "not found" state a private artwork correctly gets. No commerce
+CTA (no Buy Now/Add to Cart, not even a disabled placeholder) and no
+fabricated reviews/ratings/stock urgency/delivery estimates anywhere on the
+page, per explicit owner instruction. **Implementation, automated tests
+(554/554), typecheck, lint, and build all clean, with real-browser visual
+and keyboard/focus verification across 1920/1440/1280/1024/768/430/390/360
+— complete and awaiting owner review; not yet committed**; see "Module 11 —
+Artwork Detail Page" below for the full write-up. Module 10 (Product UI/UX
+Foundation — desktop shell width, Newsreader display typography,
+width-driven ResponsiveGrid, measured WCAG AA contrast remediation, and a
+real Home-page composition sourced entirely from live marketplace data) is
+**complete, owner-reviewed and approved, and committed** (`fffe2a0`); see
+"Module 10 — Product UI/UX Foundation" below for the full write-up. Module 09
 (Wishlist) — a save/heart control on
 every public artwork card (Marketplace and the artist page) and a public
 `/wishlist` page. Signed-out visitors save locally (`localStorage`, no
@@ -23,15 +50,7 @@ different and riskier kind of change than a brand-new private collection.
 real account confirmed unable to see it, all in a real browser against the
 real owner's own account and artwork) all complete, owner-reviewed and
 approved, and committed** (`e573d6d`); see "Module 09 — Wishlist" below for
-the full write-up. Module 10 (Product UI/UX Foundation — desktop shell
-width, Newsreader display typography, width-driven ResponsiveGrid,
-measured WCAG AA contrast remediation, and a real Home-page composition
-sourced entirely from live marketplace data) has Phase 1 and Phase 2 both
-**implemented, fully tested (519/519), typechecked, linted, and built
-clean, with real-browser visual verification across 1920/1440/1280/1024/
-768/430/390/360 — complete and awaiting owner review; not yet committed**;
-see "Module 10 — Product UI/UX Foundation" below for the full write-up.
-Module 08 (Marketplace — Public Artwork Browsing &
+the full write-up. Module 08 (Marketplace — Public Artwork Browsing &
 Search/Filtering) — ArtVault's first cross-seller public discovery
 surface: a public `/explore` route querying `artworks` for
 `status == 'PUBLISHED'` across every seller (no `sellerId` filter at all,
@@ -104,23 +123,22 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 10 — Product UI/UX Foundation: Phase 1 (typography/shell/grid
-architecture) and Phase 2 (Home real composition, contrast remediation,
-responsive/visual QA) both implemented, fully tested, and real-browser
-verified — complete, awaiting owner review; not yet committed.** A
-Newsreader display-serif role (page H1s, section H2s, artwork
-titles/prices only — never navigation/buttons/forms/body text), a 90rem
-(`--max-width-shell`) desktop shell replacing the previous `max-w-7xl` that
-capped the *entire* sidebar+content row (not just a reading column) and
-caused large-viewport pages to show a narrow floating column in a mostly-
-empty 1920px/1440px viewport, a width-driven (`auto-fill`/`minmax`)
-`ResponsiveGrid` that sizes column count from real container width instead
-of jumping between fixed breakpoint counts, a real Home-page "Recently
-published" section sourced from the same `useMarketplaceArtworks` query
-Explore uses (never fabricated content, never duplicated to fill space),
-and a measured (real W3C relative-luminance formula, not eyeballed) WCAG AA
-contrast audit that found and fixed 3 genuine failures. See "Module 10 —
-Product UI/UX Foundation" below for the full write-up. Module 09
+**Module 11 — Artwork Detail Page: implemented, fully tested (554/554),
+typechecked, linted, built clean, and real-browser verified — complete,
+awaiting owner review; not yet committed.** ArtVault's first dedicated
+public single-artwork URL, `/artworks/{artworkId}`: real image gallery
+(true portrait/landscape proportions, keyboard-operable thumbnails, no
+autoplay), title, artist identity linking out, price, full description,
+category/tags, the existing WishlistButton, and real Web Share/copy-link
+sharing. Every artwork-card consumer now links into this page instead of
+the seller's whole catalog — `PublicArtworkCard` owns its own navigation
+split (image+title → the artwork, artist name → the artist). Zero
+`firestore.rules` changes: the security property this page depends on was
+already fully proven since Module 07 and re-confirmed unchanged (148/148
+rules tests). No commerce CTA of any kind (not even a disabled placeholder)
+and no fabricated reviews/ratings/urgency/delivery estimates, per explicit
+owner instruction. See "Module 11 — Artwork Detail Page" below for the
+full write-up. Module 10 (Product UI/UX Foundation: `fffe2a0`), Module 09
 (Wishlist: `e573d6d`), Module 08 (Marketplace — Public Artwork Browsing &
 Search/Filtering: `64fbcf5`, which also introduced the permanent isolated
 rules-test infrastructure), Module 07 (Artwork Moderation & Publishing:
@@ -129,8 +147,8 @@ Media/Image Upload & Emulator Lifecycle Hardening: `3265194`), and
 Module 04 (Seller Foundation & Artwork Draft Management: `d483994`,
 `1f8ca5a`, `1f0deb7`; Emulator Persistence & Seller-Authorization
 Reconciliation: `877f3ba`) remain complete, verified, and committed. See
-"Completed modules" for the checkpoint entries once Module 09's and
-Module 10's own checkpoints are added.
+"Completed modules" for the checkpoint entries once Module 10's and
+Module 11's own checkpoints are added.
 
 ## Authentication methods — current scope
 
@@ -151,7 +169,192 @@ approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
 
-## Module 10 — Product UI/UX Foundation (COMPLETE, VERIFIED — awaiting owner review, not committed)
+## Module 11 — Artwork Detail Page (COMPLETE, VERIFIED — awaiting owner review, not committed)
+
+**Status:** implementation, automated tests (554/554), typecheck, lint, and
+production build all clean. Real-browser (Playwright/Chromium) visual and
+keyboard/focus verification across 1920/1440/1280/1024/768/430/390/360.
+**Not committed — awaiting owner review.**
+
+**Why this module exists:** the Module 11 scope-discovery report identified
+that a real visitor discovering a specific artwork could never actually
+open it — every artwork card linked only to the seller's whole catalog
+page. Every other future commerce/AR/social feature also needs a canonical
+single-artwork surface to attach to; this module builds exactly that, and
+nothing else.
+
+**Route.** `/artworks/{artworkId}` (`src/app/routes/ArtworkDetailPage.tsx`),
+lazy-loaded in `router.tsx` matching every other route's pattern. Public —
+works whether or not anyone is signed in.
+
+**Data access.** A new `usePublicArtwork(id)` hook
+(`src/features/artwork/hooks/usePublicArtwork.ts`) — a one-shot, cacheable
+TanStack Query read, never a listener, matching the same one-shot-per-id
+discipline `useWishlistArtworks` already established. It calls a new
+`getPublicArtwork` (`src/features/artwork/api/artworkRepository.ts`)
+rather than the pre-existing `getArtwork` Wishlist uses: the two need
+different error semantics, not different security. `getArtwork` swallows
+every failure (including a real network error) into `null`, correct for
+resolving many saved-wishlist ids at once where one bad item shouldn't
+fail the whole list. A dedicated page a stranger might cold-load needs the
+opposite — a genuine network/unavailable failure should surface as a
+retryable error, not collapse into the same "not found" state a private or
+nonexistent artwork correctly gets. `getPublicArtwork` still maps
+`permission-denied` to `null` for exactly the privacy reason `getArtwork`
+does. `usePublicArtwork`'s own `select` additionally collapses any
+non-`PUBLISHED` artwork to `null` too — even for that artwork's own
+owner — so the public route can never render unpublished content to
+anyone, regardless of what `firestore.rules` would technically let that
+owner read directly (Seller Studio's own `useArtwork`/`subscribeArtwork`
+remains the correct path for an owner viewing/editing a non-public
+artwork).
+
+**Security — zero `firestore.rules` changes.** The exact property this
+page depends on — a signed-out visitor can `getDoc` one `PUBLISHED`
+artwork directly; a `DRAFT`/`SUBMITTED`/`REJECTED` one stays unreadable to
+anyone but its owner — was already fully proven in
+`firestore-tests/artworks.rules.test.ts` since Module 07 (its "PUBLISHED is
+publicly readable" and "DRAFT/SUBMITTED/REJECTED stays private" suites
+test exactly this, via direct single-document `getDoc`, not just a query).
+Rather than pad the suite with a redundant duplicate, the existing 148
+rules tests were re-run unchanged via the permanent isolated rules-test
+infrastructure and confirmed still 148/148 passing — proving Module 11
+introduced no rules regression, without inventing test coverage that
+already existed. No genuine rule defect was found, so no rule was touched.
+
+**Image gallery.** A new, reusable `ArtworkGallery`
+(`src/features/artwork/components/ArtworkGallery.tsx`) — deliberately a
+different presentation from `PublicArtworkCard`'s cropped square thumbnail:
+the primary image uses `object-contain` inside a fixed-height frame, so
+every real portrait or landscape artwork displays at its true proportions,
+never cropped, and switching images never shifts the surrounding page
+layout. Images are sorted by their existing `order` field. Thumbnails
+render only when more than one image exists; each is a real `<button
+role="tab">` (native keyboard focus/activation) with a non-color-only
+selected state (a border ring, not just a color shift) and its own
+independent broken-image fallback, so one bad thumbnail never breaks the
+others. The primary image also supports ArrowLeft/ArrowRight when the
+gallery region has focus — verified working in a real browser, not just
+asserted in jsdom. No autoplay, no timer, no fake carousel behavior — pure
+user-driven state.
+
+**Navigation split (explicit owner decision).** `PublicArtworkCard.tsx` —
+previously wrapped externally by each of its four callers in a single
+`<Link to="/artists/...">` — now owns its own navigation: the image and
+title share one link into `/artworks/{id}` (merged into a single tab stop
+rather than two adjacent links to the same destination), and the artist
+name (when shown) is a second, separate link into `/artists/{sellerId}`.
+`MarketplaceGrid.tsx`, `PublicArtworkGrid.tsx`, `HomePage.tsx`, and
+`WishlistPage.tsx` all had their now-redundant outer `<Link>` removed —
+each is otherwise unchanged; no query, filter, sort, pagination, or
+wishlist-persistence logic was touched. `WishlistButton` (unchanged) still
+stops its own click from reaching the new surrounding Link, exactly as it
+already did for the old one.
+
+**Sharing.** A new, reusable `ShareButton`
+(`src/shared/ui/ShareButton.tsx`) — native Web Share where supported, an
+honest `navigator.clipboard` copy-link fallback everywhere else, with a
+real toast confirmation ("Link copied to clipboard") or a real error toast
+if even that fails. A cancelled native share sheet (`AbortError`) does
+nothing, not an error. No share count, like count, or any other engagement
+number is ever shown — this is purely an action, never a fabricated
+metric.
+
+**Share metadata.** A new, dependency-free `useDocumentMeta`
+(`src/shared/hooks/useDocumentMeta.ts`) sets the document title and real
+Open Graph/Twitter meta tags (title, description, image) for as long as
+the page is mounted, restoring the previous title and removing only the
+tags it created on unmount. Deliberately no head-management library was
+added — this project has none, and one page's real title/description/image
+didn't justify introducing one; flagged here rather than added silently.
+
+**No fabrication, no commerce placeholder.** Per explicit owner
+instruction, the page renders no reviews, ratings, purchase history, stock-
+urgency copy, delivery estimates, engagement counts, seller statistics, or
+recommendations — and no Buy Now/Add to Cart control of any kind, not even
+a disabled placeholder (unlike `AIAssistantLauncher`'s own precedent,
+which the owner explicitly did *not* want repeated here). Every unit test
+suite for this page includes an explicit assertion that none of this
+content is ever rendered.
+
+**Premium design / Module 10 inheritance.** Full inheritance of the
+Module 10 foundation: `font-display` on the artwork title (the display-serif
+role, matching every other H1 in the app), the 90rem shell/`Container`,
+`Card`/`Skeleton`/`EmptyState`/`ErrorState`/`Badge`/`Avatar` reused as-is —
+no new visual language. At 1920/1440/1280 the page composes as a genuine
+two-region layout (a dominant image/gallery column beside a narrower info
+column); at 768 it transitions deliberately to a stacked tablet
+composition; at 430/390/360 it's a clean single mobile column with no
+overflow, no clipped text, and touch targets at the existing 44px standard.
+Real-browser screenshots confirmed the artwork itself remains the strongest
+visual element at every width, with intelligent proportion retention (not
+a desktop layout simply squeezed onto mobile).
+
+**Accessibility.** Real H1 hierarchy (the artwork title). The gallery's
+primary image uses the artwork title as meaningful `alt` text (it's primary
+content on this page, unlike the card's own deliberately-empty decorative
+`alt=""`). Every gallery control is a native, keyboard-operable `<button>`.
+Real, visible focus rings confirmed via live Playwright screenshots on the
+wishlist button, share button, and gallery thumbnails/arrows — not just
+asserted via `aria-pressed`/`aria-selected` in jsdom. WCAG AA contrast
+reuses Module 10's already-fixed tokens throughout; no new color was
+introduced.
+
+**AI Assistant launcher collision — re-checked, no collision found on this
+page.** Real screenshots at 768/430/390/360 (this page's own content shape
+— a tall gallery plus a shorter info column — differs from Home's hero+card
+combination that Module 10 investigated) show comfortable clearance between
+the launcher and the page's last visible content at every width tested.
+
+**Known limitation — a real image-loading timing artifact, not a defect.**
+One screenshot (1920px, first run) showed a second thumbnail rendering as a
+solid black square; the same artwork's same second thumbnail rendered
+correctly (a real second photograph) in every other capture at every other
+width. This is consistent with the thumbnail's own deliberate
+`loading="lazy"` not having finished by the moment that one screenshot was
+taken under this session's ongoing RAM pressure, not a rendering bug —
+`ArtworkGallery`'s own `onError` fallback is unit-tested and confirmed
+correct, and the same image loaded correctly on every other real-browser
+pass.
+
+**Testing.** 554/554 unit/component tests (up from 519 before this
+module — 35 new tests across `ArtworkGallery`, `usePublicArtwork`,
+`ArtworkDetailPage`, `ShareButton`, `useDocumentMeta`, plus updated
+coverage in `PublicArtworkCard`, `MarketplaceGrid`, `PublicArtworkGrid`,
+`HomePage`, `WishlistPage`, and a wording-only fix in `WishlistButton`'s
+own test to match its new wrapping-Link destination), all passing on the
+first clean run after isolating and re-confirming one RAM-contention-only
+worker-startup failure (the same established diagnostic protocol from
+Module 10 — re-run in isolation, 9/9 passed). `tsc --noEmit` clean,
+`oxlint` clean (pre-existing warnings only), production build clean (the
+new `ArtworkDetailPage` route code-splits into its own 3.45kB/1.41kB-gzip
+chunk, no impact on any other bundle), `git diff --check` clean.
+
+**Files changed:** `src/app/routes/ArtworkDetailPage.tsx` (new) +
+`.test.tsx`; `src/features/artwork/components/ArtworkGallery.tsx` (new) +
+`.test.tsx`; `src/features/artwork/hooks/usePublicArtwork.ts` (new) +
+`.test.tsx`; `src/shared/ui/ShareButton.tsx` (new) + `.test.tsx`;
+`src/shared/hooks/useDocumentMeta.ts` (new) + `.test.tsx`;
+`src/features/artwork/api/artworkRepository.ts` (added `getPublicArtwork`,
+`getArtwork` untouched); `src/features/artwork/components/
+PublicArtworkCard.tsx` + `.test.tsx` (navigation split); `src/features/
+marketplace/components/MarketplaceGrid.tsx` + `.test.tsx`,
+`src/features/artwork/components/PublicArtworkGrid.test.tsx`,
+`src/app/routes/HomePage.tsx` + `.test.tsx`, `src/app/routes/
+WishlistPage.tsx` + `.test.tsx` (outer Link removed); `src/features/
+wishlist/components/WishlistButton.test.tsx` (test-name wording only);
+`src/app/routes/router.tsx` (new lazy route); `src/features/artwork/
+index.ts`, `src/shared/ui/index.ts` (barrel exports); `docs/DATABASE.md`,
+this file.
+
+**Explicitly not touched:** `firestore.rules`, `firestore.indexes.json`,
+`storage.rules`, any Cloud Function, Wishlist's persistence/merge logic,
+Marketplace's filter/sort/pagination logic, the artist page's own grid data
+behavior, authentication, Seller Studio, and the publish/moderation
+pipeline — verified by the full, unchanged regression suite passing
+alongside the new tests.
+
+## Module 10 — Product UI/UX Foundation (COMPLETE, VERIFIED, COMMITTED — `fffe2a0`)
 
 **Status:** Phase 1 (typography/shell/grid architecture) and Phase 2 (Home
 real composition, contrast remediation, responsive completion, visual QA)
@@ -3119,6 +3322,19 @@ untouched.
   cross-page consistency → a second real account confirmed unable to see
   it). Review result: **PASS — owner reviewed and approved**. Checkpoint
   commit: `e573d6d`.
+- **Module 10 — Product UI/UX Foundation:** a Newsreader display-serif role
+  restricted to page H1s/section H2s/artwork titles+prices (never UI
+  chrome), a 90rem desktop shell replacing a previous `max-w-7xl` that
+  capped the entire sidebar+content row and left large viewports mostly
+  empty, a width-driven `ResponsiveGrid` (`auto-fill`/`minmax`) that sizes
+  column count from real container width, a real Home-page "Recently
+  published" section sourced from live marketplace data (no fabricated
+  content, no duplication), and a measured (real W3C formula) WCAG AA
+  contrast audit that found and fixed 3 genuine failures without touching
+  anything that already passed. Zero Firestore schema/rules changes.
+  519/519 unit/component tests, real-browser verification across 8
+  required widths. Review result: **PASS — owner reviewed and approved**.
+  Checkpoint commit: `fffe2a0`.
 
 ## Pending modules (not started, order not yet committed)
 

@@ -95,9 +95,7 @@ export function HomePage() {
           {query.status === 'success' && artworks.length > 0 && (
             <ResponsiveGrid>
               {artworks.map((artwork) => (
-                <Link key={artwork.id} to={`/artists/${artwork.sellerId}`} className="block">
-                  <PublicArtworkCard artwork={artwork} artistDisplayName={artistNames[artwork.sellerId]} />
-                </Link>
+                <PublicArtworkCard key={artwork.id} artwork={artwork} artistDisplayName={artistNames[artwork.sellerId]} />
               ))}
             </ResponsiveGrid>
           )}

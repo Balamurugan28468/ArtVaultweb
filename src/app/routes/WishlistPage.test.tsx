@@ -41,12 +41,11 @@ describe('WishlistPage', () => {
     expect(screen.getByRole('link', { name: 'Explore art' })).toHaveAttribute('href', '/explore')
   })
 
-  it('renders each saved artwork linking to its artist page', () => {
+  it('renders each saved artwork (Module 11: PublicArtworkCard now owns its own navigation — see its own test file for link coverage)', () => {
     useWishlist.mockReturnValue({ mode: 'account', status: 'ready' })
     useWishlistArtworks.mockReturnValue({ artworks: [ARTWORK], unavailableCount: 0, isLoading: false })
     renderPage()
     expect(screen.getByText('Sunset')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Sunset' })).toHaveAttribute('href', '/artists/alice')
   })
 
   it('shows the saved count in the page description', () => {

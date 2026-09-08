@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { Timestamp } from 'firebase/firestore'
+import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PublicArtworkGrid } from './PublicArtworkGrid'
 import type { Artwork } from '../types'
@@ -36,22 +37,30 @@ function buildArtwork(overrides: Partial<Artwork> = {}): Artwork {
   }
 }
 
+function renderGrid(sellerId = 'alice') {
+  return render(
+    <MemoryRouter>
+      <PublicArtworkGrid sellerId={sellerId} />
+    </MemoryRouter>,
+  )
+}
+
 describe('PublicArtworkGrid', () => {
   it('queries by the given sellerId', () => {
     usePublishedArtworks.mockReturnValue({ status: 'loading' })
-    render(<PublicArtworkGrid sellerId="alice" />)
+    renderGrid('alice')
     expect(usePublishedArtworks).toHaveBeenCalledWith('alice')
   })
 
   it('shows a loading state', () => {
     usePublishedArtworks.mockReturnValue({ status: 'loading' })
-    render(<PublicArtworkGrid sellerId="alice" />)
+    renderGrid()
     expect(screen.getByLabelText('Loading published artworks')).toBeInTheDocument()
   })
 
   it('shows an honest empty state when there are no published artworks', () => {
     usePublishedArtworks.mockReturnValue({ status: 'loaded', artworks: [] })
-    render(<PublicArtworkGrid sellerId="alice" />)
+    renderGrid()
     expect(screen.getByText('No public artworks yet')).toBeInTheDocument()
   })
 
@@ -60,14 +69,14 @@ describe('PublicArtworkGrid', () => {
       status: 'loaded',
       artworks: [buildArtwork({ id: 'a1', title: 'Sunset' }), buildArtwork({ id: 'a2', title: 'Sunrise' })],
     })
-    render(<PublicArtworkGrid sellerId="alice" />)
+    renderGrid()
     expect(screen.getByText('Sunset')).toBeInTheDocument()
     expect(screen.getByText('Sunrise')).toBeInTheDocument()
   })
 
   it('shows an error state on failure', () => {
     usePublishedArtworks.mockReturnValue({ status: 'error', error: { message: 'Network unavailable.' } })
-    render(<PublicArtworkGrid sellerId="alice" />)
+    renderGrid()
     expect(screen.getByText("Couldn't load this artist's artworks")).toBeInTheDocument()
   })
 })

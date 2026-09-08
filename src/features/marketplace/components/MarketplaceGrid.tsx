@@ -1,4 +1,3 @@
-import { Link } from 'react-router'
 import { PublicArtworkCard, toArtworkError } from '@/features/artwork'
 import { Button, EmptyState, ErrorState, ResponsiveGrid, Skeleton } from '@/shared/ui'
 import { useArtistDisplayNames } from '../hooks/useArtistDisplayNames'
@@ -7,13 +6,15 @@ import type { MarketplaceFilters } from '../types'
 
 /**
  * The Marketplace results surface: a cross-seller grid of PUBLISHED
- * artworks (see useMarketplaceArtworks/marketplaceRepository.ts), each
- * card linking to its seller's existing public artist page. Deliberately
- * built from the same PublicArtworkCard Module 07 already established for
- * a single artist's catalog, rather than a parallel component — the only
- * addition here is wrapping each card in a Link and resolving the
- * artist's display name (see useArtistDisplayNames), never any owner-only
+ * artworks (see useMarketplaceArtworks/marketplaceRepository.ts).
+ * Deliberately built from the same PublicArtworkCard Module 07 already
+ * established for a single artist's catalog, rather than a parallel
+ * component — the only addition here is resolving the artist's display
+ * name (see useArtistDisplayNames) to pass through, never any owner-only
  * control, matching PublicArtworkCard's own read-only contract.
+ * PublicArtworkCard owns its own navigation (image/title -> the artwork's
+ * own page, artist name -> the artist's page — Module 11) — this grid no
+ * longer wraps each card in its own Link.
  */
 export function MarketplaceGrid({ filters }: { filters: MarketplaceFilters }) {
   const query = useMarketplaceArtworks(filters)
@@ -61,9 +62,7 @@ export function MarketplaceGrid({ filters }: { filters: MarketplaceFilters }) {
     <div className="flex flex-col gap-6">
       <ResponsiveGrid>
         {artworks.map((artwork) => (
-          <Link key={artwork.id} to={`/artists/${artwork.sellerId}`} className="block">
-            <PublicArtworkCard artwork={artwork} artistDisplayName={artistNames[artwork.sellerId]} />
-          </Link>
+          <PublicArtworkCard key={artwork.id} artwork={artwork} artistDisplayName={artistNames[artwork.sellerId]} />
         ))}
       </ResponsiveGrid>
 

@@ -266,6 +266,40 @@ service cloud.firestore {
         data.inventoryCount is int && data.inventoryCount >= 0;
     }
 
+    // Module 12 — Likes. The one new non-owner write path onto
+    // artworks/{artworkId}: any signed-in user (not just the owner) may
+    // change *only* likeCount, by exactly +1 or -1, on a PUBLISHED artwork.
+    // This is designed together with the likes/{artworkId}/by/{uid}
+    // collection below as one mutually-validated mechanism — neither side
+    // can succeed without the other changing correctly in the very same
+    // atomic batch:
+    //   - increment requires the caller's own like doc did NOT exist before
+    //     this write and DOES exist after it (exists()/existsAfter());
+    //   - decrement requires the reverse, plus resource.data.likeCount >= 1
+    //     so the counter can never go negative.
+    // A batch that changes likeCount alone (no matching like-doc write in
+    // the same commit) fails here because exists()/existsAfter() then both
+    // reflect the *unchanged* prior state, never satisfying either branch —
+    // there is no way to move the counter without the like record actually
+    // changing alongside it, and no way to change the like record without
+    // the counter moving correctly (see the mirrored check on the
+    // like-document rule itself, below).
+    function isValidLikeCountUpdate(artworkId) {
+      return
+        isSignedIn() &&
+        resource.data.status == 'PUBLISHED' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount']) &&
+        (
+          (request.resource.data.likeCount == resource.data.likeCount + 1 &&
+           !exists(/databases/$(database)/documents/likes/$(artworkId)/by/$(request.auth.uid)) &&
+           existsAfter(/databases/$(database)/documents/likes/$(artworkId)/by/$(request.auth.uid))) ||
+          (request.resource.data.likeCount == resource.data.likeCount - 1 &&
+           resource.data.likeCount >= 1 &&
+           exists(/databases/$(database)/documents/likes/$(artworkId)/by/$(request.auth.uid)) &&
+           !existsAfter(/databases/$(database)/documents/likes/$(artworkId)/by/$(request.auth.uid)))
+        );
+    }
+
     // Module 04 — Artwork Draft Management; Module 07 — Moderation &
     // Publishing. DRAFT, SUBMITTED, PUBLISHED, REJECTED exist (see
     // docs/DATABASE.md) — no other status value is ever accepted by create
@@ -324,33 +358,85 @@ service cloud.firestore {
       // REJECTED) starting status at all, for any target status — the only
       // way either transition ever happens is functions/src/
       // publishArtwork.ts's Admin SDK write, which bypasses rules entirely.
+      // The pre-existing owner-gated block below is completely unchanged —
+      // Module 12 adds isValidLikeCountUpdate() as a sibling alternative via
+      // this top-level `||`, never touching the seller/owner branches or
+      // their own conditions in any way.
       allow update: if
-        isOwner(resource.data.sellerId) &&
-        request.resource.data.sellerId == resource.data.sellerId &&
-        request.resource.data.updatedAt == request.time &&
         (
-          (resource.data.status == 'DRAFT' &&
-           request.resource.data.status == 'DRAFT' &&
-           isValidArtworkFields(request.resource.data) &&
-           isValidArtworkImages(request.resource.data.images, resource.data.sellerId, artworkId) &&
-           // A real gap this closes (found by Module 07's own rules tests,
-           // not by inspection): isValidArtworkFields() only *positively*
-           // checks the fields it names — without this hasOnly(), a client
-           // could sneak an extra, unlisted field (e.g. reviewedAt,
-           // rejectionReason — Module 07's own new fields) into an
-           // otherwise-ordinary DRAFT edit, since nothing here previously
-           // rejected keys it simply never looked at. Matches the same
-           // allow-list discipline the submit branch below (and
-           // users/{uid}'s own update rule, Module 03) already apply.
-           request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['title', 'description', 'price', 'category', 'tags', 'images', 'inventoryCount', 'updatedAt'])) ||
-          (resource.data.status == 'DRAFT' &&
-           request.resource.data.status == 'SUBMITTED' &&
-           request.resource.data.images == resource.data.images &&
-           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']))
-        );
+          isOwner(resource.data.sellerId) &&
+          request.resource.data.sellerId == resource.data.sellerId &&
+          request.resource.data.updatedAt == request.time &&
+          (
+            (resource.data.status == 'DRAFT' &&
+             request.resource.data.status == 'DRAFT' &&
+             isValidArtworkFields(request.resource.data) &&
+             isValidArtworkImages(request.resource.data.images, resource.data.sellerId, artworkId) &&
+             // A real gap this closes (found by Module 07's own rules tests,
+             // not by inspection): isValidArtworkFields() only *positively*
+             // checks the fields it names — without this hasOnly(), a client
+             // could sneak an extra, unlisted field (e.g. reviewedAt,
+             // rejectionReason — Module 07's own new fields) into an
+             // otherwise-ordinary DRAFT edit, since nothing here previously
+             // rejected keys it simply never looked at. Matches the same
+             // allow-list discipline the submit branch below (and
+             // users/{uid}'s own update rule, Module 03) already apply.
+             request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['title', 'description', 'price', 'category', 'tags', 'images', 'inventoryCount', 'updatedAt'])) ||
+            (resource.data.status == 'DRAFT' &&
+             request.resource.data.status == 'SUBMITTED' &&
+             request.resource.data.images == resource.data.images &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']))
+          )
+        ) ||
+        isValidLikeCountUpdate(artworkId);
 
       allow delete: if hasRole('SELLER') && isOwner(resource.data.sellerId) && resource.data.status == 'DRAFT';
+    }
+
+    // Module 12 — Likes. Deliberately private: the aggregate `likeCount` on
+    // the artwork itself is public (same as its price/title), but *who*
+    // liked a given artwork is never enumerable by anyone but that liker —
+    // `allow get` is owner-only and `allow list` is unconditionally denied,
+    // so no query, however narrowly filtered, can ever return a document
+    // here for anyone but its own owner. This mirrors the bidder-privacy
+    // posture docs/AUCTION_ARCHITECTURE.md already establishes for a
+    // different collection. The document id being the liker's own uid also
+    // makes a duplicate like structurally impossible: a second "like" at an
+    // already-existing path is evaluated as an `update`, and `allow update`
+    // is unconditionally false — a like is only ever created or removed.
+    //
+    // `create`/`delete` are the other half of the mutual atomic guarantee
+    // described on isValidLikeCountUpdate() above: each requires the
+    // artwork's own likeCount to change correctly, via getAfter()/get(), in
+    // the exact same batch as this write — a like-doc write with no
+    // matching counter change in the same commit is denied here, exactly as
+    // a counter change with no matching like-doc write is denied there.
+    match /likes/{artworkId}/by/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+
+      allow create: if
+        isOwner(uid) &&
+        request.resource.data.keys().hasOnly(['likedAt']) &&
+        request.resource.data.likedAt == request.time &&
+        get(/databases/$(database)/documents/artworks/$(artworkId)).data.status == 'PUBLISHED' &&
+        getAfter(/databases/$(database)/documents/artworks/$(artworkId)).data.likeCount ==
+          get(/databases/$(database)/documents/artworks/$(artworkId)).data.likeCount + 1;
+
+      allow update: if false;
+
+      // `resource != null` proves the like document genuinely existed
+      // before this delete — without it, a batch pairing "delete a like
+      // that was never created" with a real counter decrement would satisfy
+      // every other check here (see isValidLikeCountUpdate's own mirrored
+      // exists() check on the artwork side, which independently also
+      // blocks this same case).
+      allow delete: if
+        isOwner(uid) &&
+        resource != null &&
+        getAfter(/databases/$(database)/documents/artworks/$(artworkId)).data.likeCount ==
+          get(/databases/$(database)/documents/artworks/$(artworkId)).data.likeCount - 1;
     }
 
     // Module 09 — Wishlist. Deliberately minimal: `addedAt` is the only

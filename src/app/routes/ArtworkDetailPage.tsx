@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router'
 import { ArtworkGallery, toArtworkError, usePublicArtwork } from '@/features/artwork'
+import { LikeButton } from '@/features/likes'
 import { useArtistDisplayNames } from '@/features/marketplace'
 import { WishlistButton } from '@/features/wishlist'
 import { useDocumentMeta } from '@/shared/hooks/useDocumentMeta'
@@ -92,6 +93,7 @@ export function ArtworkDetailPage() {
                 <h1 className="font-display text-2xl font-medium text-text-primary sm:text-3xl">{artwork.title}</h1>
                 <div className="flex shrink-0 items-center gap-1">
                   <WishlistButton artworkId={artwork.id} />
+                  <LikeButton artworkId={artwork.id} likeCount={artwork.likeCount} />
                   <ShareButton url={canonicalUrl} title={artwork.title} text={`${artwork.title} on ArtVault`} />
                 </div>
               </div>

@@ -75,6 +75,7 @@ function buildArtwork(overrides: Partial<Artwork> = {}): Artwork {
     status: 'DRAFT',
     reviewedAt: null,
     rejectionReason: null,
+    likeCount: 0,
     createdAt: now,
     updatedAt: now,
     ...overrides,

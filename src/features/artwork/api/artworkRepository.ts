@@ -88,6 +88,7 @@ export function mapToArtwork(id: string, data: Record<string, unknown>): Artwork
     status: data.status,
     reviewedAt: data.reviewedAt instanceof Timestamp ? data.reviewedAt : null,
     rejectionReason: typeof data.rejectionReason === 'string' ? data.rejectionReason : null,
+    likeCount: typeof data.likeCount === 'number' && data.likeCount >= 0 ? data.likeCount : 0,
     createdAt: data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.now(),
     updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : Timestamp.now(),
   }

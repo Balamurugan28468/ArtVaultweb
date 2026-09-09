@@ -21,6 +21,11 @@ vi.mock('@/features/marketplace', () => ({ useArtistDisplayNames: (...args: unkn
 const WishlistButton = vi.fn((props: { artworkId: string }) => <button aria-label={`Save ${props.artworkId} to wishlist`}>heart</button>)
 vi.mock('@/features/wishlist', () => ({ WishlistButton: (props: { artworkId: string }) => WishlistButton(props) }))
 
+const LikeButton = vi.fn((props: { artworkId: string; likeCount: number }) => (
+  <button aria-label={`Like ${props.artworkId}, ${props.likeCount} likes`}>star</button>
+))
+vi.mock('@/features/likes', () => ({ LikeButton: (props: { artworkId: string; likeCount: number }) => LikeButton(props) }))
+
 const { ArtworkDetailPage } = await import('./ArtworkDetailPage')
 
 function renderPage(artworkId = 'a1') {
@@ -49,6 +54,7 @@ function buildArtwork(overrides: Partial<Artwork> = {}): Artwork {
     status: 'PUBLISHED',
     reviewedAt: now,
     rejectionReason: null,
+    likeCount: 0,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -63,7 +69,7 @@ describe('ArtworkDetailPage', () => {
   })
 
   it('renders the real artwork once loaded — title, price, description, category, tags, artist, wishlist, share', () => {
-    usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
+    usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork({ likeCount: 4 }) })
     useArtistDisplayNames.mockReturnValue({ alice: 'Alice Fine Art' })
     renderPage()
 
@@ -75,8 +81,10 @@ describe('ArtworkDetailPage', () => {
     expect(screen.getByText('evening')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Alice Fine Art/ })).toHaveAttribute('href', '/artists/alice')
     expect(screen.getByLabelText('Save a1 to wishlist')).toBeInTheDocument()
+    expect(screen.getByLabelText('Like a1, 4 likes')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Share this artwork' })).toBeInTheDocument()
     expect(ArtworkGallery).toHaveBeenCalledWith(expect.objectContaining({ title: 'Sunset Over the Bay' }))
+    expect(LikeButton).toHaveBeenCalledWith(expect.objectContaining({ artworkId: 'a1', likeCount: 4 }))
   })
 
   it('renders with zero images without crashing (delegated to ArtworkGallery)', () => {

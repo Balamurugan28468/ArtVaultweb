@@ -15,6 +15,7 @@
     "publish-artwork": "tsc && node lib/publishArtwork.js",
     "repair-missing-profile": "tsc && node lib/repairMissingProfile.js",
     "reconcile-roles": "tsc && node lib/reconcileRoles.js",
+    "backfill-like-count": "tsc && node lib/backfillLikeCount.js",
     "verify:emulator-state": "tsc && node lib/verifyEmulatorState.js"
   },
   "dependencies": {

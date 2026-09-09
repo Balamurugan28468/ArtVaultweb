@@ -92,6 +92,15 @@ export interface Artwork {
   status: ArtworkStatus
   reviewedAt: Timestamp | null
   rejectionReason: string | null
+  /**
+   * Denormalized count of `likes/{artworkId}/by/*` documents (Module 12).
+   * Only ever changed atomically alongside a like/unlike write batch — see
+   * `firestore.rules`' `isValidLikeCountUpdate`. Pre-Module-12 documents
+   * were backfilled to 0 (`functions/src/backfillLikeCount.ts`), but a
+   * client read must still tolerate a missing/malformed value defensively
+   * (see `mapToArtwork` below) rather than assume every document has it.
+   */
+  likeCount: number
   createdAt: Timestamp
   updatedAt: Timestamp
 }

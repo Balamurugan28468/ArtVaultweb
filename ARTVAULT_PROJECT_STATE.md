@@ -1,6 +1,38 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-08 — Module 11 (Artwork Detail Page) — ArtVault's
+_Last updated: 2026-09-09 — Module 12 (Artwork Likes) — a real, sign-in-
+required "like" on the Artwork Detail Page, deliberately not another
+Wishlist heart: a public, aggregate signal (Wishlist stays a private saved
+list). Denormalized `artworks/{artworkId}.likeCount` plus a private
+`likes/{artworkId}/by/{uid}` document, with `firestore.rules` proving —
+never merely assuming — that the two can only ever change together, in
+both directions, via mutual `exists()`/`existsAfter()`/`get()`/`getAfter()`
+checks (Option D of a deliberately re-researched, owner-hardened
+architecture that explicitly rejected accepting any counter drift and
+rejected `count()` aggregation for the same liker-identity-privacy reason
+this codebase already established for auction bidders). Pre-existing
+artworks were backfilled to `likeCount: 0` via a trusted, dry-run-by-default
+Admin-SDK operator script, never a manual Console edit. The client never
+reads-then-writes a count — every Like/Unlike is one atomic
+`writeBatch()`. Optimistic UI with a real hardening pass: a rejected batch
+is treated as ambiguous, not an automatic failure — the client re-reads
+authoritative Firestore state and only reconciles to it when that read
+*proves* the desired end state actually happened (discovered necessary
+after real concurrent-write testing exposed a narrow Firestore-emulator
+write-stream artifact where a write can commit server-side while its own
+client promise is still rejected; every security/data invariant held in
+every trial regardless). A genuine authorization failure is never
+converted into a false success. No card-level Likes, no public liker
+list, no Follows, no notifications, no cross-tab locking (reconciliation
+already covers it more broadly). Verified via the real `firebase/auth` +
+`firebase/firestore` **client SDK** against the real Auth/Firestore
+emulator — not genuine browser DOM/E2E automation, which this environment
+cannot perform; that remains a documented future verification item, not a
+claimed one. **Implementation (4 phases: migration tooling, security
+rules, client feature, concurrency hardening), automated tests, full
+regression, typecheck, lint, and production build all complete, owner-
+reviewed and approved, and committed**; see "Module 12 — Artwork Likes"
+below for the full write-up. Module 11 (Artwork Detail Page) — ArtVault's
 first dedicated public URL for one specific artwork, `/artworks/{artworkId}`.
 Full image gallery (real proportions preserved, keyboard-operable
 thumbnails), title, artist identity linking to the artist's own page, price,
@@ -123,32 +155,38 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 11 — Artwork Detail Page: implemented, fully tested (554/554),
-typechecked, linted, built clean, and real-browser verified — complete,
-awaiting owner review; not yet committed.** ArtVault's first dedicated
-public single-artwork URL, `/artworks/{artworkId}`: real image gallery
-(true portrait/landscape proportions, keyboard-operable thumbnails, no
-autoplay), title, artist identity linking out, price, full description,
-category/tags, the existing WishlistButton, and real Web Share/copy-link
-sharing. Every artwork-card consumer now links into this page instead of
-the seller's whole catalog — `PublicArtworkCard` owns its own navigation
-split (image+title → the artwork, artist name → the artist). Zero
-`firestore.rules` changes: the security property this page depends on was
-already fully proven since Module 07 and re-confirmed unchanged (148/148
-rules tests). No commerce CTA of any kind (not even a disabled placeholder)
-and no fabricated reviews/ratings/urgency/delivery estimates, per explicit
-owner instruction. See "Module 11 — Artwork Detail Page" below for the
-full write-up. Module 10 (Product UI/UX Foundation: `fffe2a0`), Module 09
-(Wishlist: `e573d6d`), Module 08 (Marketplace — Public Artwork Browsing &
-Search/Filtering: `64fbcf5`, which also introduced the permanent isolated
-rules-test infrastructure), Module 07 (Artwork Moderation & Publishing:
-`a6aa668`), Module 06 (Artist Profiles: `d917e4f`), Module 05 (Artwork
-Media/Image Upload & Emulator Lifecycle Hardening: `3265194`), and
-Module 04 (Seller Foundation & Artwork Draft Management: `d483994`,
-`1f8ca5a`, `1f0deb7`; Emulator Persistence & Seller-Authorization
-Reconciliation: `877f3ba`) remain complete, verified, and committed. See
-"Completed modules" for the checkpoint entries once Module 10's and
-Module 11's own checkpoints are added.
+**Module 12 — Artwork Likes: implemented across 4 phases (migration
+tooling, security rules, client feature, concurrency hardening), fully
+tested (592/592 frontend, 185/185 Firestore rules), typechecked, linted,
+built clean, and verified via the real client SDK against the real
+Auth/Firestore emulator — complete, owner-reviewed and approved, and
+committed.** Sign-in-required, Detail-Page-only Likes: a denormalized
+`artworks/{artworkId}.likeCount` that can only ever change atomically
+alongside the caller's own `likes/{artworkId}/by/{uid}` document, proven
+mutually in both directions by `firestore.rules` itself
+(`exists()`/`existsAfter()`/`get()`/`getAfter()`), never a
+read-then-write counter and never a `count()` aggregation (which would
+have required making liker identities listable). Pre-existing artworks
+backfilled to `likeCount: 0` via a trusted, dry-run-by-default Admin-SDK
+script. Optimistic client UI hardened with authoritative post-failure
+reconciliation: a rejected Like/Unlike batch is re-checked against real
+Firestore state before deciding whether to roll back, so a real (if
+narrow, emulator-specific) write-stream ambiguity found during real
+concurrent-write testing can never surface as a false failure — and a
+genuine authorization denial can never be reconciled into a false
+success. See "Module 12 — Artwork Likes" below for the full write-up.
+Module 11 (Artwork Detail Page: `c0128f4`), Module 10 (Product UI/UX
+Foundation: `fffe2a0`), Module 09 (Wishlist: `e573d6d`), Module 08
+(Marketplace — Public Artwork Browsing & Search/Filtering: `64fbcf5`,
+which also introduced the permanent isolated rules-test infrastructure),
+Module 07 (Artwork Moderation & Publishing: `a6aa668`), Module 06 (Artist
+Profiles: `d917e4f`), Module 05 (Artwork Media/Image Upload & Emulator
+Lifecycle Hardening: `3265194`), and Module 04 (Seller Foundation &
+Artwork Draft Management: `d483994`, `1f8ca5a`, `1f0deb7`; Emulator
+Persistence & Seller-Authorization Reconciliation: `877f3ba`) remain
+complete, verified, and committed. See "Completed modules" for the
+checkpoint entries once Module 10's, Module 11's, and Module 12's own
+checkpoints are added.
 
 ## Authentication methods — current scope
 
@@ -168,6 +206,234 @@ happened; the working tree was verified byte-identical to the prior
 approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
+
+## Module 12 — Artwork Likes (COMPLETE, VERIFIED, COMMITTED)
+
+**Status:** implementation (4 phases), automated tests (592/592 frontend,
+185/185 Firestore rules), typecheck, lint, and production build all
+clean. Verified via the real `firebase/auth` + `firebase/firestore`
+**client SDK** against the real Auth/Firestore dev emulator — not genuine
+browser DOM/E2E automation, which this environment has no tool to
+perform; see "Verification methodology" below. Owner-reviewed and
+approved across all 4 phases, and committed.
+
+### Objective and scope decision
+
+Module 09's own discovery explicitly deferred Likes (and Follows)
+because either would require opening a new write exception on an
+already-hardened public document (`artworks`), a materially riskier kind
+of change than a brand-new private collection. A fresh Module 12
+scope-discovery pass re-evaluated the full candidate list and confirmed
+Likes as the strongest remaining candidate with no unresolved
+owner-provider dependency (no payment/Blaze/AI decision needed) — but the
+owner explicitly rejected the first proposed design (an eventually-
+consistent counter that knowingly accepted drift) and required a second,
+research-backed architecture pass before implementation.
+
+### Architecture (owner-hardened before implementation)
+
+Two designs were compared on correctness, atomicity, privacy, latency,
+realtime support, cost, offline behavior, contention, and complexity:
+Firestore `count()` aggregation queries (rejected — they require the
+underlying collection to be listable, which would have exposed every
+liker's identity, the same privacy concern this codebase already
+established for auction bidders in `docs/AUCTION_ARCHITECTURE.md`) versus
+a denormalized `likeCount` field mutually verified against a private
+`likes/{artworkId}/by/{uid}` document ("Option D," approved). The
+approved design was hardened once more after the owner identified a real
+gap in the first draft: the decrement branch only proved the like
+document didn't exist *after* a write, never that it existed *before* —
+allowing a "decrement + delete of a nonexistent like" exploit. The final
+rule requires symmetric before/after proof in both directions:
+
+```
+function isValidLikeCountUpdate(artworkId) {
+  return isSignedIn() && resource.data.status == 'PUBLISHED' &&
+    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount']) &&
+    (
+      (request.resource.data.likeCount == resource.data.likeCount + 1 &&
+       !exists(.../likes/$(artworkId)/by/$(request.auth.uid)) &&
+       existsAfter(.../likes/$(artworkId)/by/$(request.auth.uid))) ||
+      (request.resource.data.likeCount == resource.data.likeCount - 1 &&
+       resource.data.likeCount >= 1 &&
+       exists(.../likes/$(artworkId)/by/$(request.auth.uid)) &&
+       !existsAfter(.../likes/$(artworkId)/by/$(request.auth.uid)))
+    );
+}
+```
+
+paired with a `likes/{artworkId}/by/{uid}` block whose `create`/`delete`
+each independently re-verify the matching `likeCount` delta via
+`get()`/`getAfter()` on the artwork. `get`/`getAfter` calls stay well
+inside Firestore's documented 20-call/10-per-operation ruleset limits (≤3
+per create, ≤2 per delete, ≤2 for the artwork branch, thanks to `||`
+short-circuiting). `allow list: if false` unconditionally on the `by`
+subcollection is what makes liker-identity enumeration impossible even
+for an artwork's own liker. UI decisions locked before implementation and
+never reopened: sign-in required (no guest mode, unlike Wishlist), Detail
+Page only (no card-level Likes yet), a distinct Star icon — never a
+second heart — in a "Wishlist | Like | Share" control cluster, and the
+real count only, never a fabricated/"1.2K"-style value.
+
+### Phase 1 — Trusted migration
+
+`functions/src/backfillLikeCount.ts` — an Admin-SDK-only operator script
+matching the established `promoteSeller.ts`/`publishArtwork.ts`/
+`reconcileRoles.ts` pattern (never deployed, never client-reachable,
+guarded by `require.main === module`), backfilling `likeCount: 0` onto
+every pre-existing artwork missing the field. Dry-run by default,
+requires an explicit `--apply`, touches only the `likeCount` field, is
+idempotent (a second `--apply` against already-backfilled data is a
+verified no-op), and aborts the entire run with zero writes if it finds
+any malformed existing value rather than silently "fixing" it. Run
+against the real dev emulator's 3 real pre-existing artworks: dry-run
+reviewed and approved, then applied and verified via direct read-back
+(all 3 now `likeCount: 0`, every other field byte-identical), a second
+`--apply` proving idempotency against real data, and an export/import
+persistence round-trip through a temporary, disposable emulator instance
+(chosen over a literal process restart given this machine's known
+Windows signal-delivery risk, disclosed and accepted by the owner).
+
+### Phase 2 — Security rules
+
+The rules above, plus the `likes/{artworkId}/by/{uid}` match block:
+`get` owner-only, `list` unconditionally denied, `update` unconditionally
+denied, `create`/`delete` each requiring the matching atomic counter
+delta. A new 37-test file, `firestore-tests/likes.rules.test.ts`, covers
+every success case (CUSTOMER/SELLER like/unlike, re-like, two-users-
+concurrent), every adversarial case (signed-out, cross-user
+create/delete/get, list/query denial, DRAFT/SUBMITTED/REJECTED denial,
+create-alone, increment-alone, delete-alone, decrement-alone, the exact
+gap-closing "decrement + nonexistent-like-delete" case, duplicate-like,
+wrong-delta increments/decrements, field-integrity violations, mismatched
+uid/path/counter combinations), and confirms every existing
+seller/owner artwork-update path is unaffected. A transient "maximum of
+1000 expressions to evaluate" emulator message during the first run was
+investigated rather than assumed — root-caused to a test-helper bug
+(`withSecurityRulesDisabled()`'s return type is hard-coded to
+`Promise<void>` regardless of the callback's actual return; confirmed via
+direct inspection of the package's own type declarations), fixed, and did
+not reproduce on the clean re-run. `firestore.rules` was **not** weakened
+to make anything pass. Full rules suite: **185/185** (148 existing,
+unchanged + 37 new).
+
+### Phase 3 — Client feature
+
+New `src/features/likes/` — `api/likeRepository.ts`
+(`likeArtwork`/`unlikeArtwork`, each exactly one `writeBatch()`: create +
+increment, or delete + decrement, matching the rules' required shape
+precisely; `hasLiked`, a one-shot `getDoc`, never a listener),
+`hooks/useLike.ts` (owns its own optimistic-with-rollback state per
+mount, no shared provider like Wishlist's — Likes has no guest mode and
+is Detail-Page-only, so there's no cross-surface state to share), and
+`components/LikeButton.tsx` (a Star-icon pill, deliberately distinct from
+`WishlistButton`'s round heart icon; `aria-pressed`; exact accessible
+labels "Like this artwork"/"Unlike this artwork"; 44px target; fill
+attribute — not color alone — carries state). Signed-out activation
+redirects to `/sign-in` reusing `RequireAuth`'s own
+`state: { from: location.pathname }` convention, not a new auth flow.
+Integrated into `ArtworkDetailPage.tsx`'s existing
+Wishlist/Share control row only — no other surface. `Artwork.likeCount`
+added to the shared artwork type and defensively mapped in
+`mapToArtwork` (missing/malformed/negative → `0`), so every existing
+artwork-card consumer stays correct without needing any change itself.
+
+### Phase 4 — Real verification and concurrency hardening
+
+No browser-automation tool exists in this environment (confirmed, not
+assumed). Verification instead used the real `firebase/auth` +
+`firebase/firestore` **client SDK** — never the Admin SDK — against the
+real running dev emulator, signed in as real fresh test accounts,
+exercising the exact write/read shapes `likeRepository.ts` implements and
+inspecting real Firestore documents before/after. This proves the real
+data/security layer end to end (published artwork's real persisted
+count; Like/Unlike changing it by exactly ±1; refresh-equivalent reads
+surviving via real Firestore state; CUSTOMER and SELLER behaving
+identically; SUBMITTED/REJECTED artworks correctly unlikeable; liker-
+identity enumeration impossible even via a direct cross-user `get()`) but
+does **not** observe the DOM — that gap is disclosed here as a real,
+unclosed limitation, not glossed over.
+
+Firing two truly concurrent `likeArtwork()` calls for the same uid+
+artwork surfaced a real, 100%-reproducible finding: in isolation (a cold
+document, no prior contention) the race resolved correctly every time —
+exactly one write commits, one is cleanly denied. Under sustained prior
+write activity on the *same* document within the same short window, both
+calls' client promises were rejected even though the server had still
+only applied the write once (`likeCount` moved by exactly +1 in every
+trial, never +2). Root cause: a Firestore-**emulator** JS-SDK
+write-stream retry/visibility artifact under contention, not a rules
+defect — every server-side invariant held in every trial. The owner
+required investigating whether the client could safely recover rather
+than accepting the false-failure UX, without ever converting a genuine
+denial into a false success. `likeRepository.ts` gained
+`getAuthoritativeLikeState(artworkId, uid)` (a defensive re-read of the
+real like document + real `likeCount`), and `useLike.ts`'s failure
+handler now re-checks ground truth before rolling back: it reconciles to
+the authoritative state only when that read *proves* the call's own
+desired end state actually happened; any other outcome — including the
+reconciliation read itself failing — falls through to the original
+rollback + error toast unchanged, so a real authorization failure (signed
+out, non-PUBLISHED artwork, tampering) can never be hidden. Cross-tab
+`BroadcastChannel`/`localStorage` locking was evaluated and deliberately
+not added — reconciliation already covers a strictly broader set of
+cases (a second tab, a second device, or a stale cached page) with less
+complexity than any same-browser lock could provide.
+
+### Testing
+
+- Firestore rules: **185/185** (148 existing unchanged + 37 new), via
+  `npm run test:rules` against the permanent isolated rules-test
+  infrastructure — never the dev emulator.
+- Full frontend suite: **592/592** across 81 files (up from 554 before
+  this module) — new coverage in `likeRepository.test.ts`,
+  `useLike.test.tsx`, `LikeButton.test.tsx`, extended
+  `artworkRepository.test.ts` (`likeCount` defensive-mapping cases) and
+  `ArtworkDetailPage.test.tsx`.
+- `tsc --noEmit` clean, `oxlint` clean (0 errors; one new warning at
+  `useLike.ts`, the same `set-state-in-effect` pattern already accepted
+  at `WishlistProvider.tsx`), production build clean (`ArtworkDetailPage`
+  and a new `star` icon chunk, no regressions elsewhere).
+- Real client-SDK-against-real-emulator verification (Phase 4, described
+  above), including the isolated concurrency reproduction that led to
+  the reconciliation hardening.
+- Every throwaway Auth-emulator test account created during verification
+  was deleted afterward; no real/pre-existing account was touched.
+
+### Known limitations / deliberately deferred
+
+- No genuine browser DOM/E2E automation was performed at any point in
+  this module — this environment has no such tool. Everything DOM-level
+  (star rendering, disabled styling, real click/keyboard navigation) is
+  covered by jsdom component tests only. Real-browser click-through
+  remains a future verification item if the owner wants it closed.
+- No card-level Likes, no public liker list, no Follows, no Like
+  notifications, no ranking/recommendation based on Likes, no cross-tab
+  locking — all deliberately out of scope, per approved architecture.
+- The underlying emulator write-stream artifact itself is not "fixed"
+  (it isn't application code) — it is characterized and safely worked
+  around at the client layer.
+
+### Files changed
+
+`firestore.rules` (`isValidLikeCountUpdate`, the `likes/{artworkId}/by/
+{uid}` match block); `firestore-tests/likes.rules.test.ts` (new, 37
+tests); `functions/src/backfillLikeCount.ts` (new) + `.test.ts` (new);
+`functions/package.json` (`backfill-like-count` script);
+`src/features/likes/` (new feature — `types.ts`, `api/
+likeRepository.ts` + `.test.ts`, `hooks/useLike.ts` + `.test.tsx`,
+`components/LikeButton.tsx` + `.test.tsx`, `index.ts`);
+`src/features/artwork/types.ts` (`Artwork.likeCount`); `src/features/
+artwork/api/artworkRepository.ts` (`mapToArtwork` defensive `likeCount`
+mapping) + `.test.ts`; `src/app/routes/ArtworkDetailPage.tsx` (LikeButton
+integration) + `.test.tsx`; 6 other artwork test fixture files (mechanical
+`likeCount: 0` additions); this file.
+
+**Explicitly not touched:** Wishlist's persistence/merge logic, Share's
+behavior, Marketplace/artist-page grids (no card-level Likes), authentication,
+Seller Studio, the publish/moderation pipeline, and every seller/owner
+artwork-update rule path — verified unchanged by the full, unmodified
+regression suite passing alongside the new tests.
 
 ## Module 11 — Artwork Detail Page (COMPLETE, VERIFIED — awaiting owner review, not committed)
 

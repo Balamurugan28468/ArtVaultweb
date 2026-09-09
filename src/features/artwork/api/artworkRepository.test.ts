@@ -26,6 +26,7 @@ vi.mock('@/lib/firebase/config', () => ({ db: {} }))
 const {
   createArtworkDraft,
   deleteArtworkDraft,
+  mapToArtwork,
   mutateArtworkImages,
   subscribeArtwork,
   subscribePublishedArtworks,
@@ -127,6 +128,26 @@ describe('toArtworkError', () => {
 
   it('falls back to unknown for an unrecognized error', () => {
     expect(toArtworkError(new Error('boom'))).toEqual({ code: 'unknown', message: 'Something went wrong. Please try again.' })
+  })
+})
+
+describe('mapToArtwork — likeCount defensive mapping (Module 12)', () => {
+  const BASE = { sellerId: 'alice', status: 'PUBLISHED' as const }
+
+  it('retains a valid likeCount', () => {
+    expect(mapToArtwork('a1', { ...BASE, likeCount: 42 })?.likeCount).toBe(42)
+  })
+
+  it('defaults to 0 when likeCount is absent — a pre-Module-12 document that predates the field', () => {
+    expect(mapToArtwork('a1', { ...BASE })?.likeCount).toBe(0)
+  })
+
+  it('defaults to 0 when likeCount is malformed (wrong type)', () => {
+    expect(mapToArtwork('a1', { ...BASE, likeCount: 'lots' })?.likeCount).toBe(0)
+  })
+
+  it('defaults to 0 when likeCount is negative — never trusts an impossible value', () => {
+    expect(mapToArtwork('a1', { ...BASE, likeCount: -3 })?.likeCount).toBe(0)
   })
 })
 

@@ -31,6 +31,7 @@ function buildArtwork(overrides: Partial<Artwork> = {}): Artwork {
     status: 'PUBLISHED',
     reviewedAt: now,
     rejectionReason: null,
+    likeCount: 0,
     createdAt: now,
     updatedAt: now,
     ...overrides,

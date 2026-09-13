@@ -1,10 +1,17 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccountSections } from './AccountSections'
+
+const useAuth = vi.fn()
+vi.mock('@/app/providers/AuthProvider', () => ({ useAuth: () => useAuth() }))
 
 const useSellerStatus = vi.fn()
 vi.mock('@/features/seller-studio', () => ({ useSellerStatus: () => useSellerStatus() }))
+
+beforeEach(() => {
+  useAuth.mockReturnValue({ role: 'CUSTOMER' })
+})
 
 function renderWithRouter() {
   return render(
@@ -55,6 +62,18 @@ describe('AccountSections', () => {
     expect(screen.getByText(/pending review/i)).toBeInTheDocument()
   })
 
+  it('still links to the application/status page while rejected, with honest "not approved" copy — never implying the seller can just reapply', () => {
+    useSellerStatus.mockReturnValue({
+      status: 'rejected',
+      application: { businessName: 'Test Gallery', rejectionReason: 'x' },
+    })
+    renderWithRouter()
+
+    const link = screen.getByRole('link', { name: /become a seller/i })
+    expect(link).toHaveAttribute('href', '/seller/apply')
+    expect(screen.getByText(/application not approved/i)).toBeInTheDocument()
+  })
+
   it('links to Seller Studio once approved', () => {
     useSellerStatus.mockReturnValue({
       status: 'approved',
@@ -98,6 +117,24 @@ describe('AccountSections', () => {
     useSellerStatus.mockReturnValue({ status: 'error', error: { code: 'unknown', message: 'boom' } })
     renderWithRouter()
 
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('never shows "Become a seller" (or any seller entry) for an ADMIN, even with no seller application at all', () => {
+    useAuth.mockReturnValue({ role: 'ADMIN' })
+    useSellerStatus.mockReturnValue({ status: 'not-applied' })
+    renderWithRouter()
+
+    expect(screen.queryByText(/become a seller/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('never shows "Become a seller" for a SUPER_ADMIN', () => {
+    useAuth.mockReturnValue({ role: 'SUPER_ADMIN' })
+    useSellerStatus.mockReturnValue({ status: 'not-applied' })
+    renderWithRouter()
+
+    expect(screen.queryByText(/become a seller/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 })

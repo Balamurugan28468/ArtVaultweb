@@ -9,10 +9,28 @@ const TONE_CLASSES: Record<BadgeTone, string> = {
   danger: 'bg-danger/15 text-danger',
 }
 
-export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: BadgeTone }) {
+export type BadgeSize = 'sm' | 'md'
+
+const SIZE_CLASSES: Record<BadgeSize, string> = {
+  sm: 'px-1.5 py-0.5 text-[10px]',
+  md: 'px-2.5 py-1 text-xs',
+}
+
+export function Badge({
+  children,
+  tone = 'neutral',
+  size = 'md',
+}: {
+  children: ReactNode
+  tone?: BadgeTone
+  /** UI-01 mobile density pass: `sm` for tight spaces (e.g. a narrow mobile
+   *  card header) where the default `md` pill reads as oversized relative
+   *  to its surroundings. Additive — every existing caller keeps `md`. */
+  size?: BadgeSize
+}) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${TONE_CLASSES[tone]}`}
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full font-medium ${TONE_CLASSES[tone]} ${SIZE_CLASSES[size]}`}
     >
       {children}
     </span>

@@ -136,17 +136,20 @@ Four lifecycle states exist so far:
 
 Permitted transitions: `DRAFT → SUBMITTED` (client-initiated, by the owning
 seller); `SUBMITTED → PUBLISHED` and `SUBMITTED → REJECTED` (trusted-operator-
-only, see below — never client-initiated). There is deliberately no
-`PUBLISHED → *` or `REJECTED → *` transition yet (e.g. re-submitting a
-rejected artwork, or unpublishing one) — those belong to whichever future
-module actually needs them. `PENDING_REVIEW` was deliberately not
+only, see below — never client-initiated); as of Module 13 Phase 4,
+`PUBLISHED → SUBMITTED` and `REJECTED → SUBMITTED` (client-initiated, by
+the owning seller — see "Owner edits after publication/rejection" below).
+There is deliberately no `PUBLISHED → PUBLISHED` transition that changes
+public content (title/description/category/images) without first passing
+back through `SUBMITTED`, and no client-initiated `* → PUBLISHED` or
+`* → REJECTED` transition at all — those remain exclusively the trusted
+operator's own decision. `PENDING_REVIEW` was deliberately not
 introduced as a separate state: `SUBMITTED` already means "awaiting trusted
 review," so a distinct `PENDING_REVIEW` would only duplicate that meaning.
 Every state past `PUBLISHED`/`REJECTED` in the eventual full lifecycle
 (commerce states like `AVAILABLE`/`RESERVED`/`SOLD`, auction states, AI
 processing, admin suspension/cancellation) remains deferred to the modules
-that actually own their transitions — Module 07 deliberately does not
-introduce any of them.
+that actually own their transitions.
 
 A `SELLER` may `create` their own artwork (`sellerId` must equal their own
 uid, `status` forced to `'DRAFT'`, `images` forced empty — photos can only
@@ -164,6 +167,34 @@ status; the public may additionally `read` it once (and only once) its
 `status` is `PUBLISHED` — see "Artwork visibility" under `artists/{artistId}`
 below. `ar: {...}` is deliberately not part of this document yet — added by
 the AR module per `docs/AR_ARCHITECTURE.md` once it exists.
+
+#### Owner edits after publication/rejection (Module 13 Phase 4)
+
+A PUBLISHED or REJECTED artwork's owner has two, deliberately distinct,
+edit paths — never a single generic "update" the way DRAFT gets one —
+because the two carry genuinely different risk:
+
+- **Safe commerce fields only** (`price`, `inventoryCount`, `tags`), while
+  `status` stays `PUBLISHED`: allowed with no review, since none of the
+  three carries any public-content/moderation risk. Enforced via
+  `diff(...).affectedKeys().hasOnly(['price', 'inventoryCount', 'tags',
+  'updatedAt'])` — the exact same "unlisted keys structurally can't change"
+  mechanism the DRAFT-edit branch already relies on is what proves
+  title/description/category/images stayed byte-identical, not a separate
+  equality check.
+- **Any change to real public content** (title, description, category, or
+  images) on a PUBLISHED artwork, or *any* edit at all to a REJECTED one:
+  always transitions `status` to `SUBMITTED` and re-enters the exact same
+  trusted-operator review queue a first-time submission does — a client
+  can never keep unreviewed content live, or silently patch a REJECTED
+  artwork back into shape without a fresh decision.
+  `reviewedAt`/`rejectionReason` are both force-reset to `null` as part of
+  this same write (server-rule-enforced, never a client-chosen value) so a
+  stale or forged prior decision can never read as active during the new
+  review cycle — this is also why REJECTED's `rejectionReason` is
+  transient, not archived: the smallest correct schema change was to
+  reuse the existing field rather than add a history array nothing else
+  in this codebase does either.
 
 ### Trusted publishing/rejection mechanism (Module 07)
 

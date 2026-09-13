@@ -36,7 +36,9 @@ export function SellerApplicationPage() {
         </Card>
       )}
 
-      {state.status === 'pending' && <SellerStatusCard application={state.application} />}
+      {(state.status === 'pending' || state.status === 'rejected') && (
+        <SellerStatusCard application={state.application} />
+      )}
     </section>
   )
 }

@@ -43,8 +43,8 @@ describe('HomePage', () => {
     useMarketplaceArtworks.mockReturnValue({ status: 'pending', data: undefined })
     renderHome()
 
-    expect(screen.getByText('Welcome to ArtVault')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Explore the marketplace' })).toHaveAttribute('href', '/explore')
+    expect(screen.getByText('Belong')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Explore Artworks' })).toHaveAttribute('href', '/explore')
   })
 
   it('shows a loading state for the recently-published section while the query is pending', () => {
@@ -85,5 +85,31 @@ describe('HomePage', () => {
     renderHome()
 
     expect(screen.getByText("Couldn't load recently published artworks")).toBeInTheDocument()
+  })
+
+  // UI-01 mobile density correction: Home's own Categories chip row was a
+  // second, duplicate category-discovery surface now that Explore owns
+  // category discovery (strip + sidebar filter + real counts). Removed
+  // entirely, not merely shrunk.
+  it('never shows a Categories section — category discovery lives only on Explore', () => {
+    useMarketplaceArtworks.mockReturnValue({ status: 'success', data: { pages: [{ artworks: [ARTWORK] }] } })
+    renderHome()
+
+    expect(screen.queryByRole('heading', { name: 'Categories' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Painting' })).not.toBeInTheDocument()
+  })
+
+  // UI-01 mobile density correction (round 2): these informational cards
+  // were previously forced into a plain 2-column grid at every width,
+  // squeezing their real sentences down to the point of needing a 2-line
+  // clamp even on a 350px phone. They now scroll horizontally on mobile
+  // instead of being clamped into narrow columns, so the full, real
+  // description text is always present in the DOM, never truncated.
+  it('shows the full "Why ArtVault" description text, never truncated, on any screen size', () => {
+    useMarketplaceArtworks.mockReturnValue({ status: 'success', data: { pages: [{ artworks: [ARTWORK] }] } })
+    renderHome()
+
+    const description = screen.getByText("Every listing is a real artist's own work, reviewed before it goes live.")
+    expect(description.className).not.toContain('line-clamp')
   })
 })

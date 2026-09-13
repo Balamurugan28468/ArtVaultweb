@@ -1,6 +1,7 @@
 import { Bell, CreditCard, Heart, MapPin, Package, Settings, ShieldCheck, Star, Store } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { Link } from 'react-router'
+import { useAuth } from '@/app/providers/AuthProvider'
 import { useSellerStatus } from '@/features/seller-studio'
 
 interface FutureSection {
@@ -31,9 +32,24 @@ const FUTURE_SECTIONS: FutureSection[] = [
  * disabled placeholder. Label/destination/subtext all reflect the real
  * seller-application state (never-applied / pending / approved), so this
  * never implies more access than the viewer actually has.
+ *
+ * ADMIN/SUPER_ADMIN never see this card at all — "Become a seller" is a
+ * CUSTOMER-facing growth action, not a real account action for a platform
+ * administrator, and prior to this fix it rendered for any signed-in role
+ * with no `sellers/{uid}` document at all (useSellerStatus has no concept
+ * of role — it only reflects application state), which showed the same
+ * generic "Become a seller" invite to an ADMIN as to a real customer.
+ * Sourced from the verified Auth custom claim (useAuth().role), never a
+ * Firestore-mirrored field, matching how every privileged/role-gated
+ * decision in this app is made.
  */
 function SellerSectionCard() {
+  const { role } = useAuth()
   const state = useSellerStatus()
+
+  if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+    return null
+  }
 
   if (state.status === 'loading' || state.status === 'error') {
     return (
@@ -53,7 +69,9 @@ function SellerSectionCard() {
       ? { href: '/seller-studio', subtext: 'Manage your shop' }
       : state.status === 'pending'
         ? { href: '/seller/apply', subtext: 'Pending review' }
-        : { href: '/seller/apply', subtext: 'Start selling on ArtVault' }
+        : state.status === 'rejected'
+          ? { href: '/seller/apply', subtext: 'Application not approved' }
+          : { href: '/seller/apply', subtext: 'Start selling on ArtVault' }
   const label = state.status === 'approved' ? 'Seller Studio' : 'Become a seller'
 
   return (

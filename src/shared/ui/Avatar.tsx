@@ -14,7 +14,15 @@ export function Avatar({
   photoURL?: string | null
   size?: 'sm' | 'md' | 'lg'
 }) {
-  const sizeClasses = { sm: 'h-8 w-8 text-xs', md: 'h-10 w-10 text-sm', lg: 'h-14 w-14 text-lg' }[size]
+  // UI-01 mobile density pass: `lg` shrinks on the smallest screens rather
+  // than staying a fixed 56px everywhere — both of its current callers
+  // (PublicArtistHeader, AccountHeader) are page-header avatars where the
+  // owner specifically asked for a denser mobile header.
+  const sizeClasses = {
+    sm: 'h-8 w-8 text-xs',
+    md: 'h-10 w-10 text-sm',
+    lg: 'h-11 w-11 text-base sm:h-14 sm:w-14 sm:text-lg',
+  }[size]
 
   if (photoURL) {
     return (

@@ -5,12 +5,15 @@ export {
   getPublicArtwork,
   mapToArtwork,
   mutateArtworkImages,
+  resubmitArtworkForReview,
   subscribeArtwork,
   subscribePublishedArtworks,
   subscribeSellerArtworks,
   submitArtwork,
   toArtworkError,
   updateArtworkDraft,
+  updatePublishedArtworkSafeFields,
+  type ArtworkSafeFieldsInput,
 } from './api/artworkRepository'
 export {
   artworkImagePath,

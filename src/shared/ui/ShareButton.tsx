@@ -8,7 +8,18 @@ import { useToast } from './Toast'
  * fabricates a share count or any other engagement number; this is purely
  * an action, not a metric.
  */
-export function ShareButton({ url, title, text }: { url: string; title: string; text?: string }) {
+export function ShareButton({
+  url,
+  title,
+  text,
+  label = 'Share this artwork',
+}: {
+  url: string
+  title: string
+  text?: string
+  /** Accessible label — override for a non-artwork caller (e.g. an artist profile). */
+  label?: string
+}) {
   const toast = useToast()
 
   async function copyLink() {
@@ -39,7 +50,7 @@ export function ShareButton({ url, title, text }: { url: string; title: string; 
   return (
     <IconButton
       icon={<Share2 className="h-5 w-5" aria-hidden="true" />}
-      label="Share this artwork"
+      label={label}
       variant="ghost"
       onClick={() => void handleShare()}
     />

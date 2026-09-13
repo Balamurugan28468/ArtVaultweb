@@ -15,7 +15,7 @@ export function WishlistPage() {
   const { artworks, unavailableCount, isLoading } = useWishlistArtworks()
 
   return (
-    <Container>
+    <Container size="wide">
       <section className="flex flex-col gap-6">
         <PageHeader
           title="Wishlist"

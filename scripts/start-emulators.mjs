@@ -8,17 +8,7 @@
 // needs to be typed/remembered with the right import/export flags by hand).
 
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import {
-  cpSync,
-  existsSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
+import { cpSync, existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -30,6 +20,7 @@ import {
   releaseLockIfOwnedBySelf,
   waitForPortsState,
 } from './lib/emulatorGuards.mjs'
+import { exportMtime, isCompleteExport, renameWithRetry, writeSnapshotManifest } from './lib/emulatorExport.mjs'
 import { envWithResolvedJavaOnPath, resolveJavaOrExit } from './lib/javaRuntime.mjs'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -158,107 +149,20 @@ acquireSingleInstanceLock()
 process.on('exit', releaseSingleInstanceLock)
 await cleanUpOrphanedEmulatorProcesses()
 
-function fileHash(filePath) {
-  return createHash('sha256').update(readFileSync(filePath)).digest('hex')
-}
-
-function snapshotManifest(dirPath) {
-  const metadataPath = path.join(dirPath, 'firebase-export-metadata.json')
-  const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'))
-  const authPath = path.join(dirPath, metadata.auth.path, 'accounts.json')
-  const firestoreMetadataPath = path.join(dirPath, metadata.firestore.metadata_file)
-  return {
-    schemaVersion: 1,
-    generation: createHash('sha256')
-      .update(`${fileHash(metadataPath)}:${fileHash(authPath)}:${fileHash(firestoreMetadataPath)}`)
-      .digest('hex'),
-    exportMetadata: fileHash(metadataPath),
-    authAccounts: fileHash(authPath),
-    firestoreMetadata: fileHash(firestoreMetadataPath),
-  }
-}
-
-function writeSnapshotManifest(dirPath) {
-  if (!isCompleteExport(dirPath)) return
-  const manifestPath = path.join(dirPath, 'artvault-snapshot-manifest.json')
-  const tempPath = `${manifestPath}.tmp`
-  writeFileSync(tempPath, `${JSON.stringify(snapshotManifest(dirPath), null, 2)}\n`, 'utf8')
-  renameSync(tempPath, manifestPath)
-}
-
 const resolved = resolveJavaOrExit()
 console.log(`Using Java ${resolved.version} (via ${resolved.source}).`)
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-// A real export directory (either ./emulator-data or a staging
-// `firebase-export-*` folder) must have the top-level metadata file *and*
-// the Auth/Firestore payload it claims to have — the metadata file alone
-// can exist for a directory firebase-tools was still in the middle of
-// writing when something interrupted it. Never treats a partial/corrupt
-// directory as a valid, recoverable snapshot.
-function isCompleteExport(dirPath) {
-  const metadataPath = path.join(dirPath, 'firebase-export-metadata.json')
-  if (!existsSync(metadataPath)) return false
-
-  let metadata
-  try {
-    metadata = JSON.parse(readFileSync(metadataPath, 'utf8'))
-  } catch {
-    return false
-  }
-
-  if (!metadata.auth?.path || !metadata.firestore?.metadata_file) return false
-  const accountsFile = path.join(dirPath, metadata.auth.path, 'accounts.json')
-  const firestoreMetadataFile = path.join(dirPath, metadata.firestore.metadata_file)
-  if (!existsSync(accountsFile) || !existsSync(firestoreMetadataFile)) return false
-
-  const manifestPath = path.join(dirPath, 'artvault-snapshot-manifest.json')
-  if (existsSync(manifestPath)) {
-    try {
-      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-      const expected = snapshotManifest(dirPath)
-      if (
-        manifest.schemaVersion !== expected.schemaVersion ||
-        manifest.generation !== expected.generation ||
-        manifest.exportMetadata !== expected.exportMetadata ||
-        manifest.authAccounts !== expected.authAccounts ||
-        manifest.firestoreMetadata !== expected.firestoreMetadata
-      ) {
-        return false
-      }
-    } catch {
-      return false
-    }
-  }
-  return true
-}
+// isCompleteExport/writeSnapshotManifest/exportMtime/renameWithRetry now
+// live in ./lib/emulatorExport.mjs, shared with scripts/checkpoint-
+// emulators.mjs (Module 13 Phase 4) — see that module's own header for why
+// this validation/swap logic must never exist as two independently-
+// maintained copies.
 
 function findExportStagingDirs() {
   return readdirSync(projectRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && /^firebase-export-\d+/.test(entry.name))
     .map((entry) => entry.name)
     .filter((name) => isCompleteExport(path.join(projectRoot, name)))
-}
-
-// Renames `from` to `to`, retrying briefly — used both for moving a
-// recovered export into place and for moving the current ./emulator-data
-// aside first. Windows can report a transient lock (EPERM/EBUSY) for a
-// moment after a process closes its last handle to a directory; a short
-// retry window absorbs that without treating it as a real failure.
-async function renameWithRetry(from, to, { maxAttempts = 3 } = {}) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      renameSync(from, to)
-      return true
-    } catch (error) {
-      if (attempt === maxAttempts) throw error
-      await sleep(300 * attempt)
-    }
-  }
-  return false
 }
 
 // firebase-tools replaces an existing ./emulator-data on export by removing
@@ -292,9 +196,7 @@ async function renameWithRetry(from, to, { maxAttempts = 3 } = {}) {
 // containing directory gets a fresh mtime from that move/copy while the file
 // inside it keeps its original timestamp. Comparing the file's mtime avoids
 // ever mistaking an old restored export for the newest one on that basis.
-function exportMtime(dirPath) {
-  return statSync(path.join(dirPath, 'firebase-export-metadata.json')).mtimeMs
-}
+// (exportMtime itself now lives in ./lib/emulatorExport.mjs.)
 
 async function recoverOrphanedExport(candidateNames, { label } = {}) {
   const validCandidates = candidateNames.filter((name) => isCompleteExport(path.join(projectRoot, name)))

@@ -96,6 +96,17 @@ describe('reconcileRoles', () => {
     expect(result).toEqual({ uid: 'alice', action: 'already-consistent', artistProfile: 'not-applicable' })
   })
 
+  it('refuses to act on a REJECTED seller application, exactly like a PENDING one', async () => {
+    sellersGet.mockResolvedValueOnce({ exists: true, data: () => ({ status: 'REJECTED' }) })
+
+    const [result] = await reconcileRoles('alice')
+
+    expect(getUser).not.toHaveBeenCalled()
+    expect(setCustomUserClaims).not.toHaveBeenCalled()
+    expect(artistsGet).not.toHaveBeenCalled()
+    expect(result).toEqual({ uid: 'alice', action: 'already-consistent', artistProfile: 'not-applicable' })
+  })
+
   it('refuses to act when no seller application exists at all', async () => {
     sellersGet.mockResolvedValueOnce({ exists: false })
 

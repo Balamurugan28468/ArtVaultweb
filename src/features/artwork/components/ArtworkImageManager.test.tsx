@@ -143,3 +143,35 @@ describe('ArtworkImageManager — SUBMITTED (read-only)', () => {
     expect(screen.getByText('No photos were added.')).toBeInTheDocument()
   })
 })
+
+// Module 13's photo-editing follow-up — a real defect found in owner manual
+// testing: a PUBLISHED artwork's Photos section showed no Add/Remove/Reorder
+// capability at all, and an empty one showed "No photos were added." with no
+// way out of it. Both are fixed by useArtworkImages now treating PUBLISHED
+// and REJECTED as editable (as a staged material edit — see its own tests).
+describe.each(['PUBLISHED', 'REJECTED'] as const)('ArtworkImageManager — %s (editable, staged material edit)', (status) => {
+  it('shows Add photos and, for an existing photo, Remove/reorder controls', () => {
+    render(<ArtworkImageManager artwork={buildArtwork({ status, images: [buildImage()] })} />)
+
+    expect(screen.getByRole('button', { name: /add photos/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /remove photo/i })).toBeInTheDocument()
+    expect(screen.getByText(/move later/i)).toBeInTheDocument()
+  })
+
+  it('shows the Add photos control (never the dead-end empty-state message) when there are no photos yet', () => {
+    render(<ArtworkImageManager artwork={buildArtwork({ status, images: [] })} />)
+
+    expect(screen.getByRole('button', { name: /add photos/i })).toBeInTheDocument()
+    expect(screen.queryByText('No photos were added.')).not.toBeInTheDocument()
+  })
+
+  it('removing a photo stages the change locally, without calling mutateArtworkImages (the artwork is not DRAFT)', async () => {
+    render(<ArtworkImageManager artwork={buildArtwork({ status, images: [buildImage()] })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /remove photo/i }))
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /remove photo/i })).not.toBeInTheDocument())
+    expect(mutateArtworkImages).not.toHaveBeenCalled()
+    expect(deleteArtworkImageObject).not.toHaveBeenCalled()
+  })
+})

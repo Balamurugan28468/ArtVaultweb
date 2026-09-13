@@ -5,8 +5,8 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
+import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { assertIsolatedFirestoreTestEnvironment, TEST_PROJECT_ID } from '../test-support/emulatorTestEnv'
 
 // Not part of `npm run test` — run via `npm run test:rules`, which launches
@@ -93,6 +93,11 @@ describe('sellers/{uid} rules — application submission', () => {
     await assertFails(setDoc(doc(aliceDb, 'sellers/alice'), validApplication({ status: 'APPROVED' })))
   })
 
+  it('forces status to PENDING even when the client attempts REJECTED directly (Module 13)', async () => {
+    const aliceDb = testEnv.authenticatedContext('alice').firestore()
+    await assertFails(setDoc(doc(aliceDb, 'sellers/alice'), validApplication({ status: 'REJECTED' })))
+  })
+
   it('rejects a business name that is too short', async () => {
     const aliceDb = testEnv.authenticatedContext('alice').firestore()
     await assertFails(setDoc(doc(aliceDb, 'sellers/alice'), validApplication({ businessName: 'A' })))
@@ -132,6 +137,52 @@ describe('sellers/{uid} rules — read access', () => {
   })
 })
 
+describe('sellers/{uid} rules — REJECTED application (Module 13, Option A)', () => {
+  const REJECTED_APPLICATION = {
+    ...EXISTING_APPLICATION,
+    status: 'REJECTED',
+    reviewedAt: 2,
+    rejectionReason: 'Portfolio does not meet our quality guidelines.',
+  }
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'sellers/alice'), REJECTED_APPLICATION)
+    })
+  })
+
+  it('lets the applicant read their own REJECTED application, including the real rejectionReason', async () => {
+    const aliceDb = testEnv.authenticatedContext('alice').firestore()
+    await assertSucceeds(getDoc(doc(aliceDb, 'sellers/alice')))
+  })
+
+  it("still blocks another authenticated user from reading someone else's REJECTED application", async () => {
+    const bobDb = testEnv.authenticatedContext('bob').firestore()
+    await assertFails(getDoc(doc(bobDb, 'sellers/alice')))
+  })
+
+  it('blocks the applicant from editing their own REJECTED application in any way', async () => {
+    const aliceDb = testEnv.authenticatedContext('alice').firestore()
+    await assertFails(updateDoc(doc(aliceDb, 'sellers/alice'), { businessName: 'Retry' }))
+  })
+
+  it('blocks the applicant from deleting their own REJECTED application', async () => {
+    const aliceDb = testEnv.authenticatedContext('alice').firestore()
+    await assertFails(deleteDoc(doc(aliceDb, 'sellers/alice')))
+  })
+
+  it('blocks a reapplication attempt once REJECTED — no client-facing resubmission path exists (deliberately deferred)', async () => {
+    const aliceDb = testEnv.authenticatedContext('alice').firestore()
+    await assertFails(setDoc(doc(aliceDb, 'sellers/alice'), validApplication({ businessName: 'Second Try' })))
+  })
+
+  it('blocks the applicant from setting their own status back to APPROVED or PENDING', async () => {
+    const aliceDb = testEnv.authenticatedContext('alice').firestore()
+    await assertFails(updateDoc(doc(aliceDb, 'sellers/alice'), { status: 'APPROVED' }))
+    await assertFails(updateDoc(doc(aliceDb, 'sellers/alice'), { status: 'PENDING' }))
+  })
+})
+
 describe('sellers/{uid} rules — no client modification after submission', () => {
   beforeEach(async () => {
     await testEnv.withSecurityRulesDisabled(async (context) => {
@@ -165,6 +216,66 @@ describe('sellers/{uid} rules — no client modification after submission', () =
   it("blocks any edit to another user's application", async () => {
     const bobDb = testEnv.authenticatedContext('bob').firestore()
     await assertFails(updateDoc(doc(bobDb, 'sellers/alice'), { businessName: 'Hijacked' }))
+  })
+})
+
+describe('sellers/{uid} rules — ADMIN queue read access (Module 13 Phase 3)', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'sellers/alice'), EXISTING_APPLICATION)
+      await setDoc(doc(context.firestore(), 'sellers/carol'), { ...EXISTING_APPLICATION, uid: 'carol', status: 'APPROVED' })
+      await setDoc(doc(context.firestore(), 'sellers/dave'), {
+        ...EXISTING_APPLICATION,
+        uid: 'dave',
+        status: 'REJECTED',
+        reviewedAt: 2,
+        rejectionReason: 'x',
+      })
+    })
+  })
+
+  it('lets an ADMIN read a PENDING application that is not their own', async () => {
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertSucceeds(getDoc(doc(adminDb, 'sellers/alice')))
+  })
+
+  it('lets a SUPER_ADMIN read a PENDING application that is not their own', async () => {
+    const superAdminDb = testEnv.authenticatedContext('super-1', { role: 'SUPER_ADMIN' }).firestore()
+    await assertSucceeds(getDoc(doc(superAdminDb, 'sellers/alice')))
+  })
+
+  it('blocks an ADMIN from reading an already-APPROVED application — the queue has no reason to list it', async () => {
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertFails(getDoc(doc(adminDb, 'sellers/carol')))
+  })
+
+  it('blocks an ADMIN from reading an already-REJECTED application', async () => {
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertFails(getDoc(doc(adminDb, 'sellers/dave')))
+  })
+
+  it('blocks a CUSTOMER and a SELLER from reading a PENDING application that is not their own — the new grant is admin-only', async () => {
+    const customerDb = testEnv.authenticatedContext('mallory', { role: 'CUSTOMER' }).firestore()
+    await assertFails(getDoc(doc(customerDb, 'sellers/alice')))
+    const sellerDb = testEnv.authenticatedContext('bob', { role: 'SELLER' }).firestore()
+    await assertFails(getDoc(doc(sellerDb, 'sellers/alice')))
+  })
+
+  it('an ADMIN query for status == PENDING returns exactly the PENDING applications, never APPROVED/REJECTED ones', async () => {
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    const snapshot = await assertSucceeds(getDocs(query(collection(adminDb, 'sellers'), where('status', '==', 'PENDING'))))
+    expect(snapshot.docs.map((d) => d.id)).toEqual(['alice'])
+  })
+
+  it('an ADMIN query for status == APPROVED is denied outright — the read grant never covers decided applications, queried or not', async () => {
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertFails(getDocs(query(collection(adminDb, 'sellers'), where('status', '==', 'APPROVED'))))
+  })
+
+  it("an ADMIN's new read access grants no write capability — update/delete remain unconditionally denied", async () => {
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertFails(updateDoc(doc(adminDb, 'sellers/alice'), { status: 'APPROVED' }))
+    await assertFails(deleteDoc(doc(adminDb, 'sellers/alice')))
   })
 })
 

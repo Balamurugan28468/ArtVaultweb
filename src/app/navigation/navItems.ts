@@ -1,4 +1,4 @@
-import { Gavel, Grid2x2, Heart, Home, LayoutDashboard, Package, ShieldCheck, ShoppingCart, User } from 'lucide-react'
+import { Bell, Gavel, Grid2x2, Heart, HelpCircle, Home, LayoutDashboard, Package, ShieldCheck, ShoppingCart, User } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { UserRole } from '@/features/auth/types'
 
@@ -22,13 +22,26 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { id: 'home', label: 'Home', href: '/', icon: Home, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
+  // UI-01 mobile correction: Explore already owns category discovery (its
+  // own category strip + sidebar filter, both real, since the reference-
+  // structured Explore rebuild) — a separate "Categories" primary nav item
+  // duplicated that same destination under a second label. Removed here
+  // rather than left `comingSoon` (which would still be a dead nav entry);
+  // `/categories` itself now redirects to `/explore` (see router.tsx) so no
+  // bookmarked/shared link breaks.
   { id: 'marketplace', label: 'Explore', href: '/explore', icon: Grid2x2, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
-  { id: 'categories', label: 'Categories', href: '/categories', icon: Grid2x2, status: 'comingSoon', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
-  { id: 'auction', label: 'Auction', href: '/auction', icon: Gavel, status: 'comingSoon', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
+  { id: 'auction', label: 'Auctions', href: '/auction', icon: Gavel, status: 'comingSoon', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Heart, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'cart', label: 'Cart', href: '/cart', icon: ShoppingCart, status: 'comingSoon', audiences: ['CUSTOMER', 'SELLER'] },
   { id: 'orders', label: 'Orders', href: '/orders', icon: Package, status: 'comingSoon', audiences: ['CUSTOMER', 'SELLER'] },
   { id: 'account', label: 'Account', href: '/account', icon: User, status: 'available', audiences: ['CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'seller-studio', label: 'Seller Studio', href: '/seller-studio', icon: LayoutDashboard, status: 'available', audiences: ['SELLER'] },
-  { id: 'admin', label: 'Admin Control Center', href: '/admin', icon: ShieldCheck, status: 'comingSoon', audiences: ['ADMIN', 'SUPER_ADMIN'] },
+  { id: 'admin', label: 'Admin Control Center', href: '/admin', icon: ShieldCheck, status: 'available', audiences: ['ADMIN', 'SUPER_ADMIN'] },
+  // Both added for the mobile "More" menu (UI-01) — genuine NAV_ITEMS
+  // entries, not a second hardcoded list, so this stays the one place any
+  // nav surface reads a destination's label/icon/href from. Neither has a
+  // real page yet, so both stay `comingSoon` (never rendered as a live
+  // link by useNavItems) and appear in "More" as honestly-disabled rows.
+  { id: 'notifications', label: 'Notifications', href: '/notifications', icon: Bell, status: 'comingSoon', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
+  { id: 'help', label: 'Help', href: '/help', icon: HelpCircle, status: 'comingSoon', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
 ]

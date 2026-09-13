@@ -1,6 +1,7 @@
 import {
   collection,
   documentId,
+  getCountFromServer,
   getDocs,
   limit,
   orderBy,
@@ -10,7 +11,7 @@ import {
   type QueryConstraint,
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase/config'
-import { mapToArtwork, toArtworkError, type Artwork } from '@/features/artwork'
+import { ARTWORK_CATEGORIES, mapToArtwork, toArtworkError, type Artwork, type ArtworkCategory } from '@/features/artwork'
 import type { MarketplaceCursor, MarketplaceFilters, MarketplacePage } from '../types'
 
 export const MARKETPLACE_PAGE_SIZE = 12
@@ -106,6 +107,36 @@ export async function fetchMarketplacePage(
         : null
 
     return { artworks, nextCursor }
+  } catch (error) {
+    throw toArtworkError(error)
+  }
+}
+
+/**
+ * Real per-category (and total) published-artwork counts for the Explore
+ * sidebar/category strip — the one piece of "reference-shaped" UI genuinely
+ * worth a small new query for, since `getCountFromServer` is a count-only
+ * aggregation (no document payloads transferred/billed as reads the way a
+ * real `getDocs` page is) and the category set is the same small, fixed
+ * five values everywhere else in this app already relies on. Never a
+ * fabricated or guessed number — if this call fails, the caller sees an
+ * error and shows no counts at all rather than a stale/fake one.
+ */
+export async function fetchCategoryArtworkCounts(): Promise<{ total: number; byCategory: Record<ArtworkCategory, number> }> {
+  try {
+    const publishedQuery = query(artworksCollection(), where('status', '==', 'PUBLISHED'))
+    const [totalSnapshot, ...categorySnapshots] = await Promise.all([
+      getCountFromServer(publishedQuery),
+      ...ARTWORK_CATEGORIES.map((category) =>
+        getCountFromServer(query(artworksCollection(), where('status', '==', 'PUBLISHED'), where('category', '==', category))),
+      ),
+    ])
+
+    const byCategory = Object.fromEntries(
+      ARTWORK_CATEGORIES.map((category, index) => [category, categorySnapshots[index]!.data().count]),
+    ) as Record<ArtworkCategory, number>
+
+    return { total: totalSnapshot.data().count, byCategory }
   } catch (error) {
     throw toArtworkError(error)
   }

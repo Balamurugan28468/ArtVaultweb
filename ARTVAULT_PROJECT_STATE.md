@@ -1,6 +1,57 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-09 — Module 12 (Artwork Likes) — a real, sign-in-
+_Last updated: 2026-09-13 — UI-01 (Complete Responsive Marketplace UI) is
+**COMPLETE and OWNER APPROVED**, committed together with Module 13 (Admin
+Control Center, Phases 1-4 — see its own write-up below, already fully
+implemented and tested as of the previous update but not yet committed
+until now). Frontend: **793/793** (up from 689/689 at Module 13 Phase 4).
+`tsc -b` clean, `oxlint` clean (0 errors, pre-existing warnings only in
+unrelated files), production build clean. See "UI-01 — Complete Responsive
+Marketplace UI" below for the full write-up. The two paragraphs
+immediately below this one, describing Module 13 Phases 1-2, are
+historical context from an earlier point in that module's own development
+and are superseded by "Module 13 — Admin Control Center" further down,
+which documents Phases 1-4 as complete. Module 13 gives ArtVault its first
+deployed, HTTP-reachable
+Cloud Functions — `approveSellerApplication`, `rejectSellerApplication`,
+`moderateArtwork` — every other function in `functions/src/` remains a
+local, human-run, Admin-SDK-only operator script. A single centralized
+`requireAdminCaller` authorization boundary reads only the Firebase
+Auth-verified `request.auth.token.role` claim (never `request.data`, never
+any Firestore-mirrored field) and admits only `ADMIN`/`SUPER_ADMIN`. Seller
+rejection is a real, owner-approved schema decision ("Option A"): a
+`REJECTED` application is a third, terminal, persistently-stored outcome
+alongside `PENDING`/`APPROVED` (never deleted, never silently reversible,
+no reapplication path), carrying a real `rejectionReason` the applicant can
+see on their own account. `firestore.rules` was **not** touched — every
+Module 13 write goes through the trusted Admin SDK, which always bypasses
+client rules, and Option A required no new client-reachable write path
+(`sellers/{uid}`'s pre-existing `allow update: if false` already makes a
+REJECTED application exactly as immutable to its own applicant as an
+APPROVED one). Phase 2 added: server-boundary input validation (document-id
+shape/length/forbidden-character checks, bounded control-character-free
+text for `rejectionReason`), an error-leakage boundary (`toCallableError`
+only ever echoes a closed allowlist of known domain-invariant messages;
+anything else is logged server-side and replaced with a generic message),
+transactional concurrency safety in the underlying
+`promoteSellerByUid`/`rejectSellerApplicationByUid`/
+`decideArtworkByArtworkId` business logic (each now a `db.runTransaction()`
+read-check-write), and a full adversarial authorization/validation/
+idempotency test matrix across all three callables — including real,
+deterministically-gated near-simultaneous-caller tests proving Firestore's
+transactional guarantee actually holds at this layer (exactly one of two
+racing decisions ever commits; the loser is correctly told the outcome was
+already decided; no duplicate claim/profile/write is ever produced). App
+Check enforcement and distributed rate limiting were both deliberately
+**not** implemented this phase — the former because production App Check
+registration doesn't exist yet and enabling it now would only block local
+emulator development, the latter because an in-memory/per-instance limiter
+would be genuinely unreliable across Cloud Functions' auto-scaled
+instances, not real protection — both are reviewed, found not to block a
+future correct implementation, and recorded below as explicit, tracked
+pre-production-deployment requirements rather than silently deferred. See
+"Module 13 — Admin Control Center" below for the full write-up. Module 12
+(Artwork Likes) — a real, sign-in-
 required "like" on the Artwork Detail Page, deliberately not another
 Wishlist heart: a public, aggregate signal (Wishlist stays a private saved
 list). Denormalized `artworks/{artworkId}.likeCount` plus a private
@@ -155,12 +206,35 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Current module
 
-**Module 12 — Artwork Likes: implemented across 4 phases (migration
+**Module 13 — Admin Control Center (Seller Application Review & Artwork
+Moderation): Phase 1 (trusted callable-function foundation) and Phase 2
+(security hardening) both implemented, fully tested (146/146 Functions,
+601/601 frontend, 192/192 Firestore rules), typechecked, linted, and built
+clean — owner review of Phase 2 pending, nothing committed. Phase 3 (the
+Admin Control Center UI itself) has not been started.** ArtVault's first
+deployed, client-reachable Cloud Functions —
+`approveSellerApplication`/`rejectSellerApplication`/`moderateArtwork` —
+gated by one centralized `requireAdminCaller` boundary that trusts only the
+Firebase Auth-verified `request.auth.token.role` claim (ADMIN/SUPER_ADMIN),
+never `request.data` or any Firestore-mirrored field. Seller rejection is a
+real, owner-approved third terminal application state (Option A) alongside
+PENDING/APPROVED — persistent, non-reversible, no reapplication path, with
+a real `rejectionReason` field. Every underlying write still goes through
+the same trusted, already-tested `promoteSellerByUid`/
+`rejectSellerApplicationByUid`/`decideArtworkByArtworkId` Admin-SDK
+business logic Modules 04/07 already established — the callables are thin,
+reviewed authorization/validation wrappers, not a reimplementation.
+`firestore.rules` required **zero** changes. See "Module 13 — Admin Control
+Center" below for the full write-up, including the App Check and rate-
+limiting production-readiness decisions explicitly deferred (not silently
+skipped) for this phase.
+
+Module 12 — Artwork Likes: implemented across 4 phases (migration
 tooling, security rules, client feature, concurrency hardening), fully
 tested (592/592 frontend, 185/185 Firestore rules), typechecked, linted,
 built clean, and verified via the real client SDK against the real
 Auth/Firestore emulator — complete, owner-reviewed and approved, and
-committed.** Sign-in-required, Detail-Page-only Likes: a denormalized
+committed. Sign-in-required, Detail-Page-only Likes: a denormalized
 `artworks/{artworkId}.likeCount` that can only ever change atomically
 alongside the caller's own `likes/{artworkId}/by/{uid}` document, proven
 mutually in both directions by `firestore.rules` itself
@@ -206,6 +280,909 @@ happened; the working tree was verified byte-identical to the prior
 approved commit (`d5c1a18`) after removal. Sign In today is Email/Password
 only, exactly as approved in Module 01 and hardened in the validation pass
 above.
+
+## Module 13 — Admin Control Center (Seller Application Review & Artwork Moderation)
+
+**Status:** Phases 1 (trusted callable-function foundation), 2 (security
+hardening), 3 (Admin Control Center UI), and 4 (seller artwork edit
+lifecycle, plus two real manual-test defect fixes) all implemented and
+tested. Frontend: **689/689** (up from 592/592 pre-Module-13). Firestore
+rules: **243/243** (up from 185/185 pre-Module-13). Functions: **146/146**
+(unchanged since Phase 2 — Phases 3–4 touched no `functions/` code).
+`tsc --noEmit`/`tsc -b` clean (both `functions/` and root), root `oxlint`
+clean (0 errors, pre-existing warnings only), production build clean
+(`AdminPage` code-splits into its own ~13.4kB/4.2kB-gzip chunk). A real
+emulator crash during Phase 4's own manual testing (this machine's
+documented RAM pressure) led to a new, separate durability addition — `npm
+run checkpoint:emulators`, a live Auth+Firestore checkpoint mechanism using
+the official `firebase emulators:export` CLI, validated via a full
+controlled restart proving byte-identical Auth+Firestore restoration; see
+"Emulator durability hardening" below. See "Phase 4 — Seller Artwork Edit
+Lifecycle", "Manual-test defect fixes", and "Emulator durability hardening"
+below for the three most recent additions. Real emulator E2E
+verification (Phase 3, real `firebase/auth` + `firebase/firestore` +
+`firebase/functions` **client SDK**, real dev emulator, real throwaway
+accounts, real owner data confirmed untouched) — complete; see "Phase 3"
+below for the full write-up, including a genuine (and disclosed, not
+hidden) intermittent Firestore-emulator rules-evaluation artifact found and
+characterized during that verification. **Nothing in Module 13 is
+committed yet — owner review of Phase 3 is pending. Do not start Phase 4
+(or any Module 14) until Phase 3 is explicitly approved.**
+
+### Objective and scope
+
+Every prior module gave ArtVault real seller-application and
+artwork-moderation *business logic* (`promoteSeller.ts`, `publishArtwork.ts`
+— Modules 04/07), but the only way to actually invoke either was a human
+running a local Admin-SDK CLI script by hand. Module 13 builds the
+server-side foundation a real `/admin` UI (Phase 3) will call from the
+browser: deployed, client-reachable Cloud Functions wrapping that same
+trusted logic behind a real authorization boundary. This makes the
+authorization check the single most security-critical piece of code this
+project has ever shipped — every other privileged write in this codebase
+is reached only by a human with direct Admin SDK credentials, never by an
+arbitrary authenticated browser session.
+
+### Phase 1 — Trusted callable-function foundation
+
+`functions/src/adminActions.ts` (new) — three Firebase v2 callable
+functions: `approveSellerApplication`, `rejectSellerApplication`,
+`moderateArtwork`. Each is a thin wrapper: `requireAdminCaller` (the one
+and only authorization gate, reviewed once and reused by all three rather
+than re-implemented per function) then delegates to the exact same
+business logic Modules 04/07 already built and tested —
+`promoteSellerByUid`, `rejectSellerApplicationByUid` (new, see Option A
+below), and `decideArtworkByArtworkId`. Nothing here duplicates or
+re-implements that logic. `requireAdminCaller` reads only
+`request.auth.token.role` — the Callable Functions SDK's own
+server-verified decoded ID token claim, the exact same claim
+`firestore.rules`' `hasRole()` already reads — and admits only `ADMIN`/
+`SUPER_ADMIN`; a missing `request.auth` is `unauthenticated`, anything else
+is `permission-denied`.
+
+**Seller rejection — Option A (owner-approved schema decision).** Before
+Module 13, a seller application had exactly two states: PENDING and
+APPROVED. Module 13 needed a real way for an admin to *decline* an
+application, and the owner explicitly chose persistent rejection over
+silent deletion or an eventually-reappliable state:
+
+- `SELLER_STATUSES` (`src/features/seller-studio/types.ts`) gains
+  `'REJECTED'` as a third, terminal value.
+- A new `rejectionReason: string | null` field on `SellerApplication`,
+  populated only alongside a REJECTED decision.
+- The application document is never deleted on rejection — it remains a
+  permanent record, exactly like an APPROVED one.
+- There is deliberately **no** reapplication/resubmission path yet — an
+  explicit scope boundary, not an oversight. `firestore.rules`'
+  pre-existing `allow update: if false` on `sellers/{uid}` already makes
+  this structurally impossible for any existing application regardless of
+  status, so nothing new needed to be built or blocked for it.
+- `rejectSellerApplicationByUid` (new, `functions/src/promoteSeller.ts` —
+  co-located with its approval counterpart rather than a new file, since
+  they are two outcomes of the same decision and share the same trust
+  model) grants no privilege whatsoever: no SELLER claim, no
+  `users/{uid}` write, no `artists/{uid}` projection. The applicant's
+  existing CUSTOMER access is left completely untouched.
+- `functions/src/reconcileRoles.ts` and `src/features/auth/api/
+  ensureUserProfile.ts` were both updated to treat REJECTED exactly like
+  PENDING (never like APPROVED) — a rejected applicant must never be
+  treated as "awaiting seller reconciliation."
+- Applicant-facing ripple, not Phase 3 admin UI: `SellerStatusCard`,
+  `useSellerStatus`, `SellerApplicationPage`, and `AccountSections` all
+  learned to render an honest "Not approved" state with the real
+  `rejectionReason` (never a fabricated or generic excuse) and no fake
+  reapply control — a REJECTED applicant would otherwise be stuck seeing
+  themselves as permanently "pending review," which is worse than telling
+  them the truth. This is the minimal, necessary consequence of adding a
+  third schema state, not the start of Phase 3.
+
+**`decideArtworkByArtworkId` (`publishArtwork.ts`)** gained no new states
+(PUBLISHED/REJECTED already existed since Module 07) — only the Phase 2
+transactional hardening described below, and threading `rejectionReason`
+through unchanged.
+
+**`firestore.rules` — zero changes, and none were needed.** Every Module 13
+write goes through the trusted Admin SDK from inside a callable function,
+which always bypasses client-side security rules entirely. The only rules
+question Option A raised — "can a client ever forge or resurrect a
+REJECTED application?" — was already answered by Module 04's own
+`allow update: if false`: a REJECTED document is exactly as immutable to
+its own applicant as an APPROVED one, with no special-casing required. A
+new test explicitly proves a client cannot even `create` a REJECTED
+application to begin with (`isValidSellerApplication` forces
+`status == 'PENDING'` regardless of what the client sends).
+
+### Phase 2 — Security hardening
+
+**Input validation at the server boundary.** `requireDocumentId` (used for
+both `uid` and `artworkId`) rejects: non-string, blank/whitespace-only,
+longer than 200 characters (deliberately generous past a real Firestore
+auto-id's 20 characters, never a guess at the exact length), and — the one
+genuine vulnerability class closed this phase — any forward slash or ASCII
+control character. A slash in an id would make `.doc(id)` address a
+different, deeper document under the same collection than the flat
+document every caller intends; this is now rejected outright rather than
+silently normalized. `requireBoundedText` (for `rejectionReason`) enforces
+the same 500-character bound `firestore.rules`' own seller `description`
+field already uses (reused, not invented) and rejects any control
+character, including embedded newlines.
+
+**Error-leakage boundary.** `toCallableError` maps only a closed allowlist
+of known domain-invariant violation messages — the exact strings
+`promoteSellerByUid`/`rejectSellerApplicationByUid`/
+`decideArtworkByArtworkId` are already known (and already tested) to throw
+— to the appropriate callable error code (`not-found` /
+`failed-precondition`). Anything else — a raw Firestore/gRPC error, a
+network failure, any genuinely unexpected exception — is logged
+server-side for real diagnosis and replaced with one generic, safe
+`internal` message. A dedicated test asserts a raw internal error message
+("...internal gRPC detail the caller should never see") never reaches the
+caller verbatim.
+
+**Transactional concurrency safety.** `promoteSellerByUid`,
+`rejectSellerApplicationByUid`, and `decideArtworkByArtworkId` all now run
+their read-check-write inside `db.runTransaction()`. Firestore's own
+commit-time optimistic-concurrency check means two truly concurrent
+decisions on the same document can never both silently apply — the losing
+transaction is automatically retried against a fresh, post-commit read,
+which correctly re-triggers the same "already decided" domain error a
+sequential second call would get. This closes a real race that existed
+before this phase: two admins (or an admin and the CLI) deciding the same
+application/artwork at nearly the same moment could previously have both
+"succeeded," corrupting state or double-granting a claim.
+
+**Full adversarial test matrix**, run across all three callables
+(`functions/src/adminActions.test.ts`, grown from 0 to a dedicated suite):
+signed-out/CUSTOMER/SELLER denied; ADMIN/SUPER_ADMIN allowed; missing role
+claim denied; unrecognized role denied; lowercase `"admin"` denied (exact,
+case-sensitive comparison); a client-supplied `role`/`auth` field inside
+the payload proven to have zero effect (only `request.auth` is ever
+consulted); missing/blank/oversized/slash-containing/control-character ids
+rejected; a non-object `request.data` payload (string/array/number) proven
+not to crash the handler; extra unrecognized payload fields proven never
+forwarded to a write; missing/blank/oversized/control-character
+`rejectionReason` rejected, required only when `decision === 'REJECTED'`;
+an invalid `decision` value rejected; every write proven to touch only its
+intended fields (`Object.keys` equality checks, not just
+`objectContaining`); every business-logic transition invariant
+(not-found, already-approved, already-rejected, non-SUBMITTED,
+already-decided in either direction) re-proven at the callable-handler
+layer, not just the layer below it.
+
+**Idempotency and concurrency — tested at both layers, deliberately kept
+separate:**
+
+- *Callable-handler layer* (`adminActions.test.ts`, "idempotency —
+  repeated invocation through the callable boundary"): approving/
+  rejecting the same seller twice, publishing/rejecting the same artwork
+  twice, and a conflicting decision in both directions after a terminal
+  outcome (publish-then-reject and reject-then-publish) — proving the
+  authorization/validation/delegation layer this file owns re-checks
+  everything correctly on a second call rather than assuming the first
+  call's success.
+- *Business-logic/transaction layer* (`promoteSeller.test.ts`,
+  `publishArtwork.test.ts`, "near-simultaneous callers"): real,
+  deterministically-gated concurrency tests — not a naive shared-mutable-
+  state race, which would prove nothing real. A controlled gate forces the
+  second racing call's read to resolve only after the first call's write
+  has actually committed, reproducing the *outcome* Firestore's real
+  transactional commit-conflict detection guarantees (a losing racer is
+  retried against a fresh, post-commit read and can never act on a stale
+  snapshot) without reimplementing Firestore's own retry algorithm.
+  Covers: two concurrent approvals, two concurrent rejections, and a
+  conflicting approve-vs-reject / publish-vs-reject race — in every case,
+  exactly one decision commits, the loser is told the real outcome, and no
+  duplicate claim/profile/write is ever produced. Genuine end-to-end proof
+  of Firestore's transaction guarantee under real concurrency (not a
+  mocked Admin SDK) would need the real emulator and client SDK, exactly
+  like Module 12 Phase 4's own disclosed limitation — not something a
+  mocked-Admin-SDK unit test can or should claim to provide.
+
+**App Check — reviewed, deliberately not enabled.** Documented in
+`adminActions.ts` and here: neither `onCall()` call passes
+`enforceAppCheck`, and none of the three handlers reads `request.app`, so
+enabling `enforceAppCheck: true` later is a pure additive change requiring
+no restructuring. Not enabled now because production App Check
+registration (reCAPTCHA Enterprise / Play Integrity / App Attest) does not
+exist yet for this project, and enabling enforcement without it would only
+block local emulator development. **Recorded here as a required
+pre-production-deployment step**, not a silently forgotten TODO.
+Authentication and ADMIN/SUPER_ADMIN authorization remain fully mandatory
+regardless — deferring App Check changes nothing about `requireAdminCaller`.
+
+**Rate limiting / abuse protection — analyzed, deliberately not
+implemented in-process.** A non-admin caller is rejected by
+`requireAdminCaller` before any Firestore access, so an unauthorized
+caller cannot drive cost/load regardless of request volume; a genuine
+ADMIN/SUPER_ADMIN account calling repeatedly is already bounded by the
+transactional idempotency guarantees above (repeats become inert
+errors, never a compounding effect). An in-memory/per-Cloud-Functions-
+instance rate limiter was deliberately **not** built: each instance has
+isolated memory, so such a limiter would provide no real limit under
+normal auto-scaling — shipping that as "rate limiting" would be exactly
+the kind of fake, unreliable security control this project refuses to
+ship. **Recorded as a required pre-production-deployment decision**
+(genuine distributed rate limiting — a shared Firestore/Redis counter, or
+a platform control like Cloud Armor / App Check's reCAPTCHA Enterprise
+scoring) if this endpoint's real-world abuse profile is judged to need it.
+
+### Phase 3 — Admin Control Center UI
+
+**The real `/admin` route.** `src/app/routes/AdminPage.tsx`, gated by
+`RequireAuth` → `RequireRole(['ADMIN', 'SUPER_ADMIN'])` in `router.tsx` —
+the exact same nesting pattern the SELLER-gated `seller-studio/*` routes
+already established, never a new authorization mechanism. This guard is UX
+convenience only, per its own doc comment; the real authority is
+`requireAdminCaller` (Phases 1–2) plus this phase's own new Firestore rules
+grant (below) — never `users/{uid}.role`, `sellers/{uid}.status`, a
+client-supplied value, or a query parameter. The nav item
+(`src/app/navigation/navItems.ts`) already existed as `comingSoon`, flipped
+to `available` — `useNavItems` (unchanged) already centralizes all
+audience filtering, so a CUSTOMER/SELLER/guest never sees a clickable Admin
+link, independent of the route guard itself.
+
+**A genuine, necessary `firestore.rules` change — explained, not silently
+made.** Reviewing what "Query real PENDING seller applications" /
+"Query real SUBMITTED artworks" (the owner's own Phase 3 spec) actually
+requires exposed a real gap: no rule anywhere granted ADMIN/SUPER_ADMIN any
+Firestore read access at all — every prior privileged operation went
+through the Admin SDK, which always bypasses rules, so no client-side read
+was ever needed for one before this phase. The two queue queries the
+owner's spec calls for are genuine client-side Firestore reads (matching
+how every other list/query in this app already works — Marketplace,
+Wishlist, Seller Studio — never a callable for a read), so the alternative
+(a `listPendingSellerApplications` callable) would have been the first
+read-only callable in this codebase and inconsistent with its own
+established architecture. The fix: a new `isAdmin()` helper
+(`hasRole('ADMIN') || hasRole('SUPER_ADMIN')`, reusing the same
+`hasRole()`/token-claim mechanism already established for SELLER) plus two
+purely additive `||` read grants, each as narrow as the feature requires
+and nothing broader:
+- `sellers/{uid}`: `isOwner(uid) || (isAdmin() && resource != null && resource.data.status == 'PENDING')` —
+  an admin can read a PENDING application only, never an already-decided
+  (APPROVED/REJECTED) one.
+- `artworks/{artworkId}`: a third branch, `isAdmin() && resource != null && resource.data.status == 'SUBMITTED'` —
+  an admin can read a SUBMITTED artwork only; DRAFT stays exactly as
+  owner-private as before, PUBLISHED was already public.
+
+Neither existing branch, nor any write rule, was touched. 16 new rules
+tests (8 per collection) prove: ADMIN/SUPER_ADMIN can read the intended
+status only, are denied for every other status, a non-admin gets no new
+access, a query for the wrong status is denied outright (not just
+unlisted), and the new read grant confers no write capability. `resource !=
+null` is required before touching `resource.data` on both new branches —
+real-emulator testing surfaced that omitting it can throw a genuine
+Firestore rules "Null value error" for a `list` query, the same class of
+failure the pre-existing artworks PUBLISHED/owner branches already guard
+against and document.
+
+**Client Functions SDK — first use in this codebase.**
+`src/lib/firebase/config.ts` gains `export const functions =
+getFunctions(firebaseApp)` and `connectFunctionsEmulator(...)` inside the
+existing `connectFirebaseEmulators()`, mirroring the Auth/Firestore/Storage
+pattern already there exactly. No region argument: no function sets a
+region override, so the SDK default (`us-central1`) already matches.
+
+**Typed admin API layer.** `src/features/admin/api/adminApi.ts` —
+`approveSellerApplication`/`rejectSellerApplication`/`moderateArtwork`,
+each exactly one `httpsCallable(...)` call. `toAdminActionError` passes a
+real callable error's message through verbatim (Phase 2's own
+`toCallableError` already guarantees every `functions/*`-coded message is
+safe to show) and replaces anything else (a genuinely unexpected
+client-side failure — offline, a malformed response) with one generic
+fallback, logged client-side (`console.error`) for diagnosis. No component
+ever calls `httpsCallable` directly.
+
+**Read layer.** `src/features/admin/api/adminQueueRepository.ts` —
+`getPendingSellerApplications`/`getSubmittedArtworks`, one-shot `getDocs`
+reusing the existing, already-tested `mapToSellerApplication`
+(newly exported from `sellerRepository.ts`, mirroring how `mapToArtwork`
+is already exported and reused) and `mapToArtwork`. `src/features/admin/
+hooks/{usePendingSellerApplications,useSubmittedArtworks}.ts` wrap these in
+plain TanStack `useQuery` — matching the one-shot-list precedent `useLike`/
+`usePublicArtwork` already established, not a new pattern.
+
+**Mutation layer — the server response is authoritative, never
+optimistic.** `src/features/admin/hooks/{useApproveSellerApplication,
+useRejectSellerApplication,useModerateArtwork}.ts` — plain TanStack
+`useMutation`. `isPending` is the only double-click guard (no separate
+local state): a control is disabled from the moment `.mutate()` is called
+until the promise settles. `onSuccess` invalidates the relevant queue query
+— a real refetch, never a local optimistic removal — so an item only
+disappears once Firestore itself no longer matches the query. `onError`
+shows a toast and leaves the item in the queue untouched, so a failed
+action is always visibly retryable, never silently lost.
+
+**UI.** `AdminPage.tsx` — two ARIA tabs (`role="tablist"`/`"tab"`/
+`"tabpanel"`, real `aria-selected`), "Seller Applications"/"Artwork
+Moderation" with a live, server-derived count in each label (never a
+fabricated number — no count renders at all until its query resolves).
+`SellerApplicationQueue`/`ArtworkModerationQueue` — real
+loading/error/empty/populated states (`Skeleton`/`ErrorState` with a real
+retry action/`EmptyState`, all reused from the existing design system, no
+new visual language). `SellerApplicationCard`/`ArtworkModerationCard` —
+read-only presentational cards showing only real, existing data (business
+name/contact/description/applied date; artwork thumbnail-or-fallback/
+title/artist name via the existing `useArtistDisplayNames`/description/
+price/category/updated date) — no fabricated statistics anywhere.
+`ModerationActionModal` — one shared `Modal`-based confirm/reason dialog
+reused across all four approve/reject call sites rather than four separate
+dialogs: `requireReason` toggles whether a reason field renders at all;
+client-side validation mirrors the server's own bound exactly (non-blank,
+≤500 characters after collapsing internal whitespace/newlines to a single
+space — a `<textarea>` invites multi-line typing, but the server's
+`rejectionReason` validation rejects any control character including
+newlines, so this normalization matches the real contract instead of
+surprising an admin with a rejected submission over ordinary paragraph
+typing); resets its own field whenever reopened, so a previous dialog's
+text can never leak into a new one.
+
+### Real emulator E2E verification (Phase 3)
+
+No genuine browser DOM/E2E automation was performed — this environment has
+no such tool, exactly as every prior module's own verification has
+disclosed. Verification instead used the real `firebase/auth` +
+`firebase/firestore` + `firebase/functions` **client SDK** (first-ever use
+of the Functions client SDK in this codebase) against the real running dev
+emulator (`npm run emulators`, real persisted owner data), signed in as
+real fresh throwaway test accounts, matching Module 12 Phase 4's own
+established methodology exactly.
+
+**What was verified, end to end, with real resulting Firestore state
+inspected via the Admin SDK (never assumed):**
+- CUSTOMER and an unprivileged applicant (no admin claim) are both denied
+  the Firestore query (`permission-denied`) and the callable
+  (`functions/permission-denied`) — never merely hidden by the UI.
+- ADMIN can query and see a real PENDING application and a real SUBMITTED
+  artwork; SUPER_ADMIN can too.
+- A real approval: `sellers/{uid}.status` becomes `APPROVED`, `reviewedAt`
+  is set, the real Firebase Auth custom claim becomes `SELLER` (verified
+  via a forced ID-token refresh — the real "does the UI need a token
+  refresh to see a new claim" concern the owner's spec called out
+  explicitly), `users/{uid}.role` mirrors it when that document exists,
+  and a real `artists/{uid}` profile is created.
+- A real rejection: `status` becomes `REJECTED`, the real `rejectionReason`
+  is stored exactly as sent, no SELLER claim is ever granted, no artist
+  profile is ever created.
+- A real artwork publish/reject: `status` becomes `PUBLISHED`/`REJECTED`
+  correctly, `rejectionReason` behaves correctly in both directions, and
+  unrelated fields (title, price) are verified byte-for-byte untouched.
+- Re-approving an already-decided application through the real callable
+  fails cleanly (`functions/failed-precondition`), never a double-grant —
+  the Phase 2 transactional guarantee holding under a real callable
+  invocation, not just a mocked one.
+- The real owner account (`bm440946@gmail.com`) and every pre-existing
+  document were confirmed byte-identical before and after (same seller/
+  artwork/artist document ids, same 10 real Auth accounts) — every
+  throwaway account/document this verification created was deleted
+  afterward, including two accidental leftovers from the debugging session
+  below, found and removed via an explicit before/after diff rather than
+  assumed clean. One unrelated, pre-existing orphan document
+  (`alice@example.com`, not matching any script this session ran) was
+  found in `users/{uid}` and deliberately left untouched rather than
+  guessed at.
+
+**A genuine, disclosed finding: an intermittent Firestore-emulator
+rules-evaluation artifact under this machine's own well-documented severe
+RAM pressure**, investigated rather than assumed away, in the same spirit
+as Module 12 Phase 4's own concurrency-artifact writeup:
+1. The Functions emulator itself intermittently failed to finish
+   discovering the deployed functions within its default 10-second budget
+   ("Cannot determine backend specification. Timeout after 10000"),
+   consistent with this project's own previously-documented RAM exhaustion
+   (as low as 0.55GB free during Module 10; 1.46GB free of 7.67GB observed
+   during this verification). Fixed by setting firebase-tools' own
+   officially-documented `FUNCTIONS_DISCOVERY_TIMEOUT` environment
+   variable — the sanctioned mitigation the error message itself links to
+   — not a workaround invented for this session.
+2. Once functions loaded, the new admin Firestore-rules read grants
+   intermittently (roughly half the time, non-deterministically) returned
+   a spurious "Null value error" on the very first `list` query issued
+   against a collection in a session, denying an otherwise-legitimate
+   ADMIN request. Root-caused via isolated, incrementally-narrowed
+   reproduction scripts (never assumed): the rule logic itself is correct
+   — an identical isolated repro querying the same rule succeeded 100% of
+   many trials, and the same query always succeeds when it succeeds at
+   all, importantly **always in the fail-safe direction** (a spurious
+   *denial*, never a spurious *grant* — no trial ever returned data it
+   should not have). This is characterized as a genuine, narrow Firestore
+   **emulator** artifact under real memory contention — the same category
+   of finding, and the same investigative standard, Module 12 Phase 4
+   already established for this codebase — not a security defect, and not
+   glossed over. The deterministic, isolated `npm run test:rules` suite
+   (208/208, run twice, both clean) independently confirms the rule logic
+   itself is correct regardless of this runtime artifact.
+- Every throwaway account/document was deleted; the isolated debugging
+  session above is also disclosed above rather than omitted, including the
+  two categories of accidental leftovers it produced and how they were
+  found and removed.
+- Every emulator process (the persistent dev emulator, restarted twice
+  during this debugging; the isolated rules-test emulator, run twice more
+  afterward) was confirmed fully stopped (no lingering node/java
+  processes) before this verification concluded. `./emulator-data`'s own
+  file mtime was confirmed unchanged from before this session at every
+  checkpoint — the real owner's persisted data was never at risk, since no
+  export ever occurred until a deliberate, verified-clean final state.
+
+### Testing
+
+- Functions: **146/146** (`npx vitest run --pool=forks --maxWorkers=1`,
+  mocked Admin SDK, no emulator involved), unchanged from Phase 2 — Phase 3
+  touched no `functions/` code.
+- Firestore rules: **208/208**, up from 192/192 after Phase 2 (16 new
+  Phase 3 tests — 8 per collection, covering the new ADMIN queue-read
+  grants), via `npm run test:rules` against the permanent isolated,
+  disposable rules-test infrastructure — never the persistent dev emulator.
+  Run twice at the final rule text, both clean. Verified fully shut down
+  afterward both times (no lingering node/java processes).
+- Frontend: **657/657**, up from 601/601 after Phase 2 (56 new tests: the
+  full Phase 3 admin feature — `adminApi`, `adminQueueRepository`, both
+  queue components' full loading/error/empty/populated/approve/reject/
+  duplicate-click matrices, the shared `ModerationActionModal`'s validation
+  edge cases, `AdminPage`'s tab/count behavior, the `/admin` route-guard
+  matrix — plus one genuine pre-existing test fixed, not weakened:
+  `useNavItems.test.ts`'s "never renders a comingSoon item" assertion
+  needed the Admin nav item added to its allow-list now that Module 13
+  makes it genuinely available, exactly the same kind of update this same
+  test already needed once before when Seller Studio shipped).
+- `tsc -b` (root) and `tsc --noEmit` (functions) both clean. Root
+  `oxlint`: 0 errors, pre-existing warnings only (one new warning matches
+  an already-accepted `set-state-in-effect` pattern used elsewhere in this
+  codebase, e.g. `WishlistProvider.tsx`). Production build (`vite build`):
+  clean — `AdminPage` code-splits into its own ~13.4kB/4.2kB-gzip chunk, no
+  new regressions elsewhere (the one pre-existing >500kB chunk warning is
+  unrelated).
+- Real emulator E2E verification (see above) — complete, with a disclosed,
+  investigated, root-caused-as-far-as-possible emulator artifact, never a
+  security finding.
+- Every gate run sequentially, `--maxWorkers=1` where applicable, per this
+  machine's known RAM constraints — nothing run in parallel; only one
+  emulator instance running at any moment throughout.
+
+### Known limitations / deliberately deferred
+
+- App Check enforcement and distributed rate limiting remain explicitly
+  deferred to before production deployment (Phase 2's own decision,
+  unchanged) — not implemented, not silently assumed unnecessary.
+- No idempotency key / request-deduplication mechanism exists beyond
+  `isPending`-based UI disabling — safe (the Phase 2 transactional
+  guarantee, now also confirmed under a real callable invocation, means a
+  duplicate never succeeds twice), but a sufficiently fast double-click
+  before React re-renders the disabled state could still in principle fire
+  a second request that then visibly fails as "already decided" rather
+  than being silently absorbed.
+- No responsive/visual verification was performed via real browser
+  screenshots (no such tool exists in this environment, per every prior
+  module's own disclosed limitation) — the admin UI reuses this
+  codebase's already-screenshot-verified design system primitives
+  (`Card`/`Modal`/`Skeleton`/`EmptyState`/`ErrorState`/`Button`/`Badge`)
+  exclusively and follows the same `ResponsiveGrid`-free, flex-based
+  stacking every other list-of-cards surface in this app already uses, but
+  this specific page's own real-viewport appearance has not been visually
+  confirmed.
+- The intermittent Firestore-emulator rules-evaluation artifact
+  characterized above is a real, disclosed, unresolved *emulator*
+  limitation (this machine's own severe RAM pressure is the suspected
+  trigger) — not fixed, because it isn't application code; a production
+  Firestore deployment (real, not emulated) has never been observed to
+  exhibit anything like it in any prior module.
+
+### Manual-test defect fixes (found by the owner's own Phase 3 walkthrough)
+
+Two real defects surfaced during the owner's first hands-on `/admin` test
+pass, both fixed and regression-tested before Phase 4 began:
+
+1. **The Account page showed "Customer" for a real ADMIN account, and
+   offered "Become a seller."** Root cause: `AccountHeader.tsx` displayed
+   `profile.role` — the Firestore `users/{uid}` mirror — never the Auth
+   custom claim; `setAdminClaim.ts` (the only path to ADMIN/SUPER_ADMIN)
+   has always set the claim without ever mirroring it into Firestore
+   (unlike `promoteSellerByUid`, which explicitly does both), and
+   `ensureUserProfile.ts` is create-only, so a stale mirror never
+   self-heals. Separately, `AccountSections.tsx`'s "Become a seller" card
+   decided purely from `useSellerStatus()` (whether a `sellers/{uid}`
+   document exists) with no role check at all. Fixed by sourcing the
+   header's role badge from `useAuth().role` (the verified claim, falling
+   back to the profile only in the narrow pre-resolution window) and by
+   having the seller card render nothing at all for ADMIN/SUPER_ADMIN —
+   both presentation-only, no change to authorization anywhere. 6 new
+   tests, including one reproducing the exact defect (claim=ADMIN,
+   stale mirror=CUSTOMER).
+2. **A broken-image icon in `ArtworkModerationCard`** — its `<img>` had no
+   `onError` handler, so an artwork with a real-but-invalid image URL
+   showed the browser's native broken-image icon instead of the
+   established `ImageOff` placeholder `PublicArtworkCard` already uses.
+   Fixed by adopting the identical `imageFailed` state + `onError`
+   convention. New `ArtworkModerationCard.test.tsx` (6 tests) — this
+   component had no dedicated test file before.
+
+Files: `src/features/account/components/{AccountHeader,AccountSections}.tsx`
++ `.test.tsx`; `src/features/admin/components/ArtworkModerationCard.tsx` +
+`.test.tsx` (new).
+
+### Phase 4 — Seller Artwork Edit Lifecycle
+
+**Two pre-existing Seller Studio UI bugs fixed first**, both found while
+investigating this phase, neither previously reported: `ArtworkListItem.tsx`
+labeled *any* non-SUBMITTED status "Draft" — a PUBLISHED or REJECTED
+artwork showed a "Draft" badge and an active "Delete draft" button that
+`firestore.rules` would always deny; and `ArtworkForm.tsx`'s edit mode
+rendered a fully interactive form for every status except SUBMITTED,
+regardless of whether editing was actually legitimate. Fixed: every status
+now gets its own accurate badge/label (`Draft`/`Awaiting review`/
+`Published`/`Rejected`), delete is DRAFT-only, and `ArtworkForm` determines
+the correct read-only/editable/resubmit presentation from `artwork.status`
+before ever rendering a field — never relying on a disabled button
+discovered after the fact.
+
+**Lifecycle, end to end:**
+
+| Transition | Who | Mechanism |
+|---|---|---|
+| DRAFT → DRAFT (edit fields) | owner | unchanged (`updateArtworkDraft`) |
+| DRAFT → SUBMITTED | owner | unchanged (`submitArtwork`) |
+| SUBMITTED → PUBLISHED / REJECTED | trusted admin only | unchanged (`moderateArtwork` callable → `publishArtwork.ts`) |
+| **PUBLISHED → PUBLISHED** (price/inventoryCount/tags only) | owner | new: `updatePublishedArtworkSafeFields` |
+| **PUBLISHED → SUBMITTED** (title/description/category/images changed) | owner | new: `resubmitArtworkForReview` |
+| **REJECTED → SUBMITTED** ("Edit & resubmit") | owner | new: `resubmitArtworkForReview` (the same function — `firestore.rules` treats both as one branch) |
+
+SUBMITTED remains completely locked for the owner in every direction,
+unchanged — no branch of the update rule has ever matched a SUBMITTED
+starting status, before or after this phase.
+
+**`firestore.rules` — two new, purely additive `allow update` branches** on
+`artworks/{artworkId}` (full text/rationale in the rule's own comments):
+one for the safe-commerce-fields case (`hasOnly(['price','inventoryCount',
+'tags','updatedAt'])`, remains PUBLISHED — `hasOnly` alone, the same
+mechanism the pre-existing DRAFT branch already relies on, is what proves
+title/description/category/images stayed byte-identical); one unified
+branch for `(PUBLISHED || REJECTED) → SUBMITTED`, reusing
+`isValidArtworkFields`/`isValidArtworkImages` unchanged and forcing
+`reviewedAt`/`rejectionReason` to `null` server-side (never a client-chosen
+value) so a stale or forged prior decision can never read as active during
+the new review cycle. Every existing branch (DRAFT editing, DRAFT→SUBMITTED,
+the Module 12 like-count sibling) is completely untouched. Images remain a
+DRAFT-only concern in the shipped UI (`mutateArtworkImages` is unchanged);
+the new rule branch does support an image change as part of a PUBLISHED/
+REJECTED resubmission, proven by a dedicated rules test, as a deliberate
+one-step-ahead-of-the-UI allowance rather than a UI gap silently baked into
+the rule.
+
+**Repository/hooks:** two new `artworkRepository.ts` functions
+(`updatePublishedArtworkSafeFields`, `resubmitArtworkForReview`) mirroring
+the existing `updateArtworkDraft`/`submitArtwork` style exactly; `useUpdateArtwork`
+gains `updateSafeFields`/`resubmitForReview` alongside its existing
+`update`/`submit`/`remove`, sharing the same status/error state.
+
+**UI:** `ArtworkForm.tsx` now branches on the real status — SUBMITTED stays
+the existing read-only "Awaiting admin review" summary; PUBLISHED renders
+the same editable fields with an explanatory note ("price/inventory/tags
+stay live; title/description/category require review") and a single "Save
+changes" action that silently takes the safe-fields path when only those
+changed, or opens a new `ConfirmResubmitModal` ("These changes require
+admin review… this artwork will return to review status until approved
+again") before resubmitting when a real content field changed; REJECTED
+shows the real `rejectionReason` and a "Save & resubmit" action behind the
+same modal (a distinct copy variant, since a REJECTED artwork has no live
+marketplace visibility to lose). `ArtworkImageManager` needed **no change
+at all** — it was already status-aware (`editable = status === 'DRAFT'`),
+so it already renders read-only for PUBLISHED/REJECTED exactly as it
+already did for SUBMITTED.
+
+**Security invariants preserved/proven (rules tests, not just UI):** only
+the real owner can ever write any of these branches (`isOwner` + unchanged
+`sellerId`-immutability check, shared across every branch); no branch ever
+matches a SUBMITTED starting status; no branch ever ends at PUBLISHED
+except the untouched trusted-admin path; `reviewedAt`/`rejectionReason` can
+never be client-supplied non-null values on a resubmission write; a forged
+`sellerId` fails via the shared outer condition regardless of which inner
+branch would otherwise apply; the safe-fields branch cannot be combined
+with a material-content change in the same write.
+
+### Testing (Phase 4)
+
+- Firestore rules: **243/243**, up from 208/208 after Phase 3 (35 new
+  tests across three new describe blocks — PUBLISHED safe-field edit,
+  PUBLISHED material-content edit, REJECTED edit & resubmit — covering
+  owner/non-owner/CUSTOMER denial, every forgeable field, invalid shapes,
+  and the exact hasOnly boundaries). Run via the isolated disposable
+  infrastructure, confirmed shut down cleanly afterward.
+- Frontend: **689/689**, up from 669/669 after the two defect fixes (20 new
+  tests: 4 repository, 2 hook, 10 `ArtworkForm`, 4 `ArtworkListItem`).
+- Functions: **146/146**, unchanged — no `functions/` file touched.
+- `tsc -b`/`tsc --noEmit` clean, `oxlint` 0 errors (pre-existing warnings
+  only), production build clean.
+
+### Known limitations (Phase 4)
+
+- Image editing is not exposed in the UI for a PUBLISHED or REJECTED
+  artwork — `mutateArtworkImages` remains DRAFT-only, matching its
+  pre-existing scope; the rule branch supports it for a future phase, but
+  building the accompanying "editing photos also requires review"
+  confirmation UX was judged materially larger than this phase's own
+  scope and was not attempted speculatively.
+- No REJECTED artwork delete action exists (not requested; the delete rule
+  is unchanged, DRAFT-only).
+
+### Emulator durability hardening (discovered during Phase 4 manual testing)
+
+**A real incident, not a hypothetical.** During the owner's own Phase 3
+manual test pass, the emulator suite crashed on its own — this machine's
+own documented severe RAM pressure (as low as ~1.1GB free of 7.67GB,
+consistent with a similar finding already recorded in Module 10's own
+write-up). Because `--export-on-exit` (the pre-existing, unchanged
+persistence mechanism) only ever runs on a *clean* Ctrl+C shutdown, the
+crash lost every change made since the emulator's last successful export —
+concretely, a real owner artwork ("silver surf") that had just been
+published via the new Admin UI reverted back to SUBMITTED on restart, and
+every Module 13 test fixture had to be re-seeded. Nothing was corrupted —
+`./emulator-data` on disk was simply never written to during the entire
+session, so the restart correctly (if unhelpfully) re-imported an
+older-than-intended but still completely valid snapshot.
+
+**Fix: `npm run checkpoint:emulators`** — a new script
+(`scripts/checkpoint-emulators.mjs`) that writes the *running* suite's
+current Auth + Firestore state to `./emulator-data` without stopping it,
+using the official `firebase emulators:export` CLI command (talks to the
+already-running Emulator Hub for one atomic, cross-service-consistent
+snapshot) — never a raw copy of the emulators' own live on-disk files,
+which risks capturing a mid-write, inconsistent state. Shares its
+validate-before-replace/backup-before-overwrite safety logic with the
+pre-existing `--export-on-exit` path via a new, extracted
+`scripts/lib/emulatorExport.mjs` (previously duplicated only inside
+`start-emulators.mjs`; both now import the same `isCompleteExport`/
+`writeSnapshotManifest`/`exportMtime`/`renameWithRetry` — a refactor with
+**no behavior change** to the existing launcher, verified by a full
+controlled restart afterward, see below) — a failed/incomplete/invalid
+export is discarded with `./emulator-data`/`.backup` completely untouched;
+a validated one only ever replaces the current checkpoint after preserving
+it at `.backup` first. No automatic/periodic checkpointing was added
+**deliberately** — investigated and rejected specifically for this
+machine's RAM profile (an always-on timer process, plus the export
+operation's own real CPU/memory cost, would more likely contribute to a
+future crash than prevent one); manual checkpointing at real milestones is
+documented instead (`docs/DEPLOYMENT.md`).
+
+A real, subtle bug was found and fixed *while validating this*: two manual
+test accounts (`admin-test@artvault.local`, `seller-test-2@artvault.local`)
+briefly had their intended ADMIN/SELLER custom claims silently reset back
+to the default CUSTOMER — root-caused to a genuine race between the
+re-seeding script's own `setCustomUserClaims` call and the asynchronous
+`onUserCreate` Auth trigger (which unconditionally sets `role: 'CUSTOMER'`
+on every new user and can fire *after* an immediately-following explicit
+claim change wins the write, depending on timing). This is a test-fixture-
+script bug, not a `functions/src/setAdminClaim.ts`/`onUserCreate` defect —
+the trusted mechanism itself is unaffected, since real usage always sets
+the claim well after a user (and its one-time trigger) already exists.
+Fixed by re-applying the claims and re-checkpointing before the validation
+restart below.
+
+**Validation — one real controlled restart**, comparing a full Auth +
+Firestore snapshot (every account + role claim, both seller records, all 7
+real + test artworks, both artist profiles) taken immediately before
+stopping the suite against the same snapshot taken immediately after
+restarting from the fresh checkpoint: **byte-for-byte identical.** Confirms
+Auth and Firestore restore consistently together from one checkpoint, the
+real owner account/SELLER role/3 original artworks/2 artist profiles all
+survived unchanged, the corrected ADMIN/SELLER test-account claims
+persisted correctly, and no security-relevant file (`firestore.rules`, any
+Cloud Function, any authorization path) was touched anywhere in this work.
+
+**Tests:** `scripts/lib/emulatorExport.test.mjs` (new, run via `npm run
+test:scripts`) — successful validation of a complete export, malformed
+metadata, a referenced-but-missing payload file, tamper/corruption
+detection via a mismatched snapshot manifest, `writeSnapshotManifest`
+writing a real valid manifest and safely no-op-ing for an incomplete
+export, and `renameWithRetry`'s retry-then-succeed / exhaust-and-throw /
+respect-`maxAttempts` behavior — the latter three via dependency injection
+(a new, additive `rename`/`wait` injection point on `renameWithRetry`
+itself, matching this codebase's existing `scripts/lib/` testability
+convention) rather than attempting to reproduce a real, timing-sensitive
+Windows file lock. `npm run test:scripts`: **85/85** (up from ~70 before
+this addition — the exact prior count wasn't separately recorded, but
+every pre-existing test in this suite is unchanged and still passing).
+
+**A second, real bug found and fixed while building this**: the checkpoint
+script's first working version failed the final rename with a genuine
+Windows `EPERM` — root-caused (not assumed) to Vite's dev-server file
+watcher holding a handle on the staging directory, since it didn't match
+`vite.config.ts`'s existing `ignored: ['**/emulator-data/**',
+'**/firebase-export-*/**']` glob. Fixed by naming the staging directory
+`firebase-export-checkpoint-staging` — matching the already-ignored prefix
+(deliberately *not* matching `start-emulators.mjs`'s own stricter
+`/^firebase-export-\d+/` orphan-recovery pattern, so a leftover from an
+interrupted checkpoint attempt can never be mistaken for that unrelated
+mechanism's own stranded exports) — no `vite.config.ts` change needed.
+
+**Files changed:** `scripts/checkpoint-emulators.mjs` (new);
+`scripts/lib/emulatorExport.mjs` (new) + `.test.mjs` (new);
+`scripts/start-emulators.mjs` (refactored to import the extracted logic —
+no behavior change); `package.json` (`checkpoint:emulators` script);
+`docs/DEPLOYMENT.md` (crash-durability behavior + recovery procedure);
+this file. No `firestore.rules`, Cloud Function, or any other Module 13
+application file was touched by this work.
+
+### Files changed (Phases 1–4, uncommitted)
+
+`firestore.rules` (`isAdmin()`, the two new admin read grants);
+`firestore-tests/sellers.rules.test.ts` +
+`firestore-tests/artworks.rules.test.ts` (new ADMIN queue-read-access
+suites); `src/lib/firebase/config.ts` (`functions` export,
+`connectFunctionsEmulator`); `src/features/admin/` (new feature —
+`api/adminApi.ts` + `.test.ts`, `api/adminQueueRepository.ts` + `.test.ts`,
+`hooks/{usePendingSellerApplications,useSubmittedArtworks,
+useApproveSellerApplication,useRejectSellerApplication,
+useModerateArtwork}.ts`, `components/{SellerApplicationCard,
+SellerApplicationQueue,ArtworkModerationCard,ArtworkModerationQueue,
+ModerationActionModal}.tsx` + `.test.tsx` where applicable, `index.ts`);
+`src/app/routes/AdminPage.tsx` + `.test.tsx`;
+`src/app/routes/adminRouteGuard.test.tsx` (new); `src/app/routes/
+router.tsx` (new `/admin` route); `src/app/navigation/navItems.ts` (Admin
+item flipped to `available`); `src/app/navigation/useNavItems.test.ts`
+(allow-list update, see Testing above); `src/features/seller-studio/
+api/sellerRepository.ts` (`mapToSellerApplication` now exported) +
+`src/features/seller-studio/index.ts` (barrel export); plus everything
+already listed under Phases 1–2 below.
+
+`functions/src/adminActions.ts` (new) + `.test.ts` (new);
+`functions/src/index.ts` (exports the three callables);
+`functions/src/promoteSeller.ts` (`rejectSellerApplicationByUid`,
+transactional hardening) + `.test.ts`; `functions/src/publishArtwork.ts`
+(transactional hardening) + `.test.ts`; `functions/src/
+reconcileRoles.test.ts` (REJECTED handling); `firestore-tests/
+sellers.rules.test.ts` (new REJECTED-application suite);
+`src/features/seller-studio/types.ts` (`REJECTED`, `rejectionReason`);
+`src/features/seller-studio/api/sellerRepository.ts` + `.test.ts`
+(`rejectionReason` mapping); `src/features/seller-studio/components/
+SellerStatusCard.tsx` + `.test.tsx`; `src/features/seller-studio/hooks/
+useSellerStatus.ts` + `.test.tsx`; `src/app/routes/
+SellerApplicationPage.tsx` + `.test.tsx`; `src/features/account/
+components/AccountSections.tsx` + `.test.tsx`; `src/features/auth/api/
+ensureUserProfile.test.ts`.
+
+Phase 4 additionally changes: `firestore.rules` (two new additive
+`artworks/{artworkId}` update branches, see above);
+`firestore-tests/artworks.rules.test.ts` (35 new tests);
+`src/features/artwork/api/artworkRepository.ts` (+2 functions) + `.test.ts`;
+`src/features/artwork/hooks/useUpdateArtwork.ts` (+2 mutations) +
+`.test.tsx`; `src/features/artwork/components/{ArtworkForm,
+ArtworkListItem}.tsx` + `.test.tsx`;
+`src/features/artwork/components/ConfirmResubmitModal.tsx` (new);
+`src/features/artwork/index.ts` (barrel exports). Plus the manual-test
+defect fixes listed above. This file.
+
+**Explicitly not touched:** `storage.rules`, `firestore.indexes.json`,
+Wishlist, Likes, Marketplace, artist profiles, authentication, artwork
+upload/Storage handling, and every DRAFT/SUBMITTED artwork-update rule
+path (all unchanged, not just untested) — verified unchanged by the full,
+unmodified regression suite passing alongside the new tests.
+
+## UI-01 — Complete Responsive Marketplace UI (COMPLETE, OWNER APPROVED)
+
+**Status: COMPLETE / OWNER APPROVED.** A full mobile-first responsiveness
+and navigation-cleanup pass across the whole app, run as several
+owner-reviewed correction rounds against real reported issues, ending in
+an explicit owner sign-off after visual review. Not a new feature module —
+it corrects and finishes the responsive behavior of pages and shared
+components built across Modules 02, 04, and 06-13, plus Module 13's own
+Admin Control Center UI.
+
+**Responsive breakpoint strategy.** A single real Tailwind v4 `@theme`
+breakpoint, `--breakpoint-xs: 21.25rem` (340px), was added in
+`src/index.css` alongside the framework's existing `sm`/`md`/`lg`/`xl`/`2xl`
+tokens. A registered `@theme` breakpoint gets guaranteed mobile-first
+cascade ordering; an earlier draft used an ad hoc arbitrary variant
+(`[@media(min-width:...)]`) for the same purpose, which is what caused a
+real regression (it could compile after `xl:`/`2xl:` in the stylesheet and
+win at every width regardless of the intended breakpoint) — fixed by
+switching to the real token. The 340px value itself was corrected once,
+from an initial 360px, after the owner explicitly tested at 350px and
+still saw single-column cards; the fix was re-verified by inspecting the
+compiled production CSS's byte offsets to confirm both the correct
+breakpoint value and the correct ascending cascade order of every
+`grid-cols-*` rule. All mobile-first work was reasoned against, and where
+feasible tested against, the explicit viewport set: 302, 320, 340, 350,
+360, 390, 414, 430, 768, 1024, 1366, 1536px.
+
+**Navigation structure (final).** Mobile bottom navigation
+(`AppBottomNav.tsx`) is capped at exactly 5 primary entries — Home /
+Explore / Wishlist / Account (or Sign in when signed out) / More — via an
+explicit `PRIMARY_BOTTOM_NAV_IDS` allow-list; this replaced an earlier
+draft that used the full role-aware nav-items list directly, which pushed
+SELLER/ADMIN accounts to 6 tabs (caught by a new regression test before
+shipping). Role-specific links (Seller Studio for SELLER, Admin Control
+Center for ADMIN/SUPER_ADMIN) and Coming-Soon items (Auctions,
+Notifications, Cart, Help — honestly disabled, never fabricated) live
+inside the "More" drawer instead, via a new `useMoreMenuItems()` hook keyed
+by audience. The standalone Categories page and its nav entry were removed
+entirely — category discovery already existed inside Explore (strip +
+filters + real per-category counts) and a second copy on Home/Categories
+was a duplicate surface, not a second feature. `/categories` now redirects
+to `/explore` (`<Navigate to="/explore" replace />` in `router.tsx`) rather
+than 404ing, so any old link or bookmark still resolves.
+
+**Explore page.** Structure preserved exactly as previously approved:
+hero/search, then a compact category strip, then a result-count + Filters
++ Sort + Grid/List toolbar, then the responsive artwork grid. Two mobile
+corrections this round: (1) the toolbar's control group now wraps and the
+sort `<select>` is width-capped below `sm`, closing a real overflow risk
+at ~340-350px; (2) the category strip scrolls horizontally below `sm`
+instead of forcing a 2-column grid, which had been truncating longer
+labels like "Photography" down to "Photogra...". No sidebar renders below
+`lg`; Filters opens as a drawer/sheet on mobile via the existing
+`MarketplaceFilters` component, unchanged.
+
+**Artwork grid / card behavior (shared, fixed once).** `ResponsiveGrid.tsx`
+uses fixed `grid-cols-N` per breakpoint (never `auto-fill`/`1fr`, which
+stretched sparse results, and never unbounded `minmax`) — the final,
+owner-validated column table is: **&lt;340px: 1, 340-767px: 2, 768-1279px:
+3, 1280-1535px: 4, ≥1536px: 5.** Every consumer (Home, Explore, Wishlist,
+Artist Profile, "More in category") shares this one component, per the
+owner's explicit "fix once in shared components, never patch pages
+independently" instruction. `PublicArtworkCard` itself was compacted for
+mobile density (tighter padding, smaller title/price text, smaller
+Wishlist/AR/AI badges, consistent `aspect-[4/5]` + `object-cover` image
+area) so a 2-column mobile card reads as a normal e-commerce card, not a
+near-full-screen tile.
+
+**Home page.** The Categories chip section (and its "View all" link) was
+removed entirely — category discovery now lives only on Explore. Section
+spacing was tightened for mobile. The hero, Recently Published, Featured
+Artists, Auctions, and "Why ArtVault" sections are all preserved with
+their original copy and CTAs. "Why ArtVault" cards were corrected twice:
+first to stop an icon and a "Coming soon" badge from fighting for the same
+header row at narrow card widths (badge moved inline with the title
+instead), then — after the owner reported these informational cards were
+still being squeezed into unreadable 2-column tiles even at 350px, since
+they had never actually been keyed to any breakpoint — to scroll
+horizontally below `sm` instead of using a fixed grid, with description
+text no longer truncated (the earlier `line-clamp-2` was removed) so the
+full real sentence is always present.
+
+**Artwork Detail page.** Structure was not rebuilt, per the owner's own
+instruction ("mostly correct, do not rebuild it"); only density was
+reduced — smaller gallery thumbnails, tighter AI/AR card padding (colors
+unchanged: AI = purple, AR = blue), `md`-sized purchase buttons instead of
+`lg`, and the descriptive AI/AR sentences hidden below `sm` so the cards
+read shorter without losing information at any width with room to show it.
+The Overview/Details/Shipping & Returns/Reviews tab row already scrolled
+horizontally (`overflow-x-auto`, `shrink-0` per tab, no wrap) — verified,
+not changed, and now covered by a dedicated regression test asserting all
+four tabs stay reachable and none of them wrap or clip. Commerce controls
+(Add to Cart, Buy Now) remain real, visible, and honestly disabled —
+Cart/Checkout is explicitly out of scope, deferred to UI-02.
+
+**Artist Profile page.** Density reduced (shorter banner, smaller avatar,
+tighter spacing) without changing the page's structure; its artwork grid
+inherits the same shared `ResponsiveGrid` column behavior as every other
+grid in the app.
+
+**AI/AR/commerce visual conventions.** Unchanged and reinforced: AI =
+purple (`brand-primary`), AR = blue (`Button variant="info"`), commerce/
+primary marketplace actions = gold (`accent-gold`). "Create Account" was
+corrected from the purple/AI treatment to gold, since it is a conversion
+CTA, not an AI affordance. No AI, AR, checkout, rating, availability, or
+count value is ever fabricated anywhere in this pass — every "Coming
+soon"/"isn't connected yet" surface says so plainly instead.
+
+**Final automated test/build results (this closing commit).** `tsc -b`:
+clean. `oxlint`: clean, 0 errors (pre-existing warnings only, none in any
+file this pass touched). Frontend test suite: **793/793 passing across 95
+files** (up from 689/689 at the end of Module 13 Phase 4 — 104 new/changed
+tests added across this pass's several rounds, none removed). Production
+build: succeeds cleanly (only the pre-existing, unrelated >500kB
+`fields-*.js` chunk-size advisory). `firestore.rules`/Cloud Functions were
+not touched by this pass and were not re-run as part of it (see Module 13
+above for their own last-verified counts).
+
+**Not visually verified by the assistant.** No browser or screenshot tool
+was available in the assistant's environment throughout this pass — every
+round was verified via code inspection, compiled-CSS byte-offset
+inspection, and automated tests only. The owner performed the real-browser
+visual verification and gave the final approval recorded at the top of
+this file.
+
+**Next module: UI-02** (not started — see "Next action" below).
 
 ## Module 12 — Artwork Likes (COMPLETE, VERIFIED, COMMITTED)
 
@@ -3601,14 +4578,33 @@ untouched.
   519/519 unit/component tests, real-browser verification across 8
   required widths. Review result: **PASS — owner reviewed and approved**.
   Checkpoint commit: `fffe2a0`.
+- **Module 13 — Admin Control Center:** trusted callable Cloud Functions
+  (`approveSellerApplication`, `rejectSellerApplication`,
+  `moderateArtwork`) authorized solely via the Firebase Auth `role` custom
+  claim, a real `REJECTED` seller-application outcome, the Admin Control
+  Center UI itself, and a seller artwork edit lifecycle addition. See
+  "Module 13 — Admin Control Center" above for the full write-up. 793/793
+  frontend, 243/243 Firestore rules, 146/146 Functions. Review result:
+  **PASS — owner approved**. Checkpoint commit: this closeout's own commit
+  (see `git log`).
+- **UI-01 — Complete Responsive Marketplace UI:** a mobile-first
+  responsiveness and navigation-cleanup pass across the whole app —
+  corrected artwork-grid/card breakpoints, a 5-item mobile bottom
+  navigation, removal of the duplicate Categories page/nav (`/categories`
+  now redirects to `/explore`), and mobile density corrections to Home,
+  Explore, Artwork Detail, and Artist Profile. See "UI-01 — Complete
+  Responsive Marketplace UI" above for the full write-up. 793/793 frontend
+  tests. Review result: **PASS — owner approved**. Checkpoint commit: this
+  closeout's own commit (see `git log`).
 
 ## Pending modules (not started, order not yet committed)
 
-Likes/Follows/Sharing, Cart, Checkout/Payments, Orders, Reviews,
+Follows/Sharing, Cart, Checkout/Payments, Orders, Reviews,
 Notifications, AI (analysis / assistant / recommendations), Auctions, AR
-Engine, Admin Control Center (including seller-application review UI and an
-in-app moderation UI for the `publishArtwork.ts` decision), Audit Logs,
-Analytics, hardened Security Rules, Production Deployment. (Customer
+Engine, Audit Logs, Analytics, hardened Security Rules, Production
+Deployment. (Admin Control Center — seller-application review UI and
+in-app artwork moderation — is Module 13, complete and committed; likes
+specifically are Module 12, complete and committed. Customer
 Account & Profile Foundation is Module 03, complete and committed; Seller
 Foundation & Artwork Draft Management is Module 04, complete and committed;
 Artwork Media/Image Upload is Module 05, complete and committed; Artist
@@ -4000,9 +4996,11 @@ module — see "Live emulator verification" above.
 
 ## Next action
 
-Module 03 (Customer Account & Profile Foundation) is complete, owner-
-approved, and committed. Not pushed (no remote configured), no new branch
-created. Module 04 has not been started — next module selection is an
-owner decision. Owner still needs to supply the real ArtVault logo asset to
-the repository when convenient (not a blocker — a documented temporary
-placeholder covers development meanwhile; see `public/brand/README.md`).
+UI-01 (Complete Responsive Marketplace UI) and Module 13 (Admin Control
+Center, Phases 1-4) are both complete, owner-approved, and committed
+together in this closeout's own commit. Not pushed (no remote configured).
+No UI-02 or any other later module has been started — next module
+selection and scope for UI-02 is an owner decision. Owner still needs to
+supply the real ArtVault logo asset to the repository when convenient (not
+a blocker — a documented temporary placeholder covers development
+meanwhile; see `public/brand/README.md`).

@@ -1,6 +1,21 @@
 @import 'tailwindcss';
 
 @theme {
+  /* UI-01 mobile density pass: a real, registered Tailwind breakpoint —
+     defined here, not as an ad-hoc `[@media(min-width:...)]` arbitrary
+     variant. That exact ad-hoc-variant approach was tried once already
+     (see ResponsiveGrid.tsx's own history comment) and was the root cause
+     of a real, owner-caught bug: an arbitrary inline media query has no
+     guaranteed cascade position relative to Tailwind's own registered
+     breakpoints, so it could compile after `xl:`/`2xl:` and win at every
+     width regardless of which breakpoint should apply. A `--breakpoint-*`
+     token generates a real, correctly-ordered `xs:` variant instead,
+     structurally immune to that failure mode.
+     340px, not 360px — an owner correction: a 360px threshold meant a
+     350px phone (an explicit owner test width) still fell below it and
+     got 1 giant full-width column instead of 2. */
+  --breakpoint-xs: 21.25rem;
+
   /* Typography (Module 10). --font-display is the warm editorial serif
      (Newsreader, loaded in index.html) — used ONLY where a component
      explicitly assigns the display role (page H1s, section H2s, artwork

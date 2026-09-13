@@ -2,7 +2,20 @@
 
 **Status: foundation + authentication + customer account + seller/artwork
 foundation + artwork media + public artist profiles + artwork moderation &
-publishing + public marketplace + wishlist.** Module 00 shipped a
+publishing + public marketplace + wishlist + admin callable-function trust
+boundary + Admin Control Center UI + seller artwork edit lifecycle
+(Module 13, Phases 1–4, uncommitted, owner-review pending).** Module 13 is
+the first time this codebase has shipped a deployed, client-reachable
+Cloud Function performing a privileged write — every prior privileged
+operation (`promoteSeller.ts`, `publishArtwork.ts`, `setAdminClaim.ts`,
+`reconcileRoles.ts`) is a local, human-run, Admin-SDK-only script with no
+HTTP surface at all. Phases 1–2 required **zero** `firestore.rules`
+changes; Phase 3 required exactly two, narrowly-scoped, purely additive
+read grants (never a write grant, never a
+weakening of any existing rule) so an ADMIN/SUPER_ADMIN can genuinely query
+the review queues the Admin Control Center UI needs — see "Implemented in
+Module 13" below for the full rationale and exact rule text. Module 00
+shipped a
 deny-by-default rules skeleton. Module 01 added the first real rule, the
 first Cloud Function, and the real role model described below. Module 03
 hardens that rule into a genuine field-level allow-list for customer
@@ -25,6 +38,150 @@ first genuinely cross-seller query this app has ever issued. Module 09
 adds one new, narrowly-scoped owner-only collection
 (`wishlists/{uid}/items/{artworkId}`) and changes nothing about any
 existing rule, including `artworks/{artworkId}`'s own.
+
+## Implemented in Module 13 (Phases 1–2 — uncommitted, owner-review pending)
+
+- **First deployed, client-reachable Cloud Functions in this codebase:**
+  `approveSellerApplication`, `rejectSellerApplication`, `moderateArtwork`
+  (`functions/src/adminActions.ts`). Every other privileged operation in
+  `functions/src/` remains a local, human-run, Admin-SDK-only operator
+  script (never deployed, never callable) — this module deliberately does
+  not change that for anything except these three new, purpose-built
+  functions.
+- **One centralized authorization boundary, `requireAdminCaller`, reused by
+  all three callables rather than re-implemented per function.** Reads
+  only `request.auth.token.role` — the Callable Functions SDK's own
+  server-verified decoded ID token claim, exactly the same claim
+  `firestore.rules`' `hasRole()` already trusts — and admits only `ADMIN`/
+  `SUPER_ADMIN`. **Never** trusts `request.data.role`, `request.data.auth`,
+  `users/{uid}.role`, `sellers/{uid}.status`, or any other client-supplied
+  or Firestore-mirrored field; a request with no `request.auth` at all is
+  `unauthenticated`, anything else that isn't exactly ADMIN/SUPER_ADMIN is
+  `permission-denied`. Proven by dedicated tests for: signed-out, CUSTOMER,
+  SELLER, missing role claim, unrecognized role, case-sensitivity
+  (`"admin"` lowercase is rejected), and a forged `role`/`auth` object
+  embedded in the payload itself (proven to have zero effect).
+- **Seller rejection — Option A, a real schema decision, not a rules
+  change.** `sellers/{uid}` gains a third, terminal `REJECTED` status
+  alongside `PENDING`/`APPROVED`, plus a `rejectionReason` field, both only
+  ever written by the trusted `rejectSellerApplicationByUid` (Admin SDK).
+  `firestore.rules`' pre-existing `allow update: if false` (Module 04)
+  already makes a REJECTED application exactly as immutable to its own
+  applicant as an APPROVED one — no reapplication/resubmission path exists
+  or was needed, and none was built. `isValidSellerApplication` (Module 04)
+  already forces `status == 'PENDING'` on any client `create`, so a client
+  attempting to `setDoc` a REJECTED application directly was already
+  denied before this module and remains denied, now with an explicit test
+  proving it.
+- **Every privileged write still goes through the same trusted Admin SDK
+  business logic Modules 04/07 already built and tested** —
+  `promoteSellerByUid`, `rejectSellerApplicationByUid` (new), and
+  `decideArtworkByArtworkId`. The callables in `adminActions.ts` are
+  reviewed authorization/validation wrappers around that logic, never a
+  parallel reimplementation of it.
+- **Server-boundary input validation**, since a callable's `request.data`
+  is fully client-controlled JSON, never assumed to have any particular
+  shape: document ids (`uid`/`artworkId`) are rejected if non-string,
+  blank, longer than 200 characters, or containing a forward slash or any
+  ASCII control character (a slash would otherwise make `.doc(id)` address
+  a different, nested document than every caller intends — closed
+  outright, not silently normalized). `rejectionReason` is bounded to the
+  same 500-character, control-character-free limit
+  `isValidSellerApplication`'s own `description` field already uses.
+- **Error-leakage boundary.** `toCallableError` echoes only a closed
+  allowlist of known domain-invariant violation messages (e.g. "already
+  approved," "not awaiting review") back to the caller; any other
+  exception — a raw Firestore/gRPC error, a network failure — is logged
+  server-side only and replaced with one generic message, so an ADMIN
+  caller's own error responses can never leak internal implementation
+  detail.
+- **Transactional concurrency safety.** `promoteSellerByUid`,
+  `rejectSellerApplicationByUid`, and `decideArtworkByArtworkId` all run
+  their read-check-write inside `db.runTransaction()`, so two genuinely
+  concurrent decisions on the same application/artwork can never both
+  commit — Firestore's own commit-time conflict detection forces the
+  loser to retry against the just-committed state and correctly fail with
+  the same domain error a sequential second call would get. Verified with
+  deterministically-gated near-simultaneous-caller tests, not merely
+  asserted.
+- **App Check: reviewed for compatibility, deliberately not enforced yet.**
+  Neither callable passes `enforceAppCheck`, and none reads `request.app`,
+  so enabling `enforceAppCheck: true` later requires no restructuring.
+  Not enabled now because this project has no production App Check
+  provider registered and enforcing it today would only block local
+  emulator development. **This is a required step before any production
+  deployment of these callables** — tracked here and in
+  `ARTVAULT_PROJECT_STATE.md`, not silently forgotten. Authentication and
+  ADMIN/SUPER_ADMIN authorization remain fully mandatory regardless of App
+  Check's status.
+- **Rate limiting / abuse protection: analyzed, deliberately not built as
+  an in-process mechanism.** A non-admin caller is turned away by
+  `requireAdminCaller` before any Firestore access, bounding the cost of
+  unauthorized abuse regardless of volume; a genuine admin account calling
+  repeatedly is already bounded by the transactional idempotency
+  guarantees above. An in-memory/per-instance limiter was deliberately
+  rejected — Cloud Functions instances don't share memory, so such a
+  limiter would provide no real limit under normal auto-scaling, and
+  presenting that as real protection would be a fake security control.
+  **Genuine distributed rate limiting is a required pre-production-
+  deployment decision**, not implemented in this phase.
+- **Phase 3 — the Admin Control Center UI, and the exact two Firestore
+  read grants it genuinely required.** The `/admin` route
+  (`RequireAuth` → `RequireRole(['ADMIN', 'SUPER_ADMIN'])`, UX-only,
+  matching the SELLER-gated routes' own pattern) queries two real Firestore
+  collections client-side — this is the first time any client has ever
+  needed to list documents it doesn't own in this codebase, since every
+  prior privileged read/write went through the Admin SDK, which bypasses
+  rules entirely. A new `isAdmin()` helper
+  (`hasRole('ADMIN') || hasRole('SUPER_ADMIN')`) backs two purely additive
+  `||` branches, neither touching any existing condition:
+  - `sellers/{uid}`: `allow read: if isOwner(uid) || (isAdmin() && resource != null && resource.data.status == 'PENDING')` —
+    an admin may read a PENDING application only, never an
+    already-decided one.
+  - `artworks/{artworkId}`: a third read branch,
+    `isAdmin() && resource != null && resource.data.status == 'SUBMITTED'` —
+    an admin may read a SUBMITTED artwork only; DRAFT remains exactly as
+    owner-private as before, PUBLISHED was already public.
+
+  No write rule was touched anywhere. 16 new rules tests (8 per
+  collection) prove the grant's exact boundary: the intended status is
+  readable, every other status is denied (get and query alike — a query
+  for the wrong status is rejected outright, not merely empty), a
+  non-admin gets nothing new, and the new read access confers no write
+  capability. `resource != null` is required before touching
+  `resource.data` on both branches — real-emulator testing surfaced that
+  omitting it can throw a genuine Firestore "Null value error" on a `list`
+  request, the same class of failure the pre-existing PUBLISHED/owner
+  branches on `artworks/{artworkId}` already document and guard against.
+  Every privileged mutation still goes exclusively through the Phase 1/2
+  callables — this UI never writes `sellers/{uid}` or
+  `artworks/{artworkId}` directly, matching the owner's explicit
+  instruction that the browser must never perform a privileged moderation
+  write itself.
+- **Phase 4 — a PUBLISHED/REJECTED artwork's owner gets two new, narrowly
+  scoped write paths, never a general "edit anything" grant.** Both are
+  purely additive `allow update` branches on `artworks/{artworkId}`; every
+  existing branch (DRAFT editing, DRAFT→SUBMITTED, the Module 12 like-count
+  branch) is untouched, and SUBMITTED remains completely locked to the
+  owner in every direction, exactly as before. (1) `price`/`inventoryCount`/
+  `tags` may change while `status` stays `PUBLISHED` — `hasOnly(['price',
+  'inventoryCount', 'tags', 'updatedAt'])` structurally guarantees no other
+  field (title/description/category/images) changed in the same write,
+  since Firestore's `diff()` never includes a key whose value didn't
+  actually change. (2) Any change to real public content on a PUBLISHED
+  artwork, or any edit at all to a REJECTED one, may only ever move
+  `status` to `SUBMITTED` — never stay PUBLISHED, never stay REJECTED,
+  never jump straight to PUBLISHED — reusing `isValidArtworkFields`/
+  `isValidArtworkImages` unchanged and forcing `reviewedAt`/
+  `rejectionReason` to `null` server-side, never a client-supplied value,
+  so a forged or stale prior decision can never carry into the new review
+  cycle. A forged `sellerId` is rejected by the same shared outer
+  ownership check every other branch already uses. 35 new rules tests
+  prove: owner-only (another seller and a CUSTOMER both denied on every
+  branch), every forgeable field (`sellerId`, `status`, `reviewedAt`,
+  `rejectionReason`) rejected, the two branches can never be combined in
+  one write, and invalid field shapes are rejected exactly as they already
+  are for a DRAFT edit.
 
 ## Implemented in Module 09
 

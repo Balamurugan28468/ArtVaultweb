@@ -178,4 +178,33 @@ describe('AuthProvider', () => {
       expect(console.error).toHaveBeenCalledWith('Failed to ensure user profile:', expect.any(Error))
     })
   })
+
+  // Real incident (owner-reported): a browser holding a persisted Firebase
+  // session whose refresh token the Auth backend no longer recognizes (e.g.
+  // the local emulator was restarted/wiped since the session was created)
+  // made `getIdTokenResult(user, true)` — required by `waitForRoleClaim` —
+  // reject. Previously nothing caught that rejection, so the
+  // `setStatus('authenticated')` call a few lines later in the same async
+  // function never ran and `status` stayed 'loading' forever: no Sign
+  // in/Create Account (unauthenticated never renders either), no avatar, no
+  // console error — just a permanently empty/skeleton auth slot.
+  describe('unrefreshable session (regression)', () => {
+    it('degrades to unauthenticated — never stuck in loading — when the token refresh backing the role-claim lookup rejects', async () => {
+      getIdTokenResult.mockRejectedValue(new Error('auth/network-request-failed'))
+
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      )
+      act(() => authStateCallbacks[0]?.({ uid: 'alice' }))
+
+      expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
+      // eslint-disable-next-line no-console -- asserting the failure was logged, not silently swallowed
+      expect(console.error).toHaveBeenCalledWith(
+        'Failed to resolve the signed-in session (token refresh/role claim failed):',
+        expect.any(Error),
+      )
+    })
+  })
 })

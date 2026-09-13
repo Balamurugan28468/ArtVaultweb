@@ -140,6 +140,81 @@ would hide a real, recurring problem instead of surfacing it). Read the
 error, fix the underlying cause if there is one, and start that one process
 again — the other one is unaffected and keeps running.
 
+**A crashed or force-killed emulator suite loses every change since the
+last export** — `--export-on-exit` only ever runs on a *clean* Ctrl+C
+shutdown; a crash skips it entirely, and the next `npm run emulators`
+silently re-imports whatever was last saved, which can be a real, meaningful
+amount of work old. This happened for real during Module 13 (this machine's
+own documented RAM pressure — see "Real memory pressure on this machine"
+below — crashed the emulator suite mid-session; nothing was corrupted, but
+everything since the previous export was gone on restart). See the next
+section for the mitigation.
+
+### Emulator durability: checkpoints between crashes (Module 13 Phase 4)
+
+```bash
+npm run checkpoint:emulators
+```
+
+Writes the *running* emulator suite's current Auth + Firestore state to
+`./emulator-data` **without stopping it** — closing the exact gap above.
+Internally this runs the official `firebase emulators:export` CLI command
+(the same one a human would type, talking to the already-running Emulator
+Hub for one atomic, cross-service-consistent snapshot) — never a raw
+filesystem copy of the emulators' own live on-disk files, which could
+capture a mid-write, inconsistent state. Safe to run at any time the
+emulator suite is up; refuses clearly (no filesystem changes at all) if it
+isn't fully running yet.
+
+**Safety guarantees** (implemented in `scripts/checkpoint-emulators.mjs` +
+the validation/swap logic it shares with the normal `--export-on-exit` path
+in `scripts/lib/emulatorExport.mjs`):
+- The new export is written to a disposable staging directory first and
+  independently validated as complete before anything else happens — a
+  failed or incomplete export is discarded, and `./emulator-data`/
+  `./emulator-data.backup` are never touched at all.
+- Only once validated: the *current* `./emulator-data` is preserved at
+  `./emulator-data.backup` (the same single rolling backup slot the normal
+  shutdown path already uses) before the new checkpoint takes its place —
+  a checkpoint can never leave zero valid recovery points on disk.
+
+**No automatic/periodic checkpointing exists, deliberately.** Investigated
+and rejected for this machine specifically: a background timer process adds
+a permanently-running Node process (however small) on a machine that has
+been observed with well under 1.5GB free, and the export operation itself
+has a real, non-trivial CPU/memory cost — running it automatically and
+repeatedly is more likely to *contribute to* a future crash on this exact
+hardware than to prevent data loss from one. **Run `npm run checkpoint:emulators`
+manually** at real milestones instead:
+- After seeding or creating test data you'd be annoyed to lose.
+- After completing a significant manual test pass you want preserved.
+- Before intentionally restarting the emulator suite for any reason.
+- Anytime you've just done something during a session you don't want to
+  redo from scratch if this machine's RAM pressure crashes the suite again.
+
+A checkpoint is a completely ordinary, valid `./emulator-data` export —
+`npm run emulators`'s own next startup imports it exactly the same way it
+would import one produced by a normal clean Ctrl+C shutdown; no separate
+"restore" command exists or is needed.
+
+**Real memory pressure on this machine.** A snapshot taken during Module 13
+Phase 4 found only ~1.1–1.5GB free out of 7.67GB total, dominated by
+applications *outside* this project's own dev workflow: several VS Code
+window processes (~1.1GB combined), the Claude Code CLI itself (~330MB),
+several browser processes (~900MB+), and Windows Defender (~280MB) — all
+together roughly 3× the footprint of the actual Firebase + Vite dev stack
+(~1.2–1.3GB: the Firestore JVM ~240MB, three Cloud Functions emulator
+worker processes ~115MB each, the Storage rules runtime ~100MB, the
+firebase-tools orchestrator itself ~225MB, plus Vite's own ~165MB). This
+project's tooling never closes another application automatically. If
+crashes recur, closing unused browser tabs/VS Code windows during a heavy
+testing session is the single highest-leverage manual step available; on
+the tooling side, there is no supported way to reduce the Functions
+emulator's own worker-process count without losing real functionality, and
+running `firebase emulators:start --only auth,firestore,functions` (see
+above) — manually, only when a task genuinely doesn't need Storage — is the
+only currently-identified way to trim the suite's own footprint further.
+
 ### Permanent Windows Java setup
 
 The Firestore Emulator requires a Java Runtime Environment, JDK 21+.

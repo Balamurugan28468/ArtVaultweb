@@ -6,10 +6,14 @@ import type { ArtworkImage } from '../types'
 const updateArtworkDraft = vi.fn()
 const submitArtwork = vi.fn()
 const deleteArtworkDraft = vi.fn()
+const updatePublishedArtworkSafeFields = vi.fn()
+const resubmitArtworkForReview = vi.fn()
 vi.mock('../api/artworkRepository', () => ({
   updateArtworkDraft: (...args: unknown[]) => updateArtworkDraft(...args),
   submitArtwork: (...args: unknown[]) => submitArtwork(...args),
   deleteArtworkDraft: (...args: unknown[]) => deleteArtworkDraft(...args),
+  updatePublishedArtworkSafeFields: (...args: unknown[]) => updatePublishedArtworkSafeFields(...args),
+  resubmitArtworkForReview: (...args: unknown[]) => resubmitArtworkForReview(...args),
 }))
 
 const deleteArtworkImageObject = vi.fn()
@@ -21,6 +25,8 @@ beforeEach(() => {
   updateArtworkDraft.mockReset()
   submitArtwork.mockReset()
   deleteArtworkDraft.mockReset()
+  updatePublishedArtworkSafeFields.mockReset()
+  resubmitArtworkForReview.mockReset()
   deleteArtworkImageObject.mockReset().mockResolvedValue(undefined)
 })
 
@@ -92,6 +98,32 @@ describe('useUpdateArtwork', () => {
     })
 
     expect(deleteArtworkDraft).toHaveBeenCalledWith('a1')
+    expect(result.current.status).toBe('success')
+  })
+
+  it('updateSafeFields() calls updatePublishedArtworkSafeFields (Module 13 Phase 4)', async () => {
+    updatePublishedArtworkSafeFields.mockResolvedValueOnce(undefined)
+    const { result } = renderHook(() => useUpdateArtwork())
+    const safeFields = { price: 1750, inventoryCount: 4, tags: ['x'] }
+
+    await act(async () => {
+      await result.current.updateSafeFields('a1', safeFields)
+    })
+
+    expect(updatePublishedArtworkSafeFields).toHaveBeenCalledWith('a1', safeFields)
+    expect(result.current.status).toBe('success')
+  })
+
+  it('resubmitForReview() calls resubmitArtworkForReview, passing the images array straight through (Module 13 Phase 4 + photo-editing follow-up)', async () => {
+    resubmitArtworkForReview.mockResolvedValueOnce(undefined)
+    const { result } = renderHook(() => useUpdateArtwork())
+    const images: ArtworkImage[] = [{ id: 'a', path: 'artworks/alice/a1/a.jpg', url: 'u', order: 0, contentType: 'image/jpeg', size: 1 }]
+
+    await act(async () => {
+      await result.current.resubmitForReview('a1', INPUT, images)
+    })
+
+    expect(resubmitArtworkForReview).toHaveBeenCalledWith('a1', INPUT, images)
     expect(result.current.status).toBe('success')
   })
 

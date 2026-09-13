@@ -17,9 +17,26 @@ describe('PublicArtistHeader', () => {
     expect(screen.getByText('Oil paintings and prints.')).toBeInTheDocument()
   })
 
-  it('never renders an edit/manage control — read-only by construction', () => {
+  it('never renders an edit/manage control — read-only by construction (Follow/Share are real, non-editing actions)', () => {
     render(<PublicArtistHeader profile={buildProfile()} />)
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit|manage/i })).not.toBeInTheDocument()
+  })
+
+  // UI-01 visual refinement
+  it('shows a real "Joined" date derived from createdAt — never fabricated', () => {
+    const createdAt = Timestamp.fromDate(new Date('2024-03-15'))
+    render(<PublicArtistHeader profile={buildProfile({ createdAt })} />)
+    expect(screen.getByText(/joined march 2024/i)).toBeInTheDocument()
+  })
+
+  it('Follow is genuinely disabled — the follows feature does not exist yet', () => {
+    render(<PublicArtistHeader profile={buildProfile()} />)
+    expect(screen.getByRole('button', { name: 'Follow' })).toBeDisabled()
+  })
+
+  it('renders a real, working Share control, honestly labeled for a profile (not "this artwork")', () => {
+    render(<PublicArtistHeader profile={buildProfile()} />)
+    expect(screen.getByRole('button', { name: 'Share this profile' })).toBeInTheDocument()
   })
 })

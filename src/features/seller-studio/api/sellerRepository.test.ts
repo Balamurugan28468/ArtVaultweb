@@ -105,9 +105,64 @@ describe('subscribeSellerApplication', () => {
       contactEmail: 'alice@example.com',
       appliedAt: now,
       reviewedAt: null,
+      rejectionReason: null,
       createdAt: now,
       updatedAt: now,
     })
+  })
+
+  it('maps a REJECTED snapshot, including its real rejectionReason', () => {
+    const now = Timestamp.now()
+    const onData = vi.fn()
+    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
+      successCallback({
+        exists: () => true,
+        data: () => ({
+          status: 'REJECTED',
+          businessName: 'Alice Fine Art',
+          description: 'desc',
+          contactEmail: 'alice@example.com',
+          appliedAt: now,
+          reviewedAt: now,
+          rejectionReason: 'Portfolio does not meet our quality guidelines.',
+          createdAt: now,
+          updatedAt: now,
+        }),
+      })
+      return vi.fn()
+    })
+
+    subscribeSellerApplication('alice', onData, vi.fn())
+
+    expect(onData).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'REJECTED', rejectionReason: 'Portfolio does not meet our quality guidelines.' }),
+    )
+  })
+
+  it('defaults rejectionReason to null when missing/malformed — never trusts an unexpected type', () => {
+    const now = Timestamp.now()
+    const onData = vi.fn()
+    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
+      successCallback({
+        exists: () => true,
+        data: () => ({
+          status: 'PENDING',
+          businessName: 'Alice',
+          description: 'desc',
+          contactEmail: 'a@example.com',
+          appliedAt: now,
+          reviewedAt: null,
+          rejectionReason: 12345,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      })
+      return vi.fn()
+    })
+
+    subscribeSellerApplication('alice', onData, vi.fn())
+
+    expect(onData).toHaveBeenCalledWith(expect.objectContaining({ rejectionReason: null }))
   })
 
   it('reports null when no application document exists', () => {

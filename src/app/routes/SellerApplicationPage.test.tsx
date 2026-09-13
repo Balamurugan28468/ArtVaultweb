@@ -45,6 +45,14 @@ describe('SellerApplicationPage', () => {
     expect(screen.getByTestId('seller-status-card')).toHaveTextContent('PENDING')
   })
 
+  it('shows the status card, not a form and not a blank page, for a REJECTED application', () => {
+    useSellerStatus.mockReturnValue({ status: 'rejected', application: { status: 'REJECTED' } })
+    renderPage()
+
+    expect(screen.queryByLabelText('seller application form')).not.toBeInTheDocument()
+    expect(screen.getByTestId('seller-status-card')).toHaveTextContent('REJECTED')
+  })
+
   it('redirects an already-approved seller straight to Seller Studio — never a form, never a status page', () => {
     useSellerStatus.mockReturnValue({ status: 'approved', application: { status: 'APPROVED' } })
     renderPage()

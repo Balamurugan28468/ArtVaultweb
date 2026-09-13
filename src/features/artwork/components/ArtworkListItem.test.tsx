@@ -56,6 +56,18 @@ describe('ArtworkListItem', () => {
     expect(screen.getByRole('link')).toHaveAttribute('href', '/seller-studio/artworks/a1/edit')
   })
 
+  it('links to the edit page for PUBLISHED and REJECTED artworks too — an obvious Edit / Edit & resubmit entry point wherever editing is legitimately allowed', () => {
+    for (const status of ['PUBLISHED', 'REJECTED'] as const) {
+      const { unmount } = render(
+        <MemoryRouter>
+          <ArtworkListItem artwork={buildArtwork({ id: 'a2', status })} />
+        </MemoryRouter>,
+      )
+      expect(screen.getByRole('link')).toHaveAttribute('href', '/seller-studio/artworks/a2/edit')
+      unmount()
+    }
+  })
+
   it('shows the whole-rupee price converted from stored paise', () => {
     render(
       <MemoryRouter>
@@ -65,7 +77,7 @@ describe('ArtworkListItem', () => {
     expect(screen.getByText('₹1500')).toBeInTheDocument()
   })
 
-  it('shows a Draft badge for a DRAFT artwork and a Submitted badge for a SUBMITTED one', () => {
+  it('shows the real, accurate badge for every status — never mislabeling PUBLISHED/REJECTED as Draft (Module 13 Phase 4 regression)', () => {
     const { rerender } = render(
       <MemoryRouter>
         <ArtworkListItem artwork={buildArtwork({ status: 'DRAFT' })} />
@@ -78,10 +90,27 @@ describe('ArtworkListItem', () => {
         <ArtworkListItem artwork={buildArtwork({ status: 'SUBMITTED' })} />
       </MemoryRouter>,
     )
-    expect(screen.getByText('Submitted')).toBeInTheDocument()
+    expect(screen.getByText('Awaiting review')).toBeInTheDocument()
+    expect(screen.queryByText('Draft')).not.toBeInTheDocument()
+
+    rerender(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'PUBLISHED' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Published')).toBeInTheDocument()
+    expect(screen.queryByText('Draft')).not.toBeInTheDocument()
+
+    rerender(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'REJECTED' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Rejected')).toBeInTheDocument()
+    expect(screen.queryByText('Draft')).not.toBeInTheDocument()
   })
 
-  it('shows a "Delete draft" action for a DRAFT artwork', () => {
+  it('shows a "Delete draft" action for a DRAFT artwork only', () => {
     render(
       <MemoryRouter>
         <ArtworkListItem artwork={buildArtwork({ status: 'DRAFT' })} />
@@ -90,13 +119,34 @@ describe('ArtworkListItem', () => {
     expect(screen.getByRole('button', { name: /delete draft/i })).toBeInTheDocument()
   })
 
-  it('shows no delete action for a SUBMITTED artwork', () => {
+  it('shows no delete action for a SUBMITTED, PUBLISHED, or REJECTED artwork — delete would always be denied by firestore.rules for these', () => {
+    for (const status of ['SUBMITTED', 'PUBLISHED', 'REJECTED'] as const) {
+      const { unmount } = render(
+        <MemoryRouter>
+          <ArtworkListItem artwork={buildArtwork({ status })} />
+        </MemoryRouter>,
+      )
+      expect(screen.queryByRole('button', { name: /delete draft/i })).not.toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('shows the real rejection reason for a REJECTED artwork', () => {
     render(
       <MemoryRouter>
-        <ArtworkListItem artwork={buildArtwork({ status: 'SUBMITTED' })} />
+        <ArtworkListItem artwork={buildArtwork({ status: 'REJECTED', rejectionReason: 'Blurry photos.' })} />
       </MemoryRouter>,
     )
-    expect(screen.queryByRole('button', { name: /delete draft/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/blurry photos/i)).toBeInTheDocument()
+  })
+
+  it('never shows the rejection reason line for a non-REJECTED artwork', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'PUBLISHED', rejectionReason: null })} />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByText(/rejection/i)).not.toBeInTheDocument()
   })
 
   it('deletes the draft after confirming in the accessible dialog', async () => {

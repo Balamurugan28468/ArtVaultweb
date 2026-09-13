@@ -61,6 +61,17 @@ describe('useSellerStatus', () => {
     expect(screen.getByText('status:approved')).toBeInTheDocument()
   })
 
+  it('reports rejected for a REJECTED application — never mislabeled as pending', () => {
+    subscribeSellerApplication.mockImplementationOnce((_uid, onData: (a: unknown) => void) => {
+      onData({ status: 'REJECTED', rejectionReason: 'Not a fit.' })
+      return vi.fn()
+    })
+    useAuth.mockReturnValue({ status: 'authenticated', user: { uid: 'alice' } })
+
+    render(<Probe />)
+    expect(screen.getByText('status:rejected')).toBeInTheDocument()
+  })
+
   it('unsubscribes on unmount', () => {
     const unsubscribe = vi.fn()
     subscribeSellerApplication.mockReturnValueOnce(unsubscribe)

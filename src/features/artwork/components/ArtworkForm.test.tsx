@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Timestamp } from 'firebase/firestore'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,12 +10,16 @@ const updateArtworkDraft = vi.fn()
 const submitArtwork = vi.fn()
 const deleteArtworkDraft = vi.fn()
 const mutateArtworkImages = vi.fn()
+const updatePublishedArtworkSafeFields = vi.fn()
+const resubmitArtworkForReview = vi.fn()
 vi.mock('../api/artworkRepository', () => ({
   createArtworkDraft: (...args: unknown[]) => createArtworkDraft(...args),
   updateArtworkDraft: (...args: unknown[]) => updateArtworkDraft(...args),
   submitArtwork: (...args: unknown[]) => submitArtwork(...args),
   deleteArtworkDraft: (...args: unknown[]) => deleteArtworkDraft(...args),
   mutateArtworkImages: (...args: unknown[]) => mutateArtworkImages(...args),
+  updatePublishedArtworkSafeFields: (...args: unknown[]) => updatePublishedArtworkSafeFields(...args),
+  resubmitArtworkForReview: (...args: unknown[]) => resubmitArtworkForReview(...args),
 }))
 
 // ArtworkImageManager (rendered whenever an existing artwork is passed in)
@@ -41,6 +45,8 @@ beforeEach(() => {
   submitArtwork.mockReset()
   deleteArtworkDraft.mockReset()
   mutateArtworkImages.mockReset().mockResolvedValue([])
+  updatePublishedArtworkSafeFields.mockReset()
+  resubmitArtworkForReview.mockReset()
   useAuth.mockReturnValue({ user: { uid: 'alice' } })
 })
 
@@ -231,13 +237,174 @@ describe('ArtworkForm — edit mode (DRAFT)', () => {
 })
 
 describe('ArtworkForm — SUBMITTED (locked)', () => {
-  it('renders a read-only summary instead of an editable form', () => {
+  it('renders a read-only summary instead of an editable form, clearly labeled as awaiting review', () => {
     renderForm({ artwork: buildArtwork({ status: 'SUBMITTED' }) })
 
-    expect(screen.getByText(/can no longer be edited/i)).toBeInTheDocument()
+    expect(screen.getByText('Awaiting review')).toBeInTheDocument()
+    expect(screen.getByText(/awaiting admin review/i)).toBeInTheDocument()
     expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /save draft/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /submit for review/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /discard draft/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /save changes/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /save & resubmit/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('ArtworkForm — edit mode (PUBLISHED, Module 13 Phase 4)', () => {
+  it('explains that safe-field changes stay live while content changes require review', () => {
+    renderForm({ artwork: buildArtwork({ status: 'PUBLISHED' }) })
+    expect(screen.getByText(/price, inventory, and tag changes save immediately and stay live/i)).toBeInTheDocument()
+  })
+
+  it('never shows Submit for review or Discard draft — those are DRAFT-only actions', () => {
+    renderForm({ artwork: buildArtwork({ status: 'PUBLISHED' }) })
+    expect(screen.queryByRole('button', { name: /submit for review/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /discard draft/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeInTheDocument()
+  })
+
+  it('a safe-fields-only change (price/inventory/tags) saves immediately with no confirmation dialog, and stays PUBLISHED', async () => {
+    updatePublishedArtworkSafeFields.mockResolvedValueOnce(undefined)
+    const onSaved = vi.fn()
+    renderForm({ artwork: buildArtwork({ status: 'PUBLISHED', price: 150000, inventoryCount: 3, tags: ['blue'] }), onSaved })
+
+    fireEvent.input(screen.getByLabelText(/price/i), { target: { value: '1750' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith('a1'))
+    expect(updatePublishedArtworkSafeFields).toHaveBeenCalledWith('a1', { price: 175000, inventoryCount: 3, tags: ['blue'] })
+    expect(resubmitArtworkForReview).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('changing the title shows a confirmation before resubmitting for review — never a silent unpublish', async () => {
+    renderForm({ artwork: buildArtwork({ status: 'PUBLISHED', title: 'Original Title' }) })
+
+    fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'New Title' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: /require admin review/i })
+    expect(dialog).toHaveTextContent(/won't be visible in the marketplace/i)
+    expect(resubmitArtworkForReview).not.toHaveBeenCalled()
+  })
+
+  it('confirming a material change calls resubmitArtworkForReview, moving the artwork back into review', async () => {
+    resubmitArtworkForReview.mockResolvedValueOnce(undefined)
+    const onSaved = vi.fn()
+    renderForm({ artwork: buildArtwork({ status: 'PUBLISHED', title: 'Original Title' }), onSaved })
+
+    fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'New Title' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+    await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+
+    await waitFor(() =>
+      expect(resubmitArtworkForReview).toHaveBeenCalledWith('a1', expect.objectContaining({ title: 'New Title' }), []),
+    )
+    expect(onSaved).toHaveBeenCalledWith('a1')
+    expect(updatePublishedArtworkSafeFields).not.toHaveBeenCalled()
+  })
+
+  it('adding a photo alone (no text field change) on a PUBLISHED artwork is also a material edit requiring confirmation', async () => {
+    const task = { on: vi.fn(), cancel: vi.fn() }
+    const artworkImageStorage = await import('../api/artworkImageStorage')
+    vi.mocked(artworkImageStorage.startArtworkImageUpload).mockReturnValueOnce(task as never)
+    vi.mocked(artworkImageStorage.getArtworkImageDownloadURL).mockResolvedValueOnce('https://example.test/new.jpg')
+    vi.mocked(artworkImageStorage.newArtworkImageId).mockReturnValueOnce('new.jpg')
+    vi.mocked(artworkImageStorage.artworkImagePath).mockReturnValueOnce('artworks/alice/a1/new.jpg')
+    resubmitArtworkForReview.mockResolvedValueOnce(undefined)
+    const onSaved = vi.fn()
+    renderForm({ artwork: buildArtwork({ status: 'PUBLISHED' }), onSaved })
+
+    const input = document.getElementById('artwork-photo-input') as HTMLInputElement
+    const file = new File([new Uint8Array(10)], 'new.jpg', { type: 'image/jpeg' })
+    fireEvent.change(input, { target: { files: [file] } })
+    await waitFor(() => expect(task.on).toHaveBeenCalled())
+    // `.on(event, snapshotCb, errorCb, completeCb)` — trigger the upload's
+    // success path so the new photo lands in the staged images array.
+    const completeCb = task.on.mock.calls[0]?.[3] as () => void
+    await waitFor(() => completeCb())
+
+    // Text fields are untouched — only the staged photo addition can be
+    // what routes this through the material-edit confirmation instead of
+    // straight through the safe-fields path.
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: /require admin review/i })
+    expect(updatePublishedArtworkSafeFields).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: /submit for review/i }))
+
+    await waitFor(() =>
+      expect(resubmitArtworkForReview).toHaveBeenCalledWith(
+        'a1',
+        expect.anything(),
+        expect.arrayContaining([expect.objectContaining({ id: 'new.jpg', path: 'artworks/alice/a1/new.jpg' })]),
+      ),
+    )
+    expect(onSaved).toHaveBeenCalledWith('a1')
+  })
+
+  it('cancelling the confirmation dialog never resubmits', async () => {
+    renderForm({ artwork: buildArtwork({ status: 'PUBLISHED', description: 'Original description here.' }) })
+
+    fireEvent.input(screen.getByLabelText('Description'), { target: { value: 'A brand new description entirely.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+    await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(resubmitArtworkForReview).not.toHaveBeenCalled()
+  })
+
+  it('changing category alone also requires confirmation (a material field, not a safe one)', async () => {
+    renderForm({ artwork: buildArtwork({ status: 'PUBLISHED', category: 'painting' }) })
+
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'sculpture' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await screen.findByRole('dialog', { name: /require admin review/i })
+    expect(updatePublishedArtworkSafeFields).not.toHaveBeenCalled()
+  })
+})
+
+describe('ArtworkForm — edit mode (REJECTED, Module 13 Phase 4)', () => {
+  it('displays the real rejection reason', () => {
+    renderForm({ artwork: buildArtwork({ status: 'REJECTED', rejectionReason: 'Blurry photos.' }) })
+    expect(screen.getByText(/blurry photos/i)).toBeInTheDocument()
+  })
+
+  it('handles a REJECTED artwork with no rejection reason gracefully — no "null"/"undefined" text', () => {
+    renderForm({ artwork: buildArtwork({ status: 'REJECTED', rejectionReason: null }) })
+    expect(screen.queryByText(/null|undefined/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a "Save & resubmit" action, never Submit for review or Discard draft', () => {
+    renderForm({ artwork: buildArtwork({ status: 'REJECTED' }) })
+    expect(screen.getByRole('button', { name: /save & resubmit/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /submit for review/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /discard draft/i })).not.toBeInTheDocument()
+  })
+
+  it('requires confirmation before resubmitting, then calls resubmitArtworkForReview clearing the old reason', async () => {
+    resubmitArtworkForReview.mockResolvedValueOnce(undefined)
+    const onSaved = vi.fn()
+    renderForm({ artwork: buildArtwork({ status: 'REJECTED', rejectionReason: 'Blurry photos.' }), onSaved })
+
+    fireEvent.input(screen.getByLabelText('Description'), { target: { value: 'A corrected, in-focus description.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save & resubmit/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: /resubmit for review/i })
+    expect(resubmitArtworkForReview).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: /submit for review/i }))
+
+    await waitFor(() =>
+      expect(resubmitArtworkForReview).toHaveBeenCalledWith(
+        'a1',
+        expect.objectContaining({ description: 'A corrected, in-focus description.' }),
+        [],
+      ),
+    )
+    expect(onSaved).toHaveBeenCalledWith('a1')
   })
 })

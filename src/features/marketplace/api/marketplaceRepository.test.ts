@@ -2,9 +2,10 @@ import { Timestamp } from 'firebase/firestore'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MarketplaceFilters } from '../types'
 
-const { collection, documentId, getDocs, limit, orderBy, query, startAfter, where } = vi.hoisted(() => ({
+const { collection, documentId, getCountFromServer, getDocs, limit, orderBy, query, startAfter, where } = vi.hoisted(() => ({
   collection: vi.fn(() => ({ path: 'artworks' })),
   documentId: vi.fn(() => '__name__'),
+  getCountFromServer: vi.fn(),
   getDocs: vi.fn(),
   limit: vi.fn((n: number) => ({ type: 'limit', n })),
   orderBy: vi.fn((field: string, direction: string) => ({ type: 'orderBy', field, direction })),
@@ -15,11 +16,11 @@ const { collection, documentId, getDocs, limit, orderBy, query, startAfter, wher
 
 vi.mock('firebase/firestore', async (importOriginal) => {
   const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, collection, documentId, getDocs, limit, orderBy, query, startAfter, where }
+  return { ...actual, collection, documentId, getCountFromServer, getDocs, limit, orderBy, query, startAfter, where }
 })
 vi.mock('@/lib/firebase/config', () => ({ db: {} }))
 
-const { fetchMarketplacePage, MARKETPLACE_PAGE_SIZE } = await import('./marketplaceRepository')
+const { fetchCategoryArtworkCounts, fetchMarketplacePage, MARKETPLACE_PAGE_SIZE } = await import('./marketplaceRepository')
 
 const BASE_FILTERS: MarketplaceFilters = { category: null, minPrice: null, maxPrice: null, sort: 'newest' }
 
@@ -30,6 +31,7 @@ const BASE_FILTERS: MarketplaceFilters = { category: null, minPrice: null, maxPr
 beforeEach(() => {
   collection.mockClear()
   documentId.mockClear()
+  getCountFromServer.mockClear()
   getDocs.mockClear()
   limit.mockClear()
   orderBy.mockClear()
@@ -156,5 +158,40 @@ describe('fetchMarketplacePage', () => {
       code: 'permission-denied',
       message: 'You do not have permission to do that.',
     })
+  })
+})
+
+// UI-01 reference-driven Explore rebuild — real counts via a count-only
+// aggregation query, never a fabricated or client-computed-from-a-partial-
+// page number.
+describe('fetchCategoryArtworkCounts', () => {
+  it('always filters every count query by status == PUBLISHED', async () => {
+    getCountFromServer.mockResolvedValue({ data: () => ({ count: 0 }) })
+    await fetchCategoryArtworkCounts()
+    expect(where).toHaveBeenCalledWith('status', '==', 'PUBLISHED')
+  })
+
+  it('returns a real total and a real count per category, from real aggregation reads', async () => {
+    // Distinguishes the total query from a per-category one by inspecting
+    // the actual `where` clauses attached to the query object it receives
+    // (via the hoisted `query`/`where` mocks above) — robust regardless of
+    // call order, rather than assuming Promise.all resolves array elements
+    // in a particular sequence.
+    getCountFromServer.mockImplementation((q: { args: unknown[] }) => {
+      const hasCategoryFilter = q.args.some((arg) => (arg as { field?: string })?.field === 'category')
+      return Promise.resolve({ data: () => ({ count: hasCategoryFilter ? 10 : 42 }) })
+    })
+    const result = await fetchCategoryArtworkCounts()
+
+    expect(result.total).toBe(42)
+    expect(result.byCategory).toEqual({ painting: 10, sculpture: 10, photography: 10, digital: 10, other: 10 })
+    // One total query + one per fixed category — never an unbounded number
+    // of reads.
+    expect(getCountFromServer).toHaveBeenCalledTimes(6)
+  })
+
+  it('throws a typed ArtworkError rather than returning a partial/fabricated result on failure', async () => {
+    getCountFromServer.mockRejectedValueOnce({ code: 'unavailable' })
+    await expect(fetchCategoryArtworkCounts()).rejects.toMatchObject({ code: 'network' })
   })
 })

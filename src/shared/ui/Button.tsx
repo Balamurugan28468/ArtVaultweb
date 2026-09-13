@@ -1,6 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react'
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'gold'
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'gold' | 'info'
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
@@ -15,6 +15,12 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
     'bg-surface-elevated text-text-primary border border-border-strong hover:border-brand-primary disabled:hover:border-border-strong',
   ghost: 'bg-transparent text-text-primary hover:bg-surface-elevated',
   gold: 'bg-accent-gold text-text-on-light hover:bg-accent-gold-hover disabled:hover:bg-accent-gold',
+  // UI-01's AR+AI color convention: purple (the existing `primary`) reads as
+  // "AI," so AR gets its own accent — Tailwind's stock blue-600/700 rather
+  // than the app's own --color-info (#3b82f6), which is a touch too light
+  // for white text at 4.5:1 (the same class of issue `primary` above
+  // already had to work around).
+  info: 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-700 disabled:hover:bg-blue-600',
 }
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {

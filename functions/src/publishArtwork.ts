@@ -1,12 +1,12 @@
 /**
  * One-off operator script — NOT a deployed function, NOT reachable by any
- * client or callable endpoint. This is the only way a SUBMITTED artwork
- * ever becomes PUBLISHED or REJECTED; there is deliberately no self-service
- * or in-app path (mirrors exactly how seller approval already works — see
- * promoteSeller.ts). Refuses to act unless the artwork exists and its
- * current status is exactly SUBMITTED — never re-publishes/re-rejects an
- * already-decided artwork, and never touches a DRAFT one (idempotency and
- * invalid-transition guards, not a silent no-op or a silent overwrite).
+ * client or callable endpoint on its own. `decideArtworkByArtworkId` is the
+ * only way a SUBMITTED artwork ever becomes PUBLISHED or REJECTED; there is
+ * deliberately no self-service or in-app-by-the-seller path (mirrors
+ * exactly how seller approval already works — see promoteSeller.ts). It
+ * performs no authorization check of its own — every caller (this file's
+ * own CLI `main()`, or Module 13's `moderateArtwork` callable in
+ * adminActions.ts) MUST authorize the caller itself before invoking it.
  * Writes only `status`/`reviewedAt`/`rejectionReason`/`updatedAt` — every
  * other field (sellerId, title, price, images, ...) is left completely
  * untouched.
@@ -24,6 +24,21 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 
 export type PublishDecision = 'PUBLISHED' | 'REJECTED'
 
+/**
+ * Refuses to act unless the artwork exists and its current status is
+ * exactly SUBMITTED — never re-publishes/re-rejects an already-decided
+ * artwork, and never touches a DRAFT one (idempotency and invalid-transition
+ * guards, not a silent no-op or a silent overwrite).
+ *
+ * The read-check-write runs inside a Firestore transaction so two truly
+ * concurrent decisions on the same artwork (e.g. two admins, one approving
+ * and one rejecting at nearly the same moment) can never both silently
+ * apply: Firestore automatically retries the loser's transaction, which
+ * re-reads the just-committed status and correctly throws the same
+ * "not awaiting review" error a sequential second call would get, instead
+ * of the artwork's final state depending on which write physically landed
+ * last.
+ */
 export async function decideArtworkByArtworkId(
   artworkId: string,
   decision: PublishDecision,
@@ -31,37 +46,42 @@ export async function decideArtworkByArtworkId(
 ): Promise<void> {
   const db = getFirestore()
   const artworkRef = db.collection('artworks').doc(artworkId)
-  const artworkSnapshot = await artworkRef.get()
 
-  if (!artworkSnapshot.exists) {
-    throw new Error(`No artwork found for artworkId=${artworkId}.`)
-  }
-  const currentStatus = artworkSnapshot.data()?.status
-  if (currentStatus !== 'SUBMITTED') {
-    throw new Error(
-      `Artwork ${artworkId} is not awaiting review (current status: ${String(currentStatus)}). ` +
-        'Only a SUBMITTED artwork can be published or rejected.',
-    )
-  }
+  await db.runTransaction(async (transaction) => {
+    const artworkSnapshot = await transaction.get(artworkRef)
+    if (!artworkSnapshot.exists) {
+      throw new Error(`No artwork found for artworkId=${artworkId}.`)
+    }
+    const currentStatus = artworkSnapshot.data()?.status
+    if (currentStatus !== 'SUBMITTED') {
+      throw new Error(
+        `Artwork ${artworkId} is not awaiting review (current status: ${String(currentStatus)}). ` +
+          'Only a SUBMITTED artwork can be published or rejected.',
+      )
+    }
+
+    if (decision === 'REJECTED') {
+      transaction.update(artworkRef, {
+        status: 'REJECTED',
+        reviewedAt: FieldValue.serverTimestamp(),
+        rejectionReason: options.rejectionReason ?? null,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+    } else {
+      transaction.update(artworkRef, {
+        status: 'PUBLISHED',
+        reviewedAt: FieldValue.serverTimestamp(),
+        rejectionReason: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+    }
+  })
 
   if (decision === 'REJECTED') {
-    await artworkRef.update({
-      status: 'REJECTED',
-      reviewedAt: FieldValue.serverTimestamp(),
-      rejectionReason: options.rejectionReason ?? null,
-      updatedAt: FieldValue.serverTimestamp(),
-    })
     console.log(`Rejected artworkId=${artworkId}.${options.rejectionReason ? ` Reason: ${options.rejectionReason}` : ''}`)
-    return
+  } else {
+    console.log(`Published artworkId=${artworkId}.`)
   }
-
-  await artworkRef.update({
-    status: 'PUBLISHED',
-    reviewedAt: FieldValue.serverTimestamp(),
-    rejectionReason: null,
-    updatedAt: FieldValue.serverTimestamp(),
-  })
-  console.log(`Published artworkId=${artworkId}.`)
 }
 
 async function main(): Promise<void> {

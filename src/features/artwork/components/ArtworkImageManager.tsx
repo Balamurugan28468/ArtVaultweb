@@ -1,20 +1,56 @@
 import { ImageOff, RotateCcw, X } from 'lucide-react'
-import { useRef, type ChangeEvent } from 'react'
+import { forwardRef, useImperativeHandle, useRef, type ChangeEvent } from 'react'
 import { useArtworkImages } from '../hooks/useArtworkImages'
-import { ARTWORK_IMAGE_CONTENT_TYPES, ARTWORK_MAX_IMAGES, type Artwork } from '../types'
+import { ARTWORK_IMAGE_CONTENT_TYPES, ARTWORK_MAX_IMAGES, type Artwork, type ArtworkImage } from '../types'
 import { Button, IconButton, Spinner } from '@/shared/ui'
 
 /**
- * Seller-facing photo manager for one DRAFT artwork (Module 05). Rendered
- * read-only (no add/remove/reorder controls) once the artwork is SUBMITTED —
- * the same component covers both states so there is exactly one place that
- * renders an artwork's photos, rather than a separate "locked gallery"
- * duplicating this markup.
+ * Imperative bridge to ArtworkForm's Save flow — deliberately not props,
+ * since ArtworkForm doesn't otherwise need to know anything about this
+ * component's internal upload/staging state, only what to persist and when
+ * it's safe to reconcile Storage afterward. Only meaningful for a PUBLISHED
+ * or REJECTED artwork (`useArtworkImages`' `staged` mode); calling these for
+ * a DRAFT (which commits every action immediately) is harmless but a no-op
+ * in effect, since DRAFT is never `isDirty`.
  */
-export function ArtworkImageManager({ artwork }: { artwork: Artwork }) {
-  const { images, pending, editable, remainingSlots, removingId, listError, addFiles, retry, dismiss, removeImage, moveImage } =
-    useArtworkImages(artwork)
+export interface ArtworkImageManagerHandle {
+  isDirty: boolean
+  getImagesForSave: () => ArtworkImage[]
+  finalizeSave: (savedImages: ArtworkImage[]) => void
+}
+
+/**
+ * Seller-facing photo manager for one artwork (Module 05; extended in
+ * Module 13's photo-editing follow-up to also cover PUBLISHED/REJECTED as a
+ * material edit — see useArtworkImages' own comment). Rendered read-only (no
+ * add/remove/reorder controls) only once the artwork is SUBMITTED — the same
+ * component covers every status so there is exactly one place that renders
+ * an artwork's photos, rather than a separate "locked gallery" duplicating
+ * this markup.
+ */
+export const ArtworkImageManager = forwardRef<ArtworkImageManagerHandle, { artwork: Artwork }>(function ArtworkImageManager(
+  { artwork },
+  ref,
+) {
+  const {
+    images,
+    pending,
+    editable,
+    isDirty,
+    remainingSlots,
+    removingId,
+    listError,
+    addFiles,
+    retry,
+    dismiss,
+    removeImage,
+    moveImage,
+    getImagesForSave,
+    finalizeSave,
+  } = useArtworkImages(artwork)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useImperativeHandle(ref, () => ({ isDirty, getImagesForSave, finalizeSave }))
 
   const handleFilesSelected = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files.length > 0) addFiles(event.target.files)
@@ -161,4 +197,4 @@ export function ArtworkImageManager({ artwork }: { artwork: Artwork }) {
       )}
     </div>
   )
-}
+})

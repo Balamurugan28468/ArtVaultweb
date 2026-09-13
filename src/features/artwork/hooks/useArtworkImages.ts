@@ -43,6 +43,10 @@ function toPublicPending(upload: PendingUploadInternal): PendingArtworkImage {
   return { localId, fileName, progress, status, error, retryable }
 }
 
+function sortImages(images: readonly ArtworkImage[]): ArtworkImage[] {
+  return [...images].sort((a, b) => a.order - b.order)
+}
+
 /**
  * Owns the full add/upload/retry/remove/reorder lifecycle for one artwork's
  * photos. `artwork.images` (from the live Firestore subscription) is the
@@ -51,15 +55,52 @@ function toPublicPending(upload: PendingUploadInternal): PendingArtworkImage {
  * nothing here is trusted as authorization, matching Module 04's invariant
  * that only storage.rules/firestore.rules ever decide what's actually
  * allowed to be written.
+ *
+ * A DRAFT artwork's photo actions commit to Firestore immediately, one at a
+ * time (via `mutateArtworkImages`) — safe because DRAFT stays DRAFT no
+ * matter how its images change. A PUBLISHED or REJECTED artwork's photo
+ * actions are a *material* edit (see firestore.rules' own comment on its
+ * update rule): they can never land on the live document one action at a
+ * time, because the very first one would flip `status` to `SUBMITTED` and
+ * firestore.rules then locks the document completely — the required
+ * behavior anyway ("SUBMITTED cannot mutate photos or any artwork fields").
+ * So for these two statuses, every add/remove/reorder only ever changes a
+ * local, staged copy (`stagedImages`) — never Firestore — until the seller
+ * explicitly saves through ArtworkForm's existing confirm-and-resubmit flow,
+ * which calls `getImagesForSave()`/`finalizeSave()` below to commit the
+ * whole batch in the one write `resubmitArtworkForReview` already makes.
  */
 export function useArtworkImages(artwork: Pick<Artwork, 'id' | 'sellerId' | 'images' | 'status'>) {
+  const staged = artwork.status === 'PUBLISHED' || artwork.status === 'REJECTED'
+  const editable = artwork.status === 'DRAFT' || staged
+
   const [pending, setPending] = useState<PendingUploadInternal[]>([])
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
+  // Staged mode only — `null` means "no local edits yet this session, use
+  // artwork.images verbatim"; once the seller performs any staged action
+  // this becomes the effective, in-progress photo list until finalizeSave()
+  // (on a successful save) or an unmount (on cancel) resolves it.
+  const [stagedImages, setStagedImages] = useState<ArtworkImage[] | null>(null)
+
   const pendingRef = useRef<PendingUploadInternal[]>([])
   useEffect(() => {
     pendingRef.current = pending
   })
+  const stagedImagesRef = useRef<ArtworkImage[] | null>(null)
+  useEffect(() => {
+    stagedImagesRef.current = stagedImages
+  })
+  const artworkImagesRef = useRef<ArtworkImage[]>(artwork.images)
+  useEffect(() => {
+    artworkImagesRef.current = artwork.images
+  })
+  // Set by finalizeSave() the instant a staged save actually commits — read
+  // by the unmount cleanup below instead of `artwork.images` directly,
+  // because ArtworkFormPage navigates away (unmounting this hook)
+  // immediately on a successful save, typically before the live
+  // subscription has necessarily delivered the new document.
+  const committedImagesRef = useRef<ArtworkImage[] | null>(null)
 
   useEffect(() => {
     return () => {
@@ -69,13 +110,34 @@ export function useArtworkImages(artwork: Pick<Artwork, 'id' | 'sellerId' | 'ima
       for (const upload of pendingRef.current) {
         if (upload.status === 'uploading') upload.task?.cancel()
       }
+      // Staged mode: any photo the seller added this session that was never
+      // actually saved (they navigated away, or just closed the tab) is an
+      // orphaned Storage object nothing will ever reference — clean it up
+      // rather than leaking it. Never touches an image that was already
+      // part of the artwork before this session, or one this session's own
+      // save just committed (committedImagesRef).
+      const staged_ = stagedImagesRef.current
+      if (staged_) {
+        const originalIds = new Set(artworkImagesRef.current.map((image) => image.id))
+        const keepIds = new Set((committedImagesRef.current ?? artworkImagesRef.current).map((image) => image.id))
+        for (const image of staged_) {
+          if (!originalIds.has(image.id) && !keepIds.has(image.id)) {
+            void deleteArtworkImageObject(image.path).catch(() => {})
+          }
+        }
+      }
     }
   }, [])
 
-  const images = [...artwork.images].sort((a, b) => a.order - b.order)
-  const editable = artwork.status === 'DRAFT'
+  const sortedOriginal = sortImages(artwork.images)
+  const images = staged && stagedImages !== null ? stagedImages : sortedOriginal
+  const isDirty = staged && stagedImages !== null
   const uploadingCount = pending.filter((p) => p.status === 'uploading').length
   const remainingSlots = Math.max(0, ARTWORK_MAX_IMAGES - images.length - uploadingCount)
+
+  function baseImages(prev: ArtworkImage[] | null): ArtworkImage[] {
+    return prev ?? sortedOriginal
+  }
 
   const runUpload = useCallback(
     (upload: PendingUploadInternal) => {
@@ -106,10 +168,22 @@ export function useArtworkImages(artwork: Pick<Artwork, 'id' | 'sellerId' | 'ima
           void (async () => {
             try {
               const url = await getArtworkImageDownloadURL(upload.path)
-              await mutateArtworkImages(artwork.id, (current) => [
-                ...current,
-                { id: upload.imageId, path: upload.path, url, order: current.length, contentType: upload.contentType, size: upload.size },
-              ])
+              const newImage: ArtworkImage = {
+                id: upload.imageId,
+                path: upload.path,
+                url,
+                order: 0,
+                contentType: upload.contentType,
+                size: upload.size,
+              }
+              if (staged) {
+                setStagedImages((prev) => {
+                  const base = baseImages(prev)
+                  return [...base, { ...newImage, order: base.length }]
+                })
+              } else {
+                await mutateArtworkImages(artwork.id, (current) => [...current, { ...newImage, order: current.length }])
+              }
               setPending((prev) => prev.filter((p) => p.localId !== upload.localId))
             } catch (err) {
               await deleteArtworkImageObject(upload.path).catch(() => {})
@@ -130,7 +204,8 @@ export function useArtworkImages(artwork: Pick<Artwork, 'id' | 'sellerId' | 'ima
         },
       )
     },
-    [artwork.id, artwork.sellerId],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [artwork.id, artwork.sellerId, staged],
   )
 
   const addFiles = useCallback(
@@ -223,6 +298,24 @@ export function useArtworkImages(artwork: Pick<Artwork, 'id' | 'sellerId' | 'ima
   const removeImage = useCallback(
     async (image: ArtworkImage) => {
       setListError(null)
+      if (staged) {
+        setRemovingId(image.id)
+        try {
+          const isOriginal = artwork.images.some((img) => img.id === image.id)
+          if (!isOriginal) {
+            // Never referenced by any saved document — safe to delete right away.
+            await deleteArtworkImageObject(image.path).catch(() => {})
+          }
+          setStagedImages((prev) =>
+            baseImages(prev)
+              .filter((img) => img.id !== image.id)
+              .map((img, i) => ({ ...img, order: i })),
+          )
+        } finally {
+          setRemovingId(null)
+        }
+        return
+      }
       setRemovingId(image.id)
       try {
         await mutateArtworkImages(artwork.id, (current) => current.filter((img) => img.id !== image.id))
@@ -233,12 +326,27 @@ export function useArtworkImages(artwork: Pick<Artwork, 'id' | 'sellerId' | 'ima
         setRemovingId(null)
       }
     },
-    [artwork.id],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [artwork.id, artwork.images, staged],
   )
 
   const moveImage = useCallback(
     async (imageId: string, direction: 'up' | 'down') => {
       setListError(null)
+      if (staged) {
+        setStagedImages((prev) => {
+          const sorted = baseImages(prev)
+          const index = sorted.findIndex((img) => img.id === imageId)
+          const swapWith = direction === 'up' ? index - 1 : index + 1
+          if (index === -1 || swapWith < 0 || swapWith >= sorted.length) return prev ?? sorted
+          const reordered = [...sorted]
+          const temp = reordered[index]!
+          reordered[index] = reordered[swapWith]!
+          reordered[swapWith] = temp
+          return reordered.map((img, i) => ({ ...img, order: i }))
+        })
+        return
+      }
       try {
         await mutateArtworkImages(artwork.id, (current) => {
           const sorted = [...current].sort((a, b) => a.order - b.order)
@@ -255,13 +363,39 @@ export function useArtworkImages(artwork: Pick<Artwork, 'id' | 'sellerId' | 'ima
         setListError(errorMessage(err, 'Could not reorder photos. Try again.'))
       }
     },
-    [artwork.id],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [artwork.id, staged],
+  )
+
+  /** The exact, renumbered array ArtworkForm should persist on Save — staged mode only; meaningless (and unused) in DRAFT, which never batches a save. */
+  const getImagesForSave = useCallback((): ArtworkImage[] => images.map((image, index) => ({ ...image, order: index })), [images])
+
+  /**
+   * Call once a staged save has actually committed `savedImages` to
+   * Firestore — best-effort deletes the Storage object for any *original*
+   * image the save dropped (now safely unreferenced), then clears the local
+   * staging buffer since Firestore now matches it.
+   */
+  const finalizeSave = useCallback(
+    (savedImages: ArtworkImage[]) => {
+      const savedIds = new Set(savedImages.map((image) => image.id))
+      for (const original of artwork.images) {
+        if (!savedIds.has(original.id)) {
+          void deleteArtworkImageObject(original.path).catch(() => {})
+        }
+      }
+      committedImagesRef.current = savedImages
+      setStagedImages(null)
+    },
+    [artwork.images],
   )
 
   return {
     images,
     pending: pending.map(toPublicPending),
     editable,
+    staged,
+    isDirty,
     remainingSlots,
     removingId,
     listError,
@@ -270,5 +404,7 @@ export function useArtworkImages(artwork: Pick<Artwork, 'id' | 'sellerId' | 'ima
     dismiss,
     removeImage,
     moveImage,
+    getImagesForSave,
+    finalizeSave,
   }
 }

@@ -22,8 +22,14 @@ export function toSellerError(error: unknown): SellerError {
   return { code: 'unknown', message: 'Something went wrong. Please try again.' }
 }
 
-/** Defensive mapping — never assumes every field is present or well-typed. */
-function mapToSellerApplication(uid: string, data: Record<string, unknown>): SellerApplication | null {
+/**
+ * Defensive mapping — never assumes every field is present or well-typed.
+ * Exported for reuse by other read paths over the same collection (see
+ * features/admin/api/adminQueueRepository.ts, Module 13) — the mapping
+ * itself doesn't change across query shapes, only which documents a given
+ * query/rule can ever return.
+ */
+export function mapToSellerApplication(uid: string, data: Record<string, unknown>): SellerApplication | null {
   if (!isSellerStatus(data.status)) return null
 
   return {
@@ -34,6 +40,7 @@ function mapToSellerApplication(uid: string, data: Record<string, unknown>): Sel
     contactEmail: typeof data.contactEmail === 'string' ? data.contactEmail : '',
     appliedAt: data.appliedAt instanceof Timestamp ? data.appliedAt : Timestamp.now(),
     reviewedAt: data.reviewedAt instanceof Timestamp ? data.reviewedAt : null,
+    rejectionReason: typeof data.rejectionReason === 'string' ? data.rejectionReason : null,
     createdAt: data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.now(),
     updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : Timestamp.now(),
   }

@@ -110,6 +110,16 @@ describe('PublicArtworkCard', () => {
     expect(screen.getByRole('link', { name: 'Alice Fine Art' })).toHaveAttribute('href', '/artists/alice')
   })
 
+  // UI-01's AR+AI product-wide requirement — compact, honest, inert
+  // indicators on every artwork card (real actions live on Artwork Detail).
+  it('shows compact, honestly-disabled View in AR and AI Artwork Analysis indicators — never a working action here', () => {
+    renderCard({ artwork: buildArtwork() })
+    const arBadge = screen.getByTitle('View in AR — coming soon')
+    const aiBadge = screen.getByTitle('AI Artwork Analysis — coming soon')
+    expect(arBadge).toHaveAttribute('aria-disabled', 'true')
+    expect(aiBadge).toHaveAttribute('aria-disabled', 'true')
+  })
+
   it('Module 11: the wishlist control renders inside the artwork Link\'s DOM subtree, and still receives clicks normally', () => {
     // WishlistButton is mocked here, so its own preventDefault/
     // stopPropagation guard against the new wrapping <Link> isn't

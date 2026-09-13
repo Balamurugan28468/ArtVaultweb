@@ -1,14 +1,38 @@
+import { Box, Sparkles } from 'lucide-react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ArtworkGallery, toArtworkError, usePublicArtwork } from '@/features/artwork'
+import { useArtistProfile } from '@/features/artist-profile'
+import { ArtworkGallery, PublicArtworkCard, toArtworkError, usePublicArtwork } from '@/features/artwork'
 import { LikeButton } from '@/features/likes'
-import { useArtistDisplayNames } from '@/features/marketplace'
+import { useArtistDisplayNames, useRelatedArtworks } from '@/features/marketplace'
 import { WishlistButton } from '@/features/wishlist'
 import { useDocumentMeta } from '@/shared/hooks/useDocumentMeta'
-import { Avatar, Badge, Button, Container, EmptyState, ErrorState, ShareButton, Skeleton } from '@/shared/ui'
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  Container,
+  EmptyState,
+  ErrorState,
+  Modal,
+  ResponsiveGrid,
+  SectionHeader,
+  ShareButton,
+  Skeleton,
+} from '@/shared/ui'
 
 function categoryLabel(category: string): string {
   return category.charAt(0).toUpperCase() + category.slice(1)
 }
+
+type DetailTab = 'overview' | 'details' | 'shipping' | 'reviews'
+const DETAIL_TABS: { id: DetailTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'details', label: 'Details' },
+  { id: 'shipping', label: 'Shipping & Returns' },
+  { id: 'reviews', label: 'Reviews' },
+]
 
 /**
  * ArtVault's canonical public URL for one specific artwork (Module 11) —
@@ -29,10 +53,23 @@ export function ArtworkDetailPage() {
   const { artworkId } = useParams()
   const query = usePublicArtwork(artworkId)
   const artwork = query.status === 'success' ? query.data : undefined
+  const [arModalOpen, setArModalOpen] = useState(false)
+  const [aiModalOpen, setAiModalOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<DetailTab>('overview')
 
   const sellerId = artwork?.sellerId
   const artistNames = useArtistDisplayNames(sellerId ? [sellerId] : [])
   const artistName = sellerId ? artistNames[sellerId] : null
+  // Real bio for the "About the Artist" panel below — the same public
+  // artists/{uid} document the artist's own profile page reads, never a
+  // second/duplicated data source.
+  const artistProfileState = useArtistProfile(sellerId)
+  const artistBio = artistProfileState.status === 'loaded' ? artistProfileState.profile.bio : null
+
+  // UI-01 — "More in {category}", not "AI recommended": see
+  // useRelatedArtworks' own comment on why that distinction matters.
+  const related = useRelatedArtworks(artwork?.category, artwork?.id)
+  const relatedArtistNames = useArtistDisplayNames(related.artworks.map((a) => a.sellerId))
 
   const canonicalUrl =
     artworkId && typeof window !== 'undefined' ? `${window.location.origin}/artworks/${artworkId}` : ''
@@ -44,7 +81,7 @@ export function ArtworkDetailPage() {
   })
 
   return (
-    <Container>
+    <Container size="wide">
       <section className="flex flex-col gap-6">
         {!artworkId && (
           <EmptyState
@@ -54,8 +91,8 @@ export function ArtworkDetailPage() {
         )}
 
         {artworkId && query.status === 'pending' && (
-          <div aria-busy="true" aria-label="Loading artwork" className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
-            <Skeleton className="min-h-[20rem] w-full sm:min-h-[28rem] lg:min-h-[34rem]" />
+          <div aria-busy="true" aria-label="Loading artwork" className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_24rem] xl:grid-cols-[minmax(0,1fr)_26rem]">
+            <Skeleton className="min-h-[18rem] w-full sm:min-h-[24rem] lg:min-h-[28rem] xl:min-h-[30rem]" />
             <div className="flex flex-col gap-3">
               <Skeleton className="h-8 w-3/4" />
               <Skeleton className="h-5 w-1/3" />
@@ -85,18 +122,11 @@ export function ArtworkDetailPage() {
         )}
 
         {artwork && (
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_24rem] xl:grid-cols-[minmax(0,1fr)_26rem]">
             <ArtworkGallery images={artwork.images} title={artwork.title} />
 
             <div className="flex flex-col gap-4">
-              <div className="flex items-start justify-between gap-3">
-                <h1 className="font-display text-2xl font-medium text-text-primary sm:text-3xl">{artwork.title}</h1>
-                <div className="flex shrink-0 items-center gap-1">
-                  <WishlistButton artworkId={artwork.id} />
-                  <LikeButton artworkId={artwork.id} likeCount={artwork.likeCount} />
-                  <ShareButton url={canonicalUrl} title={artwork.title} text={`${artwork.title} on ArtVault`} />
-                </div>
-              </div>
+              <h1 className="font-display text-2xl font-medium text-text-primary sm:text-3xl">{artwork.title}</h1>
 
               {artistName && (
                 <Link to={`/artists/${artwork.sellerId}`} className="group flex w-fit items-center gap-2">
@@ -107,19 +137,199 @@ export function ArtworkDetailPage() {
                 </Link>
               )}
 
-              <p className="font-display text-2xl font-medium text-text-primary">
-                ₹{(artwork.price / 100).toFixed(0)}
-              </p>
-
-              <p className="whitespace-pre-wrap text-text-secondary">{artwork.description}</p>
-
-              <div className="flex flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <p className="font-display text-2xl font-medium text-accent-gold">
+                  ₹{(artwork.price / 100).toFixed(0)}
+                </p>
                 <Badge tone="gold">{categoryLabel(artwork.category)}</Badge>
-                {artwork.tags.map((tag) => (
-                  <Badge key={tag}>{tag}</Badge>
-                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <WishlistButton artworkId={artwork.id} />
+                <LikeButton artworkId={artwork.id} likeCount={artwork.likeCount} />
+                <ShareButton url={canonicalUrl} title={artwork.title} text={`${artwork.title} on ArtVault`} />
+              </div>
+
+              {/* AI + AR entry points (UI-01 product-wide requirement) —
+                  color-coded (purple = AI, blue = AR) and visually
+                  distinct cards, matching how the two capabilities are
+                  presented everywhere else in the app. Both open an honest
+                  "not connected yet" panel (below) rather than any fake
+                  result. */}
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+                <div className="flex flex-col gap-1.5 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 sm:gap-2 sm:p-4">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand-primary/20 text-brand-primary-on-dark sm:h-9 sm:w-9">
+                    <Sparkles aria-hidden="true" className="h-4 w-4" />
+                  </span>
+                  <p className="text-sm font-medium text-text-primary">AI Artwork Analysis</p>
+                  <p className="hidden text-xs text-text-secondary sm:block">Get AI-powered insights about this artwork's style and medium.</p>
+                  <Button type="button" variant="primary" size="sm" className="mt-1 self-start" onClick={() => setAiModalOpen(true)}>
+                    Analyze with AI
+                  </Button>
+                </div>
+                <div className="flex flex-col gap-1.5 rounded-lg border border-blue-600/30 bg-blue-600/10 p-3 sm:gap-2 sm:p-4">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/20 text-blue-400 sm:h-9 sm:w-9">
+                    <Box aria-hidden="true" className="h-4 w-4" />
+                  </span>
+                  <p className="text-sm font-medium text-text-primary">View in Your Space</p>
+                  <p className="hidden text-xs text-text-secondary sm:block">See how this artwork looks in your room using augmented reality.</p>
+                  <Button type="button" variant="info" size="sm" className="mt-1 self-start" onClick={() => setArModalOpen(true)}>
+                    View in AR
+                  </Button>
+                </div>
+              </div>
+
+              {/* Commerce area — deliberately separated from the actions
+                  above. Cart/Checkout is Phase 2 (see UI-02): these are
+                  real, visible controls, honestly disabled rather than
+                  hidden, and never pretend a purchase can complete. */}
+              <div className="flex flex-col gap-2 border-t border-border pt-3 sm:pt-4">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="md"
+                    disabled
+                    aria-disabled="true"
+                    title="Checkout is coming in a later module"
+                  >
+                    Add to Cart
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="gold"
+                    size="md"
+                    disabled
+                    aria-disabled="true"
+                    title="Checkout is coming in a later module"
+                  >
+                    Buy Now
+                  </Button>
+                </div>
+                <p className="text-xs text-text-muted">Checkout is coming in a later module — this artwork isn't purchasable yet.</p>
               </div>
             </div>
+          </div>
+        )}
+
+        {artwork && (
+          <>
+            <Modal open={arModalOpen} onClose={() => setArModalOpen(false)} title="View in AR">
+              <p className="text-sm text-text-secondary">
+                Augmented reality preview isn't connected yet. Once available, you'll be able to place this artwork
+                in your own space using your phone's camera, at its true size, before you buy.
+              </p>
+            </Modal>
+            <Modal open={aiModalOpen} onClose={() => setAiModalOpen(false)} title="AI Artwork Analysis">
+              <p className="text-sm text-text-secondary">
+                AI-powered analysis isn't connected yet. Once available, this will surface real insights about
+                style, medium, composition, and similar artworks — never a fabricated result.
+              </p>
+            </Modal>
+          </>
+        )}
+
+        {/* Secondary content tabs — every value shown comes from a real
+            Artwork field. Our schema has no medium/size/year/edition, so
+            "Details" never invents them; Shipping & Returns and Reviews
+            have no backing feature yet, so both say so plainly instead of
+            a fabricated policy or review count. */}
+        {artwork && (
+          <div className="flex flex-col gap-4">
+            <div role="tablist" aria-label="Artwork information" className="flex gap-2 overflow-x-auto border-b border-border">
+              {DETAIL_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  id={`artwork-tab-${tab.id}`}
+                  aria-selected={activeTab === tab.id}
+                  aria-controls={`artwork-panel-${tab.id}`}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors duration-150 ease-standard ${
+                    activeTab === tab.id
+                      ? 'border-accent-gold text-text-primary'
+                      : 'border-transparent text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div role="tabpanel" id="artwork-panel-overview" aria-labelledby="artwork-tab-overview" hidden={activeTab !== 'overview'}>
+              <div className="flex flex-col gap-3">
+                <p className="whitespace-pre-wrap text-text-secondary">{artwork.description}</p>
+                {artwork.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {artwork.tags.map((tag) => (
+                      <Badge key={tag}>#{tag}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div role="tabpanel" id="artwork-panel-details" aria-labelledby="artwork-tab-details" hidden={activeTab !== 'details'}>
+              {/* Category/price already appear once, in the persistent
+                  header above — deliberately not repeated here. Inventory
+                  is the one real field that doesn't appear anywhere else.
+                  Our schema has no medium/size/year/edition, so this tab
+                  never invents them (see this page's own module comment). */}
+              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-text-muted">Availability</dt>
+                  <dd className="text-sm text-text-primary">
+                    {artwork.inventoryCount > 0 ? `${artwork.inventoryCount} available` : 'Out of stock'}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            <div role="tabpanel" id="artwork-panel-shipping" aria-labelledby="artwork-tab-shipping" hidden={activeTab !== 'shipping'}>
+              <p className="text-sm text-text-secondary">
+                Shipping and returns aren't connected yet — checkout, delivery, and return policies are coming in a
+                later module.
+              </p>
+            </div>
+
+            <div role="tabpanel" id="artwork-panel-reviews" aria-labelledby="artwork-tab-reviews" hidden={activeTab !== 'reviews'}>
+              <p className="text-sm text-text-secondary">Reviews aren't connected yet.</p>
+            </div>
+          </div>
+        )}
+
+        {artwork && artistName && (
+          <Card className="flex flex-col items-start gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <Avatar name={artistName} size="md" />
+              <div className="flex flex-col gap-0.5">
+                <p className="text-xs font-semibold tracking-[0.1em] text-text-muted uppercase">About the Artist</p>
+                <p className="font-medium text-text-primary">{artistName}</p>
+                {artistBio && <p className="max-w-md text-sm text-text-secondary">{artistBio}</p>}
+              </div>
+            </div>
+            <Link
+              to={`/artists/${artwork.sellerId}`}
+              className="text-sm font-medium text-brand-primary-on-dark hover:underline"
+            >
+              View full profile →
+            </Link>
+          </Card>
+        )}
+
+        {artwork && related.artworks.length > 0 && (
+          <div className="flex flex-col gap-4">
+            <SectionHeader title={`More in ${categoryLabel(artwork.category)}`} />
+            <ResponsiveGrid>
+              {related.artworks.map((relatedArtwork) => (
+                <PublicArtworkCard
+                  key={relatedArtwork.id}
+                  artwork={relatedArtwork}
+                  artistDisplayName={relatedArtistNames[relatedArtwork.sellerId]}
+                />
+              ))}
+            </ResponsiveGrid>
           </div>
         )}
       </section>

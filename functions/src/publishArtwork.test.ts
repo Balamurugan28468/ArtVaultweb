@@ -11,6 +11,14 @@ vi.mock('firebase-admin/firestore', () => ({
       if (name === 'artworks') return { doc: () => ({ get: artworksGet, update: artworksUpdate }) }
       throw new Error(`unexpected collection: ${name}`)
     },
+    // See promoteSeller.test.ts's identical comment — the transaction
+    // object simply delegates to the same doc-level mocks the rest of this
+    // file already configures, dropping the `ref` argument `transaction.
+    // update(ref, data)` passes so `artworksUpdate` is still called with
+    // just `data`, exactly as every existing assertion here expects.
+    runTransaction: async (
+      updateFunction: (tx: { get: () => unknown; update: (ref: unknown, data: unknown) => unknown }) => Promise<unknown>,
+    ) => updateFunction({ get: () => artworksGet(), update: (_ref, data) => artworksUpdate(data) }),
   }),
   FieldValue: { serverTimestamp: () => 'SERVER_TIMESTAMP' },
 }))
@@ -70,6 +78,12 @@ describe('decideArtworkByArtworkId — publish', () => {
     await expect(decideArtworkByArtworkId('a1', 'PUBLISHED')).rejects.toThrow(/not awaiting review/i)
     expect(artworksUpdate).not.toHaveBeenCalled()
   })
+
+  it('the read-check-write runs inside a Firestore transaction (concurrency safety — see publishArtwork.ts)', async () => {
+    artworksGet.mockResolvedValue({ exists: true, data: () => ({ status: 'SUBMITTED' }) })
+    await decideArtworkByArtworkId('a1', 'PUBLISHED')
+    expect(artworksGet).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('decideArtworkByArtworkId — reject', () => {
@@ -106,5 +120,100 @@ describe('decideArtworkByArtworkId — reject', () => {
 
     await expect(decideArtworkByArtworkId('missing', 'REJECTED')).rejects.toThrow(/no artwork found/i)
     expect(artworksUpdate).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Module 13 Phase 2 — near-simultaneous moderation decisions on the same
+ * artwork. See promoteSeller.test.ts's identical-purpose suite for the full
+ * rationale of the gated-read approach used here: it reproduces the
+ * *outcome* Firestore's real transaction commit-conflict detection
+ * guarantees (a losing racer is retried against a fresh, post-commit read)
+ * without reimplementing Firestore's internal retry algorithm, which a
+ * mocked-Admin-SDK unit test has no business claiming to do.
+ */
+describe('decideArtworkByArtworkId — near-simultaneous callers', () => {
+  it('two near-simultaneous PUBLISHED decisions on the same SUBMITTED artwork: exactly one succeeds, the other fails as not-awaiting-review, no duplicate write', async () => {
+    let status: string = 'SUBMITTED'
+    let releaseSecondRead: () => void = () => {}
+    const secondReadGate = new Promise<void>((resolve) => {
+      releaseSecondRead = resolve
+    })
+    let getCallCount = 0
+
+    artworksGet.mockImplementation(async () => {
+      getCallCount += 1
+      if (getCallCount === 2) await secondReadGate
+      return { exists: true, data: () => ({ status }) }
+    })
+    artworksUpdate.mockImplementation(async (patch: { status: string }) => {
+      status = patch.status
+      releaseSecondRead()
+    })
+
+    const results = await Promise.allSettled([decideArtworkByArtworkId('a1', 'PUBLISHED'), decideArtworkByArtworkId('a1', 'PUBLISHED')])
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    expect(artworksUpdate).toHaveBeenCalledTimes(1)
+    expect(status).toBe('PUBLISHED')
+  })
+
+  it('two near-simultaneous REJECTED decisions on the same SUBMITTED artwork: exactly one succeeds, the other fails as not-awaiting-review, no duplicate write', async () => {
+    let status: string = 'SUBMITTED'
+    let releaseSecondRead: () => void = () => {}
+    const secondReadGate = new Promise<void>((resolve) => {
+      releaseSecondRead = resolve
+    })
+    let getCallCount = 0
+
+    artworksGet.mockImplementation(async () => {
+      getCallCount += 1
+      if (getCallCount === 2) await secondReadGate
+      return { exists: true, data: () => ({ status }) }
+    })
+    artworksUpdate.mockImplementation(async (patch: { status: string }) => {
+      status = patch.status
+      releaseSecondRead()
+    })
+
+    const results = await Promise.allSettled([
+      decideArtworkByArtworkId('a1', 'REJECTED', { rejectionReason: 'reason A' }),
+      decideArtworkByArtworkId('a1', 'REJECTED', { rejectionReason: 'reason B' }),
+    ])
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    expect(artworksUpdate).toHaveBeenCalledTimes(1)
+    expect(status).toBe('REJECTED')
+  })
+
+  it('a conflicting PUBLISHED-vs-REJECTED race on the same SUBMITTED artwork: exactly one decision commits — the artwork is never left published-and-rejected or in a mixed state', async () => {
+    let status: string = 'SUBMITTED'
+    let releaseSecondRead: () => void = () => {}
+    const secondReadGate = new Promise<void>((resolve) => {
+      releaseSecondRead = resolve
+    })
+    let getCallCount = 0
+
+    artworksGet.mockImplementation(async () => {
+      getCallCount += 1
+      if (getCallCount === 2) await secondReadGate
+      return { exists: true, data: () => ({ status }) }
+    })
+    artworksUpdate.mockImplementation(async (patch: { status: string }) => {
+      status = patch.status
+      releaseSecondRead()
+    })
+
+    const results = await Promise.allSettled([
+      decideArtworkByArtworkId('a1', 'PUBLISHED'),
+      decideArtworkByArtworkId('a1', 'REJECTED', { rejectionReason: 'reason' }),
+    ])
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    expect(artworksUpdate).toHaveBeenCalledTimes(1)
+    expect(['PUBLISHED', 'REJECTED']).toContain(status)
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0].reason as Error).message).toMatch(/not awaiting review/i)
   })
 })

@@ -113,6 +113,17 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.role == role;
     }
 
+    // Module 13 Phase 3 — the Admin Control Center's review queues need an
+    // ADMIN/SUPER_ADMIN to list documents that are not their own, which no
+    // rule in this file granted before this module (every prior privileged
+    // write went through the Admin SDK, which always bypasses these rules
+    // entirely — no client-side read was ever needed for one). Reused below
+    // exactly like hasRole('SELLER') already is: never trusts request.data
+    // or any Firestore-mirrored field, only the server-verified token claim.
+    function isAdmin() {
+      return hasRole('ADMIN') || hasRole('SUPER_ADMIN');
+    }
+
     // A client-issued application. `status` is forced to 'PENDING' here
     // regardless of what the client sends — the only path to 'APPROVED' is
     // functions/src/promoteSeller.ts (Admin SDK, bypasses rules entirely,
@@ -138,7 +149,21 @@ service cloud.firestore {
     // is rejected here as an unauthorized update, giving "one application
     // per seller, never client-modifiable after submission" for free.
     match /sellers/{uid} {
-      allow read: if isOwner(uid);
+      // Module 13 Phase 3 — purely additive `||`: the owner-only branch is
+      // completely unchanged. An ADMIN/SUPER_ADMIN may read a PENDING
+      // application only — the exact, narrow scope the seller-application
+      // review queue needs, never an already-decided (APPROVED/REJECTED)
+      // one, which that queue has no reason to list. Every write rule below
+      // is untouched — this grants read access only, nothing else.
+      // `resource != null` is required before touching `resource.data` —
+      // real-emulator testing of this exact query (a genuine `list`, the
+      // first one ever issued against this collection; every prior read
+      // here was a single-document `get` by the doc's own owner, who always
+      // exists) surfaced that Firestore's rule evaluator can throw a real
+      // "Null value error" evaluating `resource.data.status` without this
+      // guard — the same class of failure the artworks rule below already
+      // documents and guards against for the same reason.
+      allow read: if isOwner(uid) || (resource != null && resource.data.status == 'PENDING' && isAdmin());
       allow create: if isOwner(uid) &&
         request.resource.data.uid == uid &&
         isValidSellerApplication(request.resource.data);
@@ -333,9 +358,16 @@ service cloud.firestore {
       // this is safe for any authenticated user, not just an owner;
       // reading an *existing*, non-PUBLISHED artwork still requires true
       // ownership.
+      // Module 13 Phase 3 — the third, purely additive branch: an
+      // ADMIN/SUPER_ADMIN may read a SUBMITTED artwork, the exact and only
+      // scope the artwork-moderation review queue needs. DRAFT stays
+      // exactly as owner-private as before this module (no branch here ever
+      // grants an admin access to it), and PUBLISHED was already public via
+      // the first branch above — this only ever adds SUBMITTED visibility.
       allow read: if
         (resource != null && resource.data.status == 'PUBLISHED') ||
-        (isSignedIn() && (resource == null || isOwner(resource.data.sellerId)));
+        (isSignedIn() && (resource == null || isOwner(resource.data.sellerId))) ||
+        (isAdmin() && resource != null && resource.data.status == 'SUBMITTED');
 
       allow create: if
         hasRole('SELLER') &&
@@ -346,22 +378,33 @@ service cloud.firestore {
         request.resource.data.createdAt == request.time &&
         request.resource.data.updatedAt == request.time;
 
-      // Two, and only two, legal transitions from an update: (1) editing
-      // ordinary fields while still DRAFT, or (2) submitting — DRAFT to
-      // SUBMITTED with no other field touched. A SUBMITTED artwork can
-      // never be updated at all (neither branch's `resource.data.status`
-      // guard matches it) — covers "locked once submitted" and
-      // "SUBMITTED -> DRAFT: denied" together, not as separate checks. This
-      // is also, unchanged, exactly what makes SUBMITTED -> PUBLISHED and
-      // SUBMITTED -> REJECTED (Module 07) structurally impossible from a
-      // client: no branch here ever matches a SUBMITTED (or PUBLISHED, or
-      // REJECTED) starting status at all, for any target status — the only
-      // way either transition ever happens is functions/src/
-      // publishArtwork.ts's Admin SDK write, which bypasses rules entirely.
-      // The pre-existing owner-gated block below is completely unchanged —
-      // Module 12 adds isValidLikeCountUpdate() as a sibling alternative via
-      // this top-level `||`, never touching the seller/owner branches or
-      // their own conditions in any way.
+      // Legal transitions from an update, as of Module 13 Phase 4: (1)
+      // editing ordinary fields while still DRAFT, (2) submitting — DRAFT to
+      // SUBMITTED with no other field touched, (3) a PUBLISHED artwork's
+      // owner changing only the three fields that carry no content-
+      // moderation risk (price/inventoryCount/tags) while remaining
+      // PUBLISHED, or (4) a PUBLISHED or REJECTED artwork's owner editing
+      // real public content (title/description/category/images, optionally
+      // alongside price/inventoryCount/tags too) — which can never stay live
+      // unreviewed, so this branch's *only* target status is SUBMITTED,
+      // re-entering the exact same Admin moderation queue Module 13 Phases
+      // 1-3 already built, with reviewedAt/rejectionReason forced back to
+      // null (a client-chosen value here would be a real gap: it could carry
+      // a stale/forged prior decision into the new review cycle).
+      // A SUBMITTED artwork can still never be updated at all by its owner —
+      // no branch's `resource.data.status` guard ever matches it — covers
+      // "locked while awaiting review" and "SUBMITTED -> DRAFT/PUBLISHED
+      // denied" together, not as separate checks. This is also, unchanged,
+      // exactly what makes SUBMITTED -> PUBLISHED and SUBMITTED -> REJECTED
+      // structurally impossible from a client: the only way either
+      // transition ever happens is functions/src/publishArtwork.ts's
+      // Admin-SDK write (via the Module 13 moderateArtwork callable),
+      // which bypasses rules entirely. Every branch below independently
+      // re-requires isOwner(resource.data.sellerId) via the shared outer
+      // condition — a non-owner (any role) is denied by every branch alike.
+      // The pre-existing owner-gated block is otherwise completely
+      // unchanged — Module 12's isValidLikeCountUpdate() sibling alternative
+      // via the top-level `||` is also untouched.
       allow update: if
         (
           isOwner(resource.data.sellerId) &&
@@ -386,7 +429,39 @@ service cloud.firestore {
             (resource.data.status == 'DRAFT' &&
              request.resource.data.status == 'SUBMITTED' &&
              request.resource.data.images == resource.data.images &&
-             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']))
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+            // Module 13 Phase 4 — safe commerce-only fields on a PUBLISHED
+            // artwork: no re-review needed, since none of these three carry
+            // any public-content/moderation risk. hasOnly() alone (no
+            // separate equality checks) is what proves title/description/
+            // category/images stayed byte-identical — any real change to
+            // them would necessarily appear in the diff and violate this
+            // hasOnly(), exactly like the DRAFT branch above already relies
+            // on the same mechanism.
+            (resource.data.status == 'PUBLISHED' &&
+             request.resource.data.status == 'PUBLISHED' &&
+             request.resource.data.price is int && request.resource.data.price >= 100 &&
+             request.resource.data.inventoryCount is int && request.resource.data.inventoryCount >= 0 &&
+             request.resource.data.tags is list && request.resource.data.tags.size() <= 10 &&
+             request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['price', 'inventoryCount', 'tags', 'updatedAt'])) ||
+            // Module 13 Phase 4 — editing real public content (or any field)
+            // on a PUBLISHED or REJECTED artwork always re-enters moderation
+            // — the seller's own client can never keep it live/rejected with
+            // unreviewed content, and can never choose reviewedAt/
+            // rejectionReason itself (both forced to null here, not read
+            // from the request). Reuses isValidArtworkFields/
+            // isValidArtworkImages unchanged — the exact same shape
+            // validation a fresh DRAFT edit already goes through.
+            ((resource.data.status == 'PUBLISHED' || resource.data.status == 'REJECTED') &&
+             request.resource.data.status == 'SUBMITTED' &&
+             isValidArtworkFields(request.resource.data) &&
+             isValidArtworkImages(request.resource.data.images, resource.data.sellerId, artworkId) &&
+             request.resource.data.reviewedAt == null &&
+             request.resource.data.rejectionReason == null &&
+             request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['title', 'description', 'category', 'images', 'price', 'inventoryCount', 'tags',
+                         'status', 'reviewedAt', 'rejectionReason', 'updatedAt']))
           )
         ) ||
         isValidLikeCountUpdate(artworkId);

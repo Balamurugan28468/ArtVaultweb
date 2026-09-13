@@ -50,14 +50,14 @@ export function ArtworkGallery({ images, title }: { images: ArtworkImage[]; titl
         aria-roledescription={sorted.length > 1 ? 'image gallery' : undefined}
         tabIndex={sorted.length > 1 ? 0 : -1}
         onKeyDown={handleKeyDown}
-        className="flex min-h-[20rem] items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-elevated sm:min-h-[28rem] lg:min-h-[34rem]"
+        className="flex min-h-[18rem] items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-elevated sm:min-h-[24rem] lg:min-h-[28rem] xl:min-h-[30rem]"
       >
         {showPrimaryImage ? (
           <img
             key={current.id}
             src={current.url}
             alt={title}
-            className="max-h-[20rem] max-w-full object-contain sm:max-h-[28rem] lg:max-h-[34rem]"
+            className="max-h-[18rem] max-w-full object-contain sm:max-h-[24rem] lg:max-h-[28rem] xl:max-h-[30rem]"
             onError={() => setFailedIds((prev) => new Set(prev).add(current.id))}
           />
         ) : (
@@ -78,7 +78,7 @@ export function ArtworkGallery({ images, title }: { images: ArtworkImage[]; titl
               aria-selected={index === safeIndex}
               aria-label={`View image ${index + 1} of ${sorted.length}`}
               onClick={() => select(index)}
-              className={`h-16 w-16 shrink-0 overflow-hidden rounded-md border-2 transition-colors duration-150 ease-standard ${
+              className={`h-12 w-12 shrink-0 overflow-hidden rounded-md border-2 transition-colors duration-150 ease-standard sm:h-16 sm:w-16 ${
                 index === safeIndex ? 'border-brand-primary' : 'border-border hover:border-border-strong'
               }`}
             >

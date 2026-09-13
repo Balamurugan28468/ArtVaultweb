@@ -26,6 +26,8 @@ export function useSellerStatus(): SellerApplicationState {
           setState({ status: 'not-applied' })
         } else if (application.status === 'APPROVED') {
           setState({ status: 'approved', application })
+        } else if (application.status === 'REJECTED') {
+          setState({ status: 'rejected', application })
         } else {
           setState({ status: 'pending', application })
         }

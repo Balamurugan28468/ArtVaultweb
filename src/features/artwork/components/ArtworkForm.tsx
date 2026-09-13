@@ -1,15 +1,16 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ImageOff } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router'
-import { ArtworkImageManager } from './ArtworkImageManager'
+import { ArtworkImageManager, type ArtworkImageManagerHandle } from './ArtworkImageManager'
 import { ConfirmDeleteDraftModal } from './ConfirmDeleteDraftModal'
+import { ConfirmResubmitModal } from './ConfirmResubmitModal'
 import { useCreateArtwork } from '../hooks/useCreateArtwork'
 import { useUpdateArtwork } from '../hooks/useUpdateArtwork'
 import { artworkDraftSchema, parseTags, type ArtworkDraftFormValues } from '../schemas'
 import { ARTWORK_CATEGORIES, type Artwork, type ArtworkDraftInput } from '../types'
-import { Button, Input, TextArea } from '@/shared/ui'
+import { Badge, Button, Input, TextArea } from '@/shared/ui'
 
 const CATEGORY_LABEL: Record<(typeof ARTWORK_CATEGORIES)[number], string> = {
   painting: 'Painting',
@@ -33,14 +34,39 @@ function toFormValues(artwork?: Artwork): ArtworkDraftFormValues {
   }
 }
 
+/**
+ * Module 13 Phase 4 — a PUBLISHED artwork's price/inventoryCount/tags carry
+ * no content-moderation risk (see firestore.rules' own matching branch);
+ * title/description/category are real public content, so any change to
+ * them is what routes a save back into moderation instead of staying live.
+ * `imagesDirty` folds in the photo-editing follow-up: adding, removing,
+ * replacing, or reordering a photo is exactly as material a change as
+ * editing the title — see ArtworkImageManagerHandle/useArtworkImages'
+ * `isDirty`, which the caller passes in here rather than this function
+ * reaching into image state itself.
+ */
+function hasMaterialChange(original: Artwork, input: ArtworkDraftInput, imagesDirty: boolean): boolean {
+  return (
+    imagesDirty ||
+    original.title !== input.title.trim() ||
+    original.description !== input.description.trim() ||
+    original.category !== input.category
+  )
+}
+
 export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: (artworkId: string) => void }) {
   const isEdit = !!artwork
-  const isLocked = artwork?.status === 'SUBMITTED'
+  const isAwaitingReview = artwork?.status === 'SUBMITTED'
+  const isPublished = artwork?.status === 'PUBLISHED'
+  const isRejected = artwork?.status === 'REJECTED'
   const navigate = useNavigate()
   const { create, status: createStatus } = useCreateArtwork()
-  const { update, submit, remove, status: mutateStatus } = useUpdateArtwork()
+  const { update, submit, remove, updateSafeFields, resubmitForReview, status: mutateStatus } = useUpdateArtwork()
   const [actionError, setActionError] = useState<string | null>(null)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  const [confirmResubmitOpen, setConfirmResubmitOpen] = useState(false)
+  const [pendingResubmitInput, setPendingResubmitInput] = useState<ArtworkDraftInput | null>(null)
+  const imageManagerRef = useRef<ArtworkImageManagerHandle>(null)
 
   const {
     register,
@@ -67,14 +93,52 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
       inventoryCount: Number(values.inventoryCount),
     }
     try {
-      if (artwork) {
-        await update(artwork.id, input)
-        onSaved(artwork.id)
-      } else {
+      if (!artwork) {
         const id = await create(input)
         onSaved(id)
+        return
       }
+
+      if (isRejected) {
+        // Always an explicit resubmission — the confirmation makes it
+        // doubly so, even though a REJECTED artwork has no live visibility
+        // to lose by comparison to a PUBLISHED one.
+        setPendingResubmitInput(input)
+        setConfirmResubmitOpen(true)
+        return
+      }
+
+      if (isPublished) {
+        const imagesDirty = imageManagerRef.current?.isDirty ?? false
+        if (hasMaterialChange(artwork, input, imagesDirty)) {
+          setPendingResubmitInput(input)
+          setConfirmResubmitOpen(true)
+          return
+        }
+        await updateSafeFields(artwork.id, { price: input.price, inventoryCount: input.inventoryCount, tags: input.tags })
+        onSaved(artwork.id)
+        return
+      }
+
+      await update(artwork.id, input)
+      onSaved(artwork.id)
     } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Something went wrong. Please try again.')
+    }
+  }
+
+  const handleConfirmResubmit = async () => {
+    if (!artwork || !pendingResubmitInput) return
+    setActionError(null)
+    const images = imageManagerRef.current?.getImagesForSave() ?? artwork.images
+    try {
+      await resubmitForReview(artwork.id, pendingResubmitInput, images)
+      imageManagerRef.current?.finalizeSave(images)
+      setConfirmResubmitOpen(false)
+      setPendingResubmitInput(null)
+      onSaved(artwork.id)
+    } catch (error) {
+      setConfirmResubmitOpen(false)
       setActionError(error instanceof Error ? error.message : 'Something went wrong. Please try again.')
     }
   }
@@ -103,11 +167,14 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
     }
   }
 
-  if (isLocked) {
+  if (isAwaitingReview) {
     return (
       <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <Badge tone="gold">Awaiting review</Badge>
+        </div>
         <p role="status" className="text-sm text-text-secondary">
-          This artwork has been submitted and can no longer be edited.
+          This artwork is awaiting admin review and can't be edited right now.
         </p>
         <dl className="flex flex-col gap-3">
           <div>
@@ -145,6 +212,27 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
   return (
     <>
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
+      {isRejected && (
+        <div className="flex flex-col gap-1.5 rounded-md border border-danger/40 bg-surface-elevated p-3">
+          <div className="flex items-center gap-2">
+            <Badge tone="danger">Rejected</Badge>
+          </div>
+          <p role="status" className="text-sm text-text-secondary">
+            {artwork.rejectionReason
+              ? `Reason: ${artwork.rejectionReason}`
+              : "This artwork wasn't approved. Correct it below and resubmit for another review."}
+          </p>
+        </div>
+      )}
+
+      {isPublished && (
+        <p role="status" className="text-sm text-text-secondary">
+          This artwork is live. Price, inventory, and tag changes save immediately and stay live. Changing the
+          title, description, category, or photos requires admin review — this artwork won't be visible in the
+          marketplace until it's approved again.
+        </p>
+      )}
+
       <div className="flex flex-col gap-1.5">
         <label htmlFor="artwork-title" className="text-sm font-medium text-text-secondary">
           Title
@@ -263,7 +351,7 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
       </div>
 
       {artwork ? (
-        <ArtworkImageManager artwork={artwork} />
+        <ArtworkImageManager artwork={artwork} ref={imageManagerRef} />
       ) : (
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-text-secondary">Photos</span>
@@ -281,27 +369,48 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" disabled={busy}>
-          {isSubmitting || createStatus === 'saving' ? 'Saving…' : 'Save draft'}
-        </Button>
-        {isEdit && (
+        {isPublished ? (
+          <Button type="submit" disabled={busy}>
+            {busy ? 'Saving…' : 'Save changes'}
+          </Button>
+        ) : isRejected ? (
+          <Button type="submit" disabled={busy}>
+            {busy ? 'Saving…' : 'Save & resubmit'}
+          </Button>
+        ) : (
           <>
-            <Button type="button" variant="secondary" onClick={handleSubmitForReview} disabled={busy}>
-              Submit for review
+            <Button type="submit" disabled={busy}>
+              {isSubmitting || createStatus === 'saving' ? 'Saving…' : 'Save draft'}
             </Button>
-            <Button type="button" variant="ghost" onClick={() => setConfirmDeleteOpen(true)} disabled={busy}>
-              Discard draft
-            </Button>
+            {isEdit && (
+              <>
+                <Button type="button" variant="secondary" onClick={handleSubmitForReview} disabled={busy}>
+                  Submit for review
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setConfirmDeleteOpen(true)} disabled={busy}>
+                  Discard draft
+                </Button>
+              </>
+            )}
           </>
         )}
       </div>
       </form>
-      {isEdit && (
+      {isEdit && !isPublished && !isRejected && (
         <ConfirmDeleteDraftModal
           open={confirmDeleteOpen}
           onClose={() => setConfirmDeleteOpen(false)}
           onConfirm={handleConfirmDelete}
           busy={mutateStatus === 'saving'}
+        />
+      )}
+      {isEdit && (isPublished || isRejected) && (
+        <ConfirmResubmitModal
+          open={confirmResubmitOpen}
+          onClose={() => setConfirmResubmitOpen(false)}
+          onConfirm={handleConfirmResubmit}
+          busy={mutateStatus === 'saving'}
+          variant={isRejected ? 'rejected-resubmit' : 'material-change'}
         />
       )}
     </>

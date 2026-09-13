@@ -1,12 +1,15 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { Timestamp } from 'firebase/firestore'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UserProfile } from '@/features/auth/types'
 import { AccountHeader } from './AccountHeader'
 
-vi.mock('@/app/providers/AuthProvider', () => ({
-  useAuth: () => ({ user: { uid: 'alice' }, status: 'authenticated', role: 'CUSTOMER', refreshRole: vi.fn() }),
-}))
+const useAuth = vi.fn()
+vi.mock('@/app/providers/AuthProvider', () => ({ useAuth: () => useAuth() }))
+
+beforeEach(() => {
+  useAuth.mockReturnValue({ user: { uid: 'alice' }, status: 'authenticated', role: 'CUSTOMER', refreshRole: vi.fn() })
+})
 
 const now = Timestamp.now()
 
@@ -47,6 +50,31 @@ describe('AccountHeader', () => {
   it('falls back to email when displayName is missing', () => {
     render(<AccountHeader profile={buildProfile({ displayName: null })} />)
     expect(screen.getByRole('heading', { name: 'alice@example.com' })).toBeInTheDocument()
+  })
+
+  it('shows Admin for the real ADMIN claim even when the Firestore profile mirror is stale at CUSTOMER (the real defect this regression covers)', () => {
+    useAuth.mockReturnValue({ user: { uid: 'alice' }, status: 'authenticated', role: 'ADMIN', refreshRole: vi.fn() })
+    render(<AccountHeader profile={buildProfile({ role: 'CUSTOMER' })} />)
+    expect(screen.getByText('Admin')).toBeInTheDocument()
+    expect(screen.queryByText('Customer')).not.toBeInTheDocument()
+  })
+
+  it('shows Super Admin for the real SUPER_ADMIN claim', () => {
+    useAuth.mockReturnValue({ user: { uid: 'alice' }, status: 'authenticated', role: 'SUPER_ADMIN', refreshRole: vi.fn() })
+    render(<AccountHeader profile={buildProfile({ role: 'CUSTOMER' })} />)
+    expect(screen.getByText('Super Admin')).toBeInTheDocument()
+  })
+
+  it('shows Seller for the real SELLER claim', () => {
+    useAuth.mockReturnValue({ user: { uid: 'alice' }, status: 'authenticated', role: 'SELLER', refreshRole: vi.fn() })
+    render(<AccountHeader profile={buildProfile({ role: 'SELLER' })} />)
+    expect(screen.getByText('Seller')).toBeInTheDocument()
+  })
+
+  it('falls back to the Firestore profile role in the narrow window before the claim has resolved', () => {
+    useAuth.mockReturnValue({ user: { uid: 'alice' }, status: 'authenticated', role: null, refreshRole: vi.fn() })
+    render(<AccountHeader profile={buildProfile({ role: 'SELLER' })} />)
+    expect(screen.getByText('Seller')).toBeInTheDocument()
   })
 
   it('opens the edit profile modal from the Edit profile button', () => {

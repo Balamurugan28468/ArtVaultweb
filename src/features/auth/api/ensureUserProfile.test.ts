@@ -104,6 +104,18 @@ describe('ensureUserProfile', () => {
     expect(tx.set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ role: 'SELLER' }))
   })
 
+  it('does not treat a REJECTED seller application as pending SELLER reconciliation — only APPROVED blocks profile creation (Module 13)', async () => {
+    const tx = fakeTransaction(false)
+    runTransaction.mockImplementationOnce(async (_db: unknown, updateFn: (tx: unknown) => Promise<void>) => {
+      await updateFn(tx)
+    })
+    getDoc.mockResolvedValueOnce({ exists: () => true, data: () => ({ status: 'REJECTED' }) })
+
+    await ensureUserProfile(fakeUser, { role: 'CUSTOMER' })
+
+    expect(tx.set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ role: 'CUSTOMER' }))
+  })
+
   it('treats a rejected write as success if the document turns out to already exist (benign race with onUserCreate)', async () => {
     runTransaction.mockRejectedValueOnce(new Error('permission-denied'))
     getDoc.mockResolvedValueOnce({ exists: () => true })

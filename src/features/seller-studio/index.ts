@@ -1,4 +1,4 @@
-export { applyAsSeller, subscribeSellerApplication, toSellerError } from './api/sellerRepository'
+export { applyAsSeller, mapToSellerApplication, subscribeSellerApplication, toSellerError } from './api/sellerRepository'
 export { SellerApplicationForm } from './components/SellerApplicationForm'
 export { SellerStatusCard } from './components/SellerStatusCard'
 export { SellerStudioShell } from './components/SellerStudioShell'

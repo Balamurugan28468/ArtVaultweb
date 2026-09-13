@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useNavItems } from '@/app/navigation/useNavItems'
 import { SignOutButton } from '@/features/auth'
-import { Drawer, buttonClassName, dropdownItemClassName } from '@/shared/ui'
+import { Drawer, Skeleton, buttonClassName, dropdownItemClassName } from '@/shared/ui'
 
 export function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { status } = useAuth()
@@ -20,6 +20,13 @@ export function NavDrawer({ open, onClose }: { open: boolean; onClose: () => voi
       </nav>
 
       <div className="mt-4 border-t border-border pt-4">
+        {/* Same real regression fix as AppTopBar: never render nothing at
+            all while status is 'loading' — see that file's comment. */}
+        {status === 'loading' && (
+          <div aria-label="Loading account status" role="status" className="flex flex-col gap-2">
+            <Skeleton className="h-11 w-full" />
+          </div>
+        )}
         {status === 'authenticated' ? (
           <SignOutButton onClick={onClose} className={`${dropdownItemClassName} justify-start`} />
         ) : (
@@ -28,8 +35,8 @@ export function NavDrawer({ open, onClose }: { open: boolean; onClose: () => voi
               <Link to="/sign-in" onClick={onClose} className={buttonClassName('secondary', 'md')}>
                 Sign in
               </Link>
-              <Link to="/sign-up" onClick={onClose} className={buttonClassName('primary', 'md')}>
-                Sign up
+              <Link to="/sign-up" onClick={onClose} className={buttonClassName('gold', 'md')}>
+                Create Account
               </Link>
             </div>
           )

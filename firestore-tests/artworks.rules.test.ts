@@ -420,6 +420,292 @@ describe('artworks/{artworkId} rules — SUBMITTED is locked', () => {
       }),
     )
   })
+
+  it('blocks the new PUBLISHED-shaped safe-fields write too — this branch never matches a SUBMITTED starting status', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), { price: 999999, inventoryCount: 1, tags: ['x'], updatedAt: serverTimestamp() }),
+    )
+  })
+})
+
+describe('artworks/{artworkId} rules — PUBLISHED safe-field edit (Module 13 Phase 4)', () => {
+  let artworkId: string
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_PUBLISHED)
+      artworkId = ref.id
+    })
+  })
+
+  it('allows the owner to change price/inventoryCount/tags while remaining PUBLISHED', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), { price: 175000, inventoryCount: 4, tags: ['updated'], updatedAt: serverTimestamp() }),
+    )
+  })
+
+  it('allows changing just one of the three safe fields', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(updateDoc(doc(aliceDb, 'artworks', artworkId), { price: 180000, updatedAt: serverTimestamp() }))
+  })
+
+  it("blocks another seller from editing this seller's PUBLISHED artwork", async () => {
+    const bobDb = sellerContext('bob')
+    await assertFails(updateDoc(doc(bobDb, 'artworks', artworkId), { price: 1, updatedAt: serverTimestamp() }))
+  })
+
+  it('blocks a CUSTOMER from editing a PUBLISHED artwork, even their own uid coincidentally matching nothing here', async () => {
+    const customerDb = customerContext('mallory')
+    await assertFails(updateDoc(doc(customerDb, 'artworks', artworkId), { price: 1, updatedAt: serverTimestamp() }))
+  })
+
+  it('blocks an invalid price (below the minimum)', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { price: 50, updatedAt: serverTimestamp() }))
+  })
+
+  it('blocks a negative inventoryCount', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { inventoryCount: -1, updatedAt: serverTimestamp() }))
+  })
+
+  it('blocks more than 10 tags', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), { tags: Array.from({ length: 11 }, (_, i) => `t${i}`), updatedAt: serverTimestamp() }),
+    )
+  })
+
+  it('blocks touching title in the same write as a safe-field change — this is exactly the moderation-bypass this branch must never allow', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), { title: 'Sneaky rebrand', price: 175000, updatedAt: serverTimestamp() }),
+    )
+  })
+
+  it('blocks touching description in the same write', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), {
+        description: 'A completely different description, unmoderated.',
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+
+  it('blocks touching category in the same write', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { category: 'digital', updatedAt: serverTimestamp() }))
+  })
+
+  it('blocks touching images in the same write', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), {
+        images: [
+          {
+            id: 'img1.jpg',
+            path: `artworks/alice/${artworkId}/img1.jpg`,
+            url: 'http://127.0.0.1:9199/v0/b/demo-artvault.appspot.com/o/img1.jpg?alt=media',
+            order: 0,
+            contentType: 'image/jpeg',
+            size: 1024,
+          },
+        ],
+        updatedAt: serverTimestamp(),
+      }),
+    )
+  })
+
+  it('blocks a forged sellerId (ownership transfer) even on a safe-fields write', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { sellerId: 'bob', price: 175000, updatedAt: serverTimestamp() }))
+  })
+
+  it('blocks forging reviewedAt or rejectionReason on a safe-fields write', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { reviewedAt: null, price: 175000, updatedAt: serverTimestamp() }))
+    await assertFails(
+      updateDoc(doc(aliceDb, 'artworks', artworkId), { rejectionReason: 'forged', price: 175000, updatedAt: serverTimestamp() }),
+    )
+  })
+
+  it('blocks a client-forged direct PUBLISHED -> SUBMITTED with no real field change and no reviewedAt/rejectionReason reset (must go through the material-edit branch\'s own requirements)', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { status: 'SUBMITTED', updatedAt: serverTimestamp() }))
+  })
+})
+
+describe('artworks/{artworkId} rules — PUBLISHED material-content edit re-enters review (Module 13 Phase 4)', () => {
+  let artworkId: string
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_PUBLISHED)
+      artworkId = ref.id
+    })
+  })
+
+  function materialEdit(overrides: Record<string, unknown> = {}) {
+    return {
+      title: 'Materially Edited Title',
+      description: 'A materially edited description that still meets the length minimum.',
+      price: 150000,
+      category: 'painting',
+      tags: [],
+      inventoryCount: 1,
+      status: 'SUBMITTED',
+      reviewedAt: null,
+      rejectionReason: null,
+      updatedAt: serverTimestamp(),
+      ...overrides,
+    }
+  }
+
+  it('allows the owner to edit title/description/category, moving PUBLISHED -> SUBMITTED and clearing reviewedAt', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(updateDoc(doc(aliceDb, 'artworks', artworkId), materialEdit()))
+  })
+
+  it('allows changing images as part of the same material edit (also exercised end-to-end by ArtworkForm/useArtworkImages\' staged-save flow)', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(
+      updateDoc(
+        doc(aliceDb, 'artworks', artworkId),
+        materialEdit({
+          images: [
+            {
+              id: 'img1.jpg',
+              path: `artworks/alice/${artworkId}/img1.jpg`,
+              url: 'http://127.0.0.1:9199/v0/b/demo-artvault.appspot.com/o/img1.jpg?alt=media',
+              order: 0,
+              contentType: 'image/jpeg',
+              size: 1024,
+            },
+          ],
+        }),
+      ),
+    )
+  })
+
+  it("blocks another seller from editing this seller's PUBLISHED artwork", async () => {
+    const bobDb = sellerContext('bob')
+    await assertFails(updateDoc(doc(bobDb, 'artworks', artworkId), materialEdit()))
+  })
+
+  it('blocks a CUSTOMER from resubmitting a PUBLISHED artwork', async () => {
+    const customerDb = customerContext('mallory')
+    await assertFails(updateDoc(doc(customerDb, 'artworks', artworkId), materialEdit()))
+  })
+
+  it('blocks staying PUBLISHED while changing material content — the whole point of this branch is that it cannot', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), materialEdit({ status: 'PUBLISHED' })))
+  })
+
+  it('blocks jumping straight to REJECTED instead of SUBMITTED — only trusted admin moderation may ever set REJECTED', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), materialEdit({ status: 'REJECTED' })))
+  })
+
+  it('blocks a forged non-null reviewedAt — the client can never carry a fabricated review timestamp into the new cycle', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), materialEdit({ reviewedAt: 999 })))
+  })
+
+  it('blocks a forged non-null rejectionReason — the prior (or a fabricated) reason can never remain active into the new review cycle', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), materialEdit({ rejectionReason: 'forged reason' })))
+  })
+
+  it('blocks a forged sellerId (ownership transfer) on a resubmission write', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), materialEdit({ sellerId: 'bob' })))
+  })
+
+  it('blocks invalid field shapes even on this branch (reuses isValidArtworkFields unchanged)', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), materialEdit({ title: 'A' })))
+  })
+
+  it('blocks sneaking in an unlisted extra field alongside a real material edit', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), materialEdit({ likeCount: 999 })))
+  })
+})
+
+describe('artworks/{artworkId} rules — REJECTED edit & resubmit (Module 13 Phase 4)', () => {
+  let artworkId: string
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_REJECTED)
+      artworkId = ref.id
+    })
+  })
+
+  function resubmitEdit(overrides: Record<string, unknown> = {}) {
+    return {
+      title: 'Corrected Title',
+      description: 'A corrected description that still meets the length minimum.',
+      price: 100000,
+      category: 'painting',
+      tags: [],
+      inventoryCount: 1,
+      status: 'SUBMITTED',
+      reviewedAt: null,
+      rejectionReason: null,
+      updatedAt: serverTimestamp(),
+      ...overrides,
+    }
+  }
+
+  it('allows the owner to correct the artwork and resubmit, REJECTED -> SUBMITTED, clearing the old rejectionReason', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit()))
+  })
+
+  it("blocks another seller from editing this seller's REJECTED artwork", async () => {
+    const bobDb = sellerContext('bob')
+    await assertFails(updateDoc(doc(bobDb, 'artworks', artworkId), resubmitEdit()))
+  })
+
+  it('blocks a CUSTOMER from resubmitting a REJECTED artwork', async () => {
+    const customerDb = customerContext('mallory')
+    await assertFails(updateDoc(doc(customerDb, 'artworks', artworkId), resubmitEdit()))
+  })
+
+  it('blocks the previous rejectionReason from remaining active — a non-null rejectionReason on resubmit is always denied', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit({ rejectionReason: 'blurry photos' })))
+  })
+
+  it('blocks the client from directly forcing REJECTED -> PUBLISHED — only trusted admin moderation may ever publish', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit({ status: 'PUBLISHED' })))
+  })
+
+  it('blocks staying REJECTED while editing fields — a decision is final until a fresh review, never silently patched in place', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit({ status: 'REJECTED' })))
+  })
+
+  it('blocks a forged sellerId (ownership transfer) on resubmission', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit({ sellerId: 'bob' })))
+  })
+
+  it('blocks a forged non-null reviewedAt on resubmission', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit({ reviewedAt: 12345 })))
+  })
+
+  it('blocks invalid field shapes on resubmission (reuses isValidArtworkFields unchanged)', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit({ description: 'short' })))
+  })
 })
 
 describe('artworks/{artworkId} rules — PUBLISHED is publicly readable (Module 07)', () => {
@@ -613,6 +899,73 @@ describe('artworks/{artworkId} rules — SUBMITTED stays private (Module 07 regr
     })
     const anonDb = testEnv.unauthenticatedContext().firestore()
     await assertFails(getDoc(doc(anonDb, 'artworks', artworkId)))
+  })
+})
+
+describe('artworks/{artworkId} rules — ADMIN queue read access (Module 13 Phase 3)', () => {
+  async function seedFixtures() {
+    const ids: Record<string, string> = {}
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const submitted = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_SUBMITTED)
+      ids.submitted = submitted.id
+      const draft = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_DRAFT)
+      ids.draft = draft.id
+      const rejected = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_REJECTED)
+      ids.rejected = rejected.id
+    })
+    return ids
+  }
+
+  it('lets an ADMIN read a SUBMITTED artwork that is not their own', async () => {
+    const { submitted } = await seedFixtures()
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertSucceeds(getDoc(doc(adminDb, 'artworks', submitted)))
+  })
+
+  it('lets a SUPER_ADMIN read a SUBMITTED artwork that is not their own', async () => {
+    const { submitted } = await seedFixtures()
+    const superAdminDb = testEnv.authenticatedContext('super-1', { role: 'SUPER_ADMIN' }).firestore()
+    await assertSucceeds(getDoc(doc(superAdminDb, 'artworks', submitted)))
+  })
+
+  it('blocks an ADMIN from reading a DRAFT artwork — the queue grant covers SUBMITTED only', async () => {
+    const { draft } = await seedFixtures()
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertFails(getDoc(doc(adminDb, 'artworks', draft)))
+  })
+
+  it('blocks an ADMIN from reading an already-REJECTED artwork — no need for the queue to list a decided artwork', async () => {
+    const { rejected } = await seedFixtures()
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertFails(getDoc(doc(adminDb, 'artworks', rejected)))
+  })
+
+  it('blocks a CUSTOMER and a non-owning SELLER from reading a SUBMITTED artwork — the new grant is admin-only', async () => {
+    const { submitted } = await seedFixtures()
+    const customerDb = customerContext('mallory')
+    await assertFails(getDoc(doc(customerDb, 'artworks', submitted)))
+    const otherSellerDb = sellerContext('bob')
+    await assertFails(getDoc(doc(otherSellerDb, 'artworks', submitted)))
+  })
+
+  it('an ADMIN query for status == SUBMITTED returns exactly the SUBMITTED artworks, never DRAFT/REJECTED ones', async () => {
+    const { submitted } = await seedFixtures()
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    const snapshot = await assertSucceeds(getDocs(query(collection(adminDb, 'artworks'), where('status', '==', 'SUBMITTED'))))
+    expect(snapshot.docs.map((d) => d.id)).toEqual([submitted])
+  })
+
+  it('an ADMIN query for status == DRAFT is denied outright — the read grant never covers non-SUBMITTED statuses, queried or not', async () => {
+    await seedFixtures()
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertFails(getDocs(query(collection(adminDb, 'artworks'), where('status', '==', 'DRAFT'))))
+  })
+
+  it("an ADMIN's new read access grants no write capability — update/delete remain exactly as before", async () => {
+    const { submitted } = await seedFixtures()
+    const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
+    await assertFails(updateDoc(doc(adminDb, 'artworks', submitted), { status: 'PUBLISHED' }))
+    await assertFails(deleteDoc(doc(adminDb, 'artworks', submitted)))
   })
 })
 

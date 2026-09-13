@@ -254,6 +254,75 @@ export async function submitArtwork(id: string): Promise<void> {
   }
 }
 
+export interface ArtworkSafeFieldsInput {
+  price: number
+  inventoryCount: number
+  tags: string[]
+}
+
+/**
+ * Module 13 Phase 4 — the only write path that may touch a PUBLISHED
+ * artwork while it stays PUBLISHED: exactly the three commerce fields that
+ * carry no content-moderation risk. Writing only these keys (never
+ * title/description/category/images alongside them) is what lets
+ * `firestore.rules`' matching branch prove — via `diff().affectedKeys()
+ * .hasOnly(...)`, not by trusting this function — that no public content
+ * changed. Use `resubmitArtworkForReview` below for any change to real
+ * content.
+ */
+export async function updatePublishedArtworkSafeFields(id: string, input: ArtworkSafeFieldsInput): Promise<void> {
+  try {
+    await updateDoc(artworkDocRef(id), {
+      price: input.price,
+      inventoryCount: input.inventoryCount,
+      tags: input.tags,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (error) {
+    throw toArtworkError(error)
+  }
+}
+
+/**
+ * Module 13 Phase 4 (and its own photo-editing follow-up) — the seller-facing
+ * path back into moderation: a PUBLISHED artwork whose owner is changing real
+ * public content (title/description/category/images), or a REJECTED
+ * artwork's owner correcting it and asking for a fresh decision. Both cases
+ * end at exactly the same place — `status: 'SUBMITTED'`, `reviewedAt`/
+ * `rejectionReason` both reset to `null` so a stale prior decision can never
+ * read as the active one during the new review cycle — because
+ * `firestore.rules` itself treats them as the same transition (see its own
+ * comment); this function mirrors that unification rather than duplicating
+ * it into two near-identical functions.
+ *
+ * `images` is always written explicitly (never merged from the caller's
+ * stale copy) — the caller (ArtworkForm, via useArtworkImages'
+ * `getImagesForSave`) is expected to pass the exact array it wants
+ * persisted, already renumbered. Reusing the same `isValidArtworkImages`
+ * shape-check firestore.rules already applies to every other images write
+ * means a bad array is rejected server-side exactly as it would be anywhere
+ * else, not specially trusted here.
+ */
+export async function resubmitArtworkForReview(id: string, input: ArtworkDraftInput, images: ArtworkImage[]): Promise<void> {
+  try {
+    await updateDoc(artworkDocRef(id), {
+      title: input.title.trim(),
+      description: input.description.trim(),
+      price: input.price,
+      category: input.category,
+      tags: input.tags,
+      images,
+      inventoryCount: input.inventoryCount,
+      status: 'SUBMITTED',
+      reviewedAt: null,
+      rejectionReason: null,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (error) {
+    throw toArtworkError(error)
+  }
+}
+
 /** Only ever called while an artwork is still DRAFT — firestore.rules rejects deleting a SUBMITTED one. */
 export async function deleteArtworkDraft(id: string): Promise<void> {
   try {

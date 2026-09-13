@@ -16,6 +16,7 @@ function buildApplication(overrides: Partial<SellerApplication> = {}): SellerApp
     contactEmail: 'alice@example.com',
     appliedAt: now,
     reviewedAt: null,
+    rejectionReason: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -42,5 +43,39 @@ describe('SellerStatusCard', () => {
     )
     expect(screen.getByText('Approved')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /go to seller studio/i })).toHaveAttribute('href', '/seller-studio')
+  })
+
+  it('shows the real rejection reason and no Seller Studio link once REJECTED — never a fabricated or generic excuse', () => {
+    render(
+      <MemoryRouter>
+        <SellerStatusCard
+          application={buildApplication({ status: 'REJECTED', rejectionReason: 'Portfolio does not meet our quality guidelines.' })}
+        />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Not approved')).toBeInTheDocument()
+    expect(screen.getByText(/wasn't approved this time/i)).toBeInTheDocument()
+    expect(screen.getByText(/Portfolio does not meet our quality guidelines\./)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /seller studio/i })).not.toBeInTheDocument()
+  })
+
+  it('never offers a reapply action for a REJECTED application — no such path exists', () => {
+    render(
+      <MemoryRouter>
+        <SellerStatusCard application={buildApplication({ status: 'REJECTED', rejectionReason: 'x' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('handles a REJECTED application with no rejection reason gracefully — no "null"/"undefined" text', () => {
+    render(
+      <MemoryRouter>
+        <SellerStatusCard application={buildApplication({ status: 'REJECTED', rejectionReason: null })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText(/wasn't approved this time/i)).toBeInTheDocument()
+    expect(screen.queryByText(/null|undefined/i)).not.toBeInTheDocument()
   })
 })

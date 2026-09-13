@@ -28,12 +28,14 @@ const {
   deleteArtworkDraft,
   mapToArtwork,
   mutateArtworkImages,
+  resubmitArtworkForReview,
   subscribeArtwork,
   subscribePublishedArtworks,
   subscribeSellerArtworks,
   submitArtwork,
   toArtworkError,
   updateArtworkDraft,
+  updatePublishedArtworkSafeFields,
 } = await import('./artworkRepository')
 
 const INPUT = {
@@ -99,6 +101,59 @@ describe('submitArtwork', () => {
     updateDoc.mockResolvedValueOnce(undefined)
     await submitArtwork('a1')
     expect(updateDoc).toHaveBeenCalledWith(expect.anything(), { status: 'SUBMITTED', updatedAt: 'SERVER_TIMESTAMP' })
+  })
+})
+
+describe('updatePublishedArtworkSafeFields (Module 13 Phase 4)', () => {
+  it('writes only price/inventoryCount/tags plus a fresh updatedAt — never status/title/description/category/images', async () => {
+    updateDoc.mockResolvedValueOnce(undefined)
+
+    await updatePublishedArtworkSafeFields('a1', { price: 1750, inventoryCount: 4, tags: ['updated'] })
+
+    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
+      price: 1750,
+      inventoryCount: 4,
+      tags: ['updated'],
+      updatedAt: 'SERVER_TIMESTAMP',
+    })
+  })
+
+  it('translates a raw Firestore error into a safe ArtworkError', async () => {
+    updateDoc.mockRejectedValueOnce({ code: 'permission-denied' })
+    await expect(updatePublishedArtworkSafeFields('a1', { price: 1, inventoryCount: 1, tags: [] })).rejects.toMatchObject({
+      code: 'permission-denied',
+    })
+  })
+})
+
+describe('resubmitArtworkForReview (Module 13 Phase 4; images added by its photo-editing follow-up)', () => {
+  const IMAGES: ArtworkImage[] = [
+    { id: 'img1.jpg', path: 'artworks/alice/a1/img1.jpg', url: 'https://example.test/img1.jpg', order: 0, contentType: 'image/jpeg', size: 100 },
+  ]
+
+  it('writes the full editable field set including images, forces status to SUBMITTED, and clears reviewedAt/rejectionReason', async () => {
+    updateDoc.mockResolvedValueOnce(undefined)
+
+    await resubmitArtworkForReview('a1', INPUT, IMAGES)
+
+    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
+      title: 'Sunset',
+      description: 'A painting.',
+      price: 1500,
+      category: 'painting',
+      tags: ['blue', 'abstract'],
+      images: IMAGES,
+      inventoryCount: 2,
+      status: 'SUBMITTED',
+      reviewedAt: null,
+      rejectionReason: null,
+      updatedAt: 'SERVER_TIMESTAMP',
+    })
+  })
+
+  it('translates a raw Firestore error into a safe ArtworkError', async () => {
+    updateDoc.mockRejectedValueOnce({ code: 'permission-denied' })
+    await expect(resubmitArtworkForReview('a1', INPUT, IMAGES)).rejects.toMatchObject({ code: 'permission-denied' })
   })
 })
 

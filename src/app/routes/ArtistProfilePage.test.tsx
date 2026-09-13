@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import { ArtistProfilePage } from './ArtistProfilePage'
@@ -64,5 +64,34 @@ describe('ArtistProfilePage', () => {
     useArtistProfile.mockReturnValue({ status: 'loaded', profile: { uid: 'alice', displayName: 'Alice Fine Art' } })
     renderPage()
     expect(screen.queryByText(/sign in/i)).not.toBeInTheDocument()
+  })
+
+  // UI-01 visual rebuild — real Artworks/About tabs; Collections/Reviews
+  // are honestly disabled, never a dead link (see this page's own comment).
+  describe('tabs (UI-01)', () => {
+    it('shows Artworks by default', () => {
+      useArtistProfile.mockReturnValue({ status: 'loaded', profile: { uid: 'alice', displayName: 'Alice Fine Art', bio: 'Real bio.' } })
+      renderPage()
+
+      expect(screen.getByRole('tab', { name: 'Artworks', selected: true })).toBeInTheDocument()
+      expect(screen.getByText('public artworks section')).toBeInTheDocument()
+    })
+
+    it('switches to About and shows the real bio', () => {
+      useArtistProfile.mockReturnValue({ status: 'loaded', profile: { uid: 'alice', displayName: 'Alice Fine Art', bio: 'Real bio.' } })
+      renderPage()
+
+      fireEvent.click(screen.getByRole('tab', { name: 'About' }))
+      expect(screen.getByText('Real bio.')).toBeInTheDocument()
+      expect(screen.queryByText('public artworks section')).not.toBeInTheDocument()
+    })
+
+    it('Collections and Reviews are genuinely disabled — never a dead link', () => {
+      useArtistProfile.mockReturnValue({ status: 'loaded', profile: { uid: 'alice', displayName: 'Alice Fine Art', bio: 'Real bio.' } })
+      renderPage()
+
+      expect(screen.getByRole('tab', { name: 'Collections' })).toHaveAttribute('aria-disabled', 'true')
+      expect(screen.getByRole('tab', { name: 'Reviews' })).toHaveAttribute('aria-disabled', 'true')
+    })
   })
 })

@@ -277,3 +277,125 @@ describe('useArtworkImages — moveImage', () => {
     expect(captured.map((img) => img.order)).toEqual([0, 1])
   })
 })
+
+// Module 13's photo-editing follow-up: PUBLISHED/REJECTED never commit an
+// image action to Firestore immediately (the first one would flip status to
+// SUBMITTED and lock the document, per firestore.rules — see the required
+// "SUBMITTED cannot mutate photos" test elsewhere). Every action instead
+// stages locally until ArtworkForm's Save actually persists the batch via
+// getImagesForSave()/finalizeSave().
+describe.each(['PUBLISHED', 'REJECTED'] as const)('useArtworkImages — %s (staged material edit)', (status) => {
+  it('is editable, unlike SUBMITTED', () => {
+    const { result } = renderHook(() => useArtworkImages(baseArtwork({ status })))
+    expect(result.current.editable).toBe(true)
+    expect(result.current.staged).toBe(true)
+    expect(result.current.isDirty).toBe(false)
+  })
+
+  it('adding a photo stages it locally without ever calling mutateArtworkImages', async () => {
+    const task = new FakeUploadTask()
+    startArtworkImageUpload.mockReturnValueOnce(task)
+    const { result } = renderHook(() => useArtworkImages(baseArtwork({ status })))
+
+    act(() => result.current.addFiles([makeFile()]))
+    await act(async () => task.emitComplete())
+
+    await waitFor(() => expect(result.current.pending).toHaveLength(0))
+    expect(mutateArtworkImages).not.toHaveBeenCalled()
+    expect(result.current.images).toHaveLength(1)
+    expect(result.current.isDirty).toBe(true)
+  })
+
+  it('removing a pre-existing image stages the removal without deleting its Storage object yet', async () => {
+    const existing: ArtworkImage = { id: 'orig.jpg', path: 'artworks/alice/a1/orig.jpg', url: 'u', order: 0, contentType: 'image/jpeg', size: 1 }
+    const { result } = renderHook(() => useArtworkImages(baseArtwork({ status, images: [existing] })))
+
+    await act(async () => {
+      await result.current.removeImage(existing)
+    })
+
+    expect(result.current.images).toHaveLength(0)
+    expect(mutateArtworkImages).not.toHaveBeenCalled()
+    expect(deleteArtworkImageObject).not.toHaveBeenCalled()
+  })
+
+  it('removing a photo added this same session deletes its Storage object immediately — nothing will ever reference it', async () => {
+    const task = new FakeUploadTask()
+    startArtworkImageUpload.mockReturnValueOnce(task)
+    const { result } = renderHook(() => useArtworkImages(baseArtwork({ status })))
+
+    act(() => result.current.addFiles([makeFile()]))
+    await act(async () => task.emitComplete())
+    await waitFor(() => expect(result.current.images).toHaveLength(1))
+    const added = result.current.images[0]!
+
+    await act(async () => {
+      await result.current.removeImage(added)
+    })
+
+    expect(deleteArtworkImageObject).toHaveBeenCalledWith('artworks/alice/a1/generated.jpg')
+    expect(result.current.images).toHaveLength(0)
+  })
+
+  it('moveImage reorders the staged copy locally without calling mutateArtworkImages', async () => {
+    const first: ArtworkImage = { id: 'a', path: 'p/a', url: 'u', order: 0, contentType: 'image/jpeg', size: 1 }
+    const second: ArtworkImage = { id: 'b', path: 'p/b', url: 'u', order: 1, contentType: 'image/jpeg', size: 1 }
+    const { result } = renderHook(() => useArtworkImages(baseArtwork({ status, images: [first, second] })))
+
+    await act(async () => {
+      await result.current.moveImage('b', 'up')
+    })
+
+    expect(result.current.images.map((img) => img.id)).toEqual(['b', 'a'])
+    expect(mutateArtworkImages).not.toHaveBeenCalled()
+  })
+
+  it('getImagesForSave() returns the staged array, densely renumbered', async () => {
+    const existing: ArtworkImage = { id: 'orig.jpg', path: 'artworks/alice/a1/orig.jpg', url: 'u', order: 0, contentType: 'image/jpeg', size: 1 }
+    const task = new FakeUploadTask()
+    startArtworkImageUpload.mockReturnValueOnce(task)
+    const { result } = renderHook(() => useArtworkImages(baseArtwork({ status, images: [existing] })))
+
+    act(() => result.current.addFiles([makeFile()]))
+    await act(async () => task.emitComplete())
+    await waitFor(() => expect(result.current.images).toHaveLength(2))
+
+    const forSave = result.current.getImagesForSave()
+    expect(forSave.map((img) => img.id)).toEqual(['orig.jpg', 'generated.jpg'])
+    expect(forSave.map((img) => img.order)).toEqual([0, 1])
+  })
+
+  it('finalizeSave() deletes the Storage object for any original image the save dropped, and clears the staged buffer', async () => {
+    const keep: ArtworkImage = { id: 'keep.jpg', path: 'artworks/alice/a1/keep.jpg', url: 'u', order: 0, contentType: 'image/jpeg', size: 1 }
+    const dropped: ArtworkImage = { id: 'dropped.jpg', path: 'artworks/alice/a1/dropped.jpg', url: 'u', order: 1, contentType: 'image/jpeg', size: 1 }
+    const { result } = renderHook(() => useArtworkImages(baseArtwork({ status, images: [keep, dropped] })))
+
+    await act(async () => {
+      await result.current.removeImage(dropped)
+    })
+    expect(deleteArtworkImageObject).not.toHaveBeenCalled()
+
+    act(() => result.current.finalizeSave([keep]))
+
+    expect(deleteArtworkImageObject).toHaveBeenCalledWith('artworks/alice/a1/dropped.jpg')
+    expect(result.current.isDirty).toBe(false)
+  })
+
+  it('never mutates existing images on the server — cancelling (unmounting without finalizeSave) leaves them untouched, but cleans up an orphaned new upload', async () => {
+    const existing: ArtworkImage = { id: 'orig.jpg', path: 'artworks/alice/a1/orig.jpg', url: 'u', order: 0, contentType: 'image/jpeg', size: 1 }
+    const task = new FakeUploadTask()
+    startArtworkImageUpload.mockReturnValueOnce(task)
+    const { result, unmount } = renderHook(() => useArtworkImages(baseArtwork({ status, images: [existing] })))
+
+    act(() => result.current.addFiles([makeFile()]))
+    await act(async () => task.emitComplete())
+    await waitFor(() => expect(result.current.images).toHaveLength(2))
+
+    unmount()
+
+    // The pre-existing image was never touched (no delete for it); only the
+    // uncommitted new upload — now orphaned — is cleaned up.
+    expect(deleteArtworkImageObject).toHaveBeenCalledTimes(1)
+    expect(deleteArtworkImageObject).toHaveBeenCalledWith('artworks/alice/a1/generated.jpg')
+  })
+})

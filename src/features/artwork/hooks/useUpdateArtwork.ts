@@ -1,11 +1,25 @@
 import { useCallback, useState } from 'react'
 import { deleteArtworkImageObject } from '../api/artworkImageStorage'
-import { deleteArtworkDraft, submitArtwork, updateArtworkDraft } from '../api/artworkRepository'
+import {
+  deleteArtworkDraft,
+  resubmitArtworkForReview,
+  submitArtwork,
+  updateArtworkDraft,
+  updatePublishedArtworkSafeFields,
+  type ArtworkSafeFieldsInput,
+} from '../api/artworkRepository'
 import { isArtworkError, type ArtworkDraftInput, type ArtworkError, type ArtworkImage } from '../types'
 
 export type UpdateStatus = 'idle' | 'saving' | 'success' | 'error'
 
-/** Owns update/submit/delete — the three mutations available on an existing artwork — sharing one status/error so any one of them disables the others while in flight. */
+/**
+ * Owns every mutation available on an existing artwork — sharing one
+ * status/error so any one of them disables the others while in flight.
+ * `updateSafeFields`/`resubmitForReview` are Module 13 Phase 4's own
+ * additions for a PUBLISHED/REJECTED artwork's owner; see
+ * artworkRepository.ts for why they're two distinct functions rather than
+ * one that tries to infer intent from a diff.
+ */
 export function useUpdateArtwork() {
   const [status, setStatus] = useState<UpdateStatus>('idle')
   const [error, setError] = useState<ArtworkError | null>(null)
@@ -25,6 +39,14 @@ export function useUpdateArtwork() {
 
   const update = useCallback((id: string, input: ArtworkDraftInput) => runMutation(() => updateArtworkDraft(id, input)), [runMutation])
   const submit = useCallback((id: string) => runMutation(() => submitArtwork(id)), [runMutation])
+  const updateSafeFields = useCallback(
+    (id: string, input: ArtworkSafeFieldsInput) => runMutation(() => updatePublishedArtworkSafeFields(id, input)),
+    [runMutation],
+  )
+  const resubmitForReview = useCallback(
+    (id: string, input: ArtworkDraftInput, images: ArtworkImage[]) => runMutation(() => resubmitArtworkForReview(id, input, images)),
+    [runMutation],
+  )
   // Deletes the draft's own photos first — while the artwork doc still
   // exists and is still DRAFT, the only state storage.rules ever allows a
   // delete in — then the Firestore document itself. Best-effort per image:
@@ -39,5 +61,5 @@ export function useUpdateArtwork() {
     [runMutation],
   )
 
-  return { update, submit, remove, status, error }
+  return { update, submit, remove, updateSafeFields, resubmitForReview, status, error }
 }

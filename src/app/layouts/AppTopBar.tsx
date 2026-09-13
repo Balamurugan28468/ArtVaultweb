@@ -5,17 +5,19 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import { useNavItems } from '@/app/navigation/useNavItems'
 import { BrandLogo } from '@/app/branding/BrandLogo'
 import { SignOutButton } from '@/features/auth'
+import { useCart } from '@/features/cart'
 import { Avatar, buttonClassName, Dropdown, dropdownItemClassName, IconButton, SearchInput, Skeleton } from '@/shared/ui'
 
-// Rendered inline in the top bar, not `home`/`wishlist`/`account` — `home`
-// is redundant with the logo (which already links to "/"), `wishlist` has
-// its own icon just to the right, and `account` lives in the avatar menu.
-// Whatever remains (Explore, Categories, and Seller Studio/Admin for the
-// roles that have them) is exactly the "consumer marketplace nav" the
-// owner's own visual review asked for, sourced from the same single
-// `NAV_ITEMS` list everything else already uses — never a second,
-// independently-maintained nav definition.
-const TOP_BAR_HIDDEN_IDS = new Set(['home', 'wishlist', 'account'])
+// Rendered inline in the top bar, not `home`/`wishlist`/`cart`/`account` —
+// `home` is redundant with the logo (which already links to "/"),
+// `wishlist` and `cart` (UI-02) each already have their own dedicated icon
+// just to the right (with Cart's own item-count badge), and `account`
+// lives in the avatar menu. Whatever remains (Explore, Orders for
+// CUSTOMER/SELLER, and Seller Studio/Admin for the roles that have them)
+// is exactly the "consumer marketplace nav" the owner's own visual review
+// asked for, sourced from the same single `NAV_ITEMS` list everything else
+// already uses — never a second, independently-maintained nav definition.
+const TOP_BAR_HIDDEN_IDS = new Set(['home', 'wishlist', 'cart', 'account'])
 
 export function AppTopBar({ onOpenDrawer }: { onOpenDrawer: () => void }) {
   const { status, user } = useAuth()
@@ -23,6 +25,10 @@ export function AppTopBar({ onOpenDrawer }: { onOpenDrawer: () => void }) {
   const location = useLocation()
   const navItems = useNavItems().filter((item) => !TOP_BAR_HIDDEN_IDS.has(item.id))
   const [searchValue, setSearchValue] = useState('')
+  // CartProvider is mounted for every visitor (guest or signed-in, see
+  // main.tsx) — itemCount reflects a guest's local cart too, matching
+  // Cart itself being genuinely public (UI-02).
+  const { itemCount } = useCart()
 
   // UI-01 — a real shortcut into Explore's own (already-real) search/filter
   // handling, not a second search implementation: this only ever navigates,
@@ -109,17 +115,27 @@ export function AppTopBar({ onOpenDrawer }: { onOpenDrawer: () => void }) {
           >
             <Heart className="h-5 w-5" aria-hidden="true" />
           </Link>
-          {/* Cart/Notifications — honestly disabled (Cart is UI-02;
-              Notifications has no feature behind it yet), never a link to
-              a nonexistent page. Hidden on the smallest phones alongside
-              Wishlist to keep the header from crowding. */}
-          <span
-            aria-disabled="true"
-            title="Cart — coming soon"
-            className="hidden h-11 w-11 cursor-not-allowed items-center justify-center rounded-md text-text-muted opacity-60 sm:inline-flex"
+          {/* Cart is now a real page (UI-02) — genuinely public, same as
+              the Wishlist link just above it. Notifications stays
+              honestly disabled: no feature exists behind it yet. Hidden
+              on the smallest phones alongside Wishlist to keep the header
+              from crowding. */}
+          <Link
+            to="/cart"
+            aria-label={itemCount > 0 ? `Cart, ${itemCount} item${itemCount === 1 ? '' : 's'}` : 'Cart'}
+            title="Cart"
+            className="relative hidden h-11 w-11 items-center justify-center rounded-md text-text-secondary transition-colors duration-150 ease-standard hover:bg-surface-elevated hover:text-text-primary sm:inline-flex"
           >
             <ShoppingCart className="h-5 w-5" aria-hidden="true" />
-          </span>
+            {itemCount > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-gold px-1 text-[10px] font-semibold text-text-on-light"
+              >
+                {itemCount > 99 ? '99+' : itemCount}
+              </span>
+            )}
+          </Link>
           <span
             aria-disabled="true"
             title="Notifications — coming soon"

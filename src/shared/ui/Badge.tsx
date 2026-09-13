@@ -1,12 +1,18 @@
 import type { ReactNode } from 'react'
 
-export type BadgeTone = 'neutral' | 'gold' | 'success' | 'danger'
+export type BadgeTone = 'neutral' | 'gold' | 'success' | 'danger' | 'warning'
 
 const TONE_CLASSES: Record<BadgeTone, string> = {
   neutral: 'bg-surface-elevated text-text-secondary',
   gold: 'bg-accent-gold/15 text-accent-gold',
   success: 'bg-success/15 text-success',
   danger: 'bg-danger/15 text-danger',
+  // UI-02 — added for order-status and stock-level badges (e.g. "Only N
+  // left", PAYMENT_PENDING/REFUND_REQUESTED) that are genuinely a step
+  // short of success/danger, reusing the existing --color-warning token
+  // (already defined in index.css, just not previously exposed as a Badge
+  // tone) rather than introducing a new color.
+  warning: 'bg-warning/15 text-warning',
 }
 
 export type BadgeSize = 'sm' | 'md'

@@ -1,8 +1,9 @@
 import { Box, Sparkles } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { useArtistProfile } from '@/features/artist-profile'
 import { ArtworkGallery, PublicArtworkCard, toArtworkError, usePublicArtwork } from '@/features/artwork'
+import { AddToCartButton, useCart } from '@/features/cart'
 import { LikeButton } from '@/features/likes'
 import { useArtistDisplayNames, useRelatedArtworks } from '@/features/marketplace'
 import { WishlistButton } from '@/features/wishlist'
@@ -56,6 +57,8 @@ export function ArtworkDetailPage() {
   const [arModalOpen, setArModalOpen] = useState(false)
   const [aiModalOpen, setAiModalOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
+  const { addItem } = useCart()
+  const navigate = useNavigate()
 
   const sellerId = artwork?.sellerId
   const artistNames = useArtistDisplayNames(sellerId ? [sellerId] : [])
@@ -180,33 +183,34 @@ export function ArtworkDetailPage() {
               </div>
 
               {/* Commerce area — deliberately separated from the actions
-                  above. Cart/Checkout is Phase 2 (see UI-02): these are
-                  real, visible controls, honestly disabled rather than
-                  hidden, and never pretend a purchase can complete. */}
+                  above. Add to Cart is now real (UI-02): AddToCartButton
+                  writes a genuine cart line (see CartProvider), and Buy Now
+                  adds the item then takes the shopper straight to /cart.
+                  Checkout itself still can't complete a real purchase (no
+                  payment integration exists yet — see CheckoutPage's own
+                  PaymentSection), so neither button ever pretends a
+                  purchase completed. */}
               <div className="flex flex-col gap-2 border-t border-border pt-3 sm:pt-4">
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="md"
-                    disabled
-                    aria-disabled="true"
-                    title="Checkout is coming in a later module"
-                  >
-                    Add to Cart
-                  </Button>
+                  <AddToCartButton artworkId={artwork.id} inventoryCount={artwork.inventoryCount} size="md" />
                   <Button
                     type="button"
                     variant="gold"
                     size="md"
-                    disabled
-                    aria-disabled="true"
-                    title="Checkout is coming in a later module"
+                    disabled={artwork.inventoryCount <= 0}
+                    aria-disabled={artwork.inventoryCount <= 0}
+                    title={artwork.inventoryCount <= 0 ? 'Sold out' : undefined}
+                    onClick={() => {
+                      void addItem(artwork.id, 1)
+                      navigate('/cart')
+                    }}
                   >
                     Buy Now
                   </Button>
                 </div>
-                <p className="text-xs text-text-muted">Checkout is coming in a later module — this artwork isn't purchasable yet.</p>
+                <p className="text-xs text-text-muted">
+                  Checkout collects shipping details, but payment isn't connected yet — an order can't be placed until it is.
+                </p>
               </div>
             </div>
           </div>

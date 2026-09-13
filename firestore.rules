@@ -535,6 +535,62 @@ service cloud.firestore {
       allow delete: if isOwner(uid);
     }
 
+    function isValidCartQuantity(quantity) {
+      return quantity is int && quantity >= 1 && quantity <= 99;
+    }
+
+    // UI-02 — Cart. Mirrors the Wishlist rule shape above (owner-only,
+    // narrow key allow-list) with one addition: `quantity`, since a cart
+    // entry (unlike a wishlist save) genuinely needs one. The artworkId is
+    // the document id itself, never duplicated as a field — same reasoning
+    // as wishlists. No artwork snapshot (price/title/image) is ever stored
+    // here either: the Cart page resolves each id's *current* price at
+    // render time (see useCartLines), so this document can never itself
+    // become a way to lock in a stale/forged price — price stays
+    // authoritative on the artworks/{artworkId} document alone, exactly as
+    // required for any future real checkout. `addedAt` is immutable once
+    // set (an update may only ever change `quantity`); quantity is capped
+    // at a sane ecommerce ceiling here as a basic sanity bound, not as a
+    // substitute for real inventory enforcement — that remains a future
+    // trusted-checkout function's job, never this client-writable document's.
+    match /carts/{uid}/items/{artworkId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) &&
+        request.resource.data.keys().hasOnly(['quantity', 'addedAt']) &&
+        isValidCartQuantity(request.resource.data.quantity) &&
+        request.resource.data.addedAt == request.time;
+      allow update: if isOwner(uid) &&
+        request.resource.data.keys().hasOnly(['quantity', 'addedAt']) &&
+        isValidCartQuantity(request.resource.data.quantity) &&
+        request.resource.data.addedAt == resource.data.addedAt;
+      allow delete: if isOwner(uid);
+    }
+
+    // UI-02 — Orders (read-only foundation). No client write path exists
+    // anywhere in this codebase yet: order creation requires a trusted
+    // server operation (verifying price/inventory and recording real
+    // payment state) that has not been built, exactly as
+    // ARTVAULT_PROJECT_STATE.md's Module 02 planning decisions require for
+    // every other server-authoritative write so far (see publishArtwork.ts
+    // for the precedent this follows). `allow write: if false` —
+    // unconditionally, for every field — is therefore not a placeholder to
+    // relax later but the deliberate current truth: until that trusted
+    // write path exists, the My Orders / Order Details pages can only ever
+    // show real data once it's written by a future trusted operation, and
+    // an honest empty state until then — never a client-fabricated order.
+    // A buyer may only ever read their own order (`buyerId` match); no
+    // other field grants broader access.
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && resource.data.buyerId == request.auth.uid;
+      allow write: if false;
+
+      match /items/{itemId} {
+        allow read: if isSignedIn() &&
+          get(/databases/$(database)/documents/orders/$(orderId)).data.buyerId == request.auth.uid;
+        allow write: if false;
+      }
+    }
+
     // Deny-by-default foundation for every other collection. Each later
     // feature module adds its own explicit, narrowly-scoped rules (with
     // role checks against custom auth claims) when that module is built.

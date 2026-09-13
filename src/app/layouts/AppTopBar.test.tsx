@@ -13,6 +13,14 @@ vi.mock('@/features/auth', () => ({
   ),
 }))
 
+// UI-02 — AppTopBar now reads cart item count for its Cart link/badge;
+// mocked the same way useAuth is, rather than wrapping every render in a
+// real CartProvider (which would pull in Firestore/localStorage for a file
+// whose own concern is auth controls, not cart behavior — see
+// CartProvider's own tests for that).
+const useCart = vi.fn()
+vi.mock('@/features/cart', () => ({ useCart: () => useCart() }))
+
 function renderTopBar() {
   return render(
     <MemoryRouter>
@@ -25,6 +33,7 @@ const CUSTOMER_USER = { displayName: 'Jamie Rivera', email: 'jamie@example.com',
 
 beforeEach(() => {
   useAuth.mockReset()
+  useCart.mockReturnValue({ itemCount: 0 })
 })
 
 describe('AppTopBar — auth controls (regression coverage)', () => {
@@ -91,5 +100,40 @@ describe('AppTopBar — auth controls (regression coverage)', () => {
     useAuth.mockReturnValue({ status: 'authenticated', user: CUSTOMER_USER, role: 'SUPER_ADMIN' })
     renderTopBar()
     expect(screen.getByRole('link', { name: 'Admin Control Center' })).toHaveAttribute('href', '/admin')
+  })
+})
+
+// UI-02: Cart is now a real, working link (previously an honestly-disabled
+// placeholder — see this file's git history / AppTopBar.tsx's own comment).
+describe('AppTopBar — Cart link (UI-02)', () => {
+  it('links to the real /cart route, with no item-count badge when the cart is empty', () => {
+    useAuth.mockReturnValue({ status: 'unauthenticated', user: null, role: null })
+    useCart.mockReturnValue({ itemCount: 0 })
+    renderTopBar()
+
+    expect(screen.getByRole('link', { name: 'Cart' })).toHaveAttribute('href', '/cart')
+  })
+
+  it('shows an item-count badge once the cart has items', () => {
+    useAuth.mockReturnValue({ status: 'unauthenticated', user: null, role: null })
+    useCart.mockReturnValue({ itemCount: 3 })
+    renderTopBar()
+
+    expect(screen.getByRole('link', { name: 'Cart, 3 items' })).toBeInTheDocument()
+  })
+
+  // Real regression this round: Cart going from `comingSoon` to
+  // `available` in NAV_ITEMS (UI-02) made it start appearing in the
+  // inline text-nav row too (sourced from the same NAV_ITEMS list),
+  // duplicating the dedicated Cart icon right next to it — caught before
+  // landing, not after. Mirrors Wishlist's own existing exclusion.
+  it('never shows a second "Cart" text link in the inline nav row — the dedicated icon is the only Cart entry', () => {
+    useAuth.mockReturnValue({ status: 'authenticated', user: CUSTOMER_USER, role: 'CUSTOMER' })
+    useCart.mockReturnValue({ itemCount: 0 })
+    renderTopBar()
+
+    const cartLinks = screen.getAllByRole('link', { name: /^Cart/ })
+    expect(cartLinks).toHaveLength(1)
+    expect(cartLinks[0]).toHaveAttribute('href', '/cart')
   })
 })

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppProviders } from '@/app/providers/AppProviders'
 import { AuthProvider } from '@/app/providers/AuthProvider'
 import { router } from '@/app/routes/router'
+import { CartProvider } from '@/features/cart'
 import { WishlistProvider } from '@/features/wishlist'
 
 vi.mock('@/lib/firebase/config', () => ({ auth: { currentUser: null }, db: {} }))
@@ -57,7 +58,9 @@ describe('router', () => {
       <AppProviders>
         <AuthProvider>
           <WishlistProvider>
-            <RouterProvider router={router} />
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
           </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
@@ -86,7 +89,9 @@ describe('router', () => {
       <AppProviders>
         <AuthProvider>
           <WishlistProvider>
-            <RouterProvider router={router} />
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
           </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
@@ -106,7 +111,9 @@ describe('router', () => {
       <AppProviders>
         <AuthProvider>
           <WishlistProvider>
-            <RouterProvider router={router} />
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
           </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
@@ -124,7 +131,9 @@ describe('router', () => {
       <AppProviders>
         <AuthProvider>
           <WishlistProvider>
-            <RouterProvider router={router} />
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
           </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
@@ -140,7 +149,9 @@ describe('router', () => {
       <AppProviders>
         <AuthProvider>
           <WishlistProvider>
-            <RouterProvider router={router} />
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
           </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
@@ -172,7 +183,9 @@ describe('router', () => {
         <AppProviders>
           <AuthProvider>
             <WishlistProvider>
-              <RouterProvider router={router} />
+              <CartProvider>
+                <RouterProvider router={router} />
+              </CartProvider>
             </WishlistProvider>
           </AuthProvider>
         </AppProviders>,
@@ -190,7 +203,9 @@ describe('router', () => {
       <AppProviders>
         <AuthProvider>
           <WishlistProvider>
-            <RouterProvider router={router} />
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
           </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
@@ -213,7 +228,9 @@ describe('router', () => {
         <AppProviders>
           <AuthProvider>
             <WishlistProvider>
-              <RouterProvider router={router} />
+              <CartProvider>
+                <RouterProvider router={router} />
+              </CartProvider>
             </WishlistProvider>
           </AuthProvider>
         </AppProviders>,
@@ -233,7 +250,9 @@ describe('router', () => {
       <AppProviders>
         <AuthProvider>
           <WishlistProvider>
-            <RouterProvider router={router} />
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
           </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
@@ -250,7 +269,9 @@ describe('router', () => {
       <AppProviders>
         <AuthProvider>
           <WishlistProvider>
-            <RouterProvider router={router} />
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
           </WishlistProvider>
         </AuthProvider>
       </AppProviders>,
@@ -259,5 +280,79 @@ describe('router', () => {
 
     expect(await screen.findByRole('heading', { name: 'Wishlist' }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.queryByText(/sign in/i, { selector: 'h1,h2,p' })).not.toBeInTheDocument()
+  })
+
+  // UI-02 — Cart is genuinely public, same as Wishlist above: a guest can
+  // build a cart before creating an account (see CartProvider's guest mode).
+  it('lazy-loads the real Cart page on direct navigation to "/cart", without requiring authentication', async () => {
+    render(
+      <AppProviders>
+        <AuthProvider>
+          <WishlistProvider>
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
+          </WishlistProvider>
+        </AuthProvider>
+      </AppProviders>,
+    )
+    await router.navigate('/cart')
+
+    expect(await screen.findByRole('heading', { name: 'Cart' }, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.queryByText(/sign in/i, { selector: 'h1,h2,p' })).not.toBeInTheDocument()
+  })
+
+  // UI-02 — unlike Cart, Checkout and Orders are protected: RequireAuth
+  // (router.tsx) must redirect a signed-out visitor to /sign-in rather than
+  // ever rendering a real shipping-address/order-history page for them.
+  it('redirects "/checkout" to "/sign-in" for a signed-out visitor', async () => {
+    render(
+      <AppProviders>
+        <AuthProvider>
+          <WishlistProvider>
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
+          </WishlistProvider>
+        </AuthProvider>
+      </AppProviders>,
+    )
+    await router.navigate('/checkout')
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
+  })
+
+  it('redirects "/orders" to "/sign-in" for a signed-out visitor', async () => {
+    render(
+      <AppProviders>
+        <AuthProvider>
+          <WishlistProvider>
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
+          </WishlistProvider>
+        </AuthProvider>
+      </AppProviders>,
+    )
+    await router.navigate('/orders')
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
+  })
+
+  it('redirects "/orders/some-id" to "/sign-in" for a signed-out visitor', async () => {
+    render(
+      <AppProviders>
+        <AuthProvider>
+          <WishlistProvider>
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
+          </WishlistProvider>
+        </AuthProvider>
+      </AppProviders>,
+    )
+    await router.navigate('/orders/some-id')
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
   })
 })

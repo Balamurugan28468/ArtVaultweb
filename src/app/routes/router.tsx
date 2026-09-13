@@ -36,6 +36,15 @@ const SellerProfilePage = lazy(() =>
   import('@/app/routes/SellerProfilePage').then((m) => ({ default: m.SellerProfilePage })),
 )
 const AdminPage = lazy(() => import('@/app/routes/AdminPage').then((m) => ({ default: m.AdminPage })))
+const CartPage = lazy(() => import('@/app/routes/CartPage').then((m) => ({ default: m.CartPage })))
+const CheckoutPage = lazy(() => import('@/app/routes/CheckoutPage').then((m) => ({ default: m.CheckoutPage })))
+const OrderConfirmationPage = lazy(() =>
+  import('@/app/routes/OrderConfirmationPage').then((m) => ({ default: m.OrderConfirmationPage })),
+)
+const OrdersPage = lazy(() => import('@/app/routes/OrdersPage').then((m) => ({ default: m.OrdersPage })))
+const OrderDetailsPage = lazy(() =>
+  import('@/app/routes/OrderDetailsPage').then((m) => ({ default: m.OrderDetailsPage })),
+)
 const NotFoundPage = lazy(() => import('@/app/routes/NotFoundPage').then((m) => ({ default: m.NotFoundPage })))
 
 export const router = createBrowserRouter([
@@ -53,12 +62,20 @@ export const router = createBrowserRouter([
       // `/categories` link working rather than breaking it outright.
       { path: 'categories', element: <Navigate to="/explore" replace /> },
       { path: 'wishlist', element: <WishlistPage /> },
+      // Cart is genuinely public, same as Wishlist (UI-02) — a guest can
+      // build a cart before creating an account (see CartProvider's
+      // guest/account dual mode). Checkout itself is the protected step.
+      { path: 'cart', element: <CartPage /> },
       { path: 'artists/:artistId', element: <ArtistProfilePage /> },
       { path: 'artworks/:artworkId', element: <ArtworkDetailPage /> },
       {
         element: <RequireAuth />,
         children: [
           { path: 'account', element: <AccountPage /> },
+          { path: 'checkout', element: <CheckoutPage /> },
+          { path: 'checkout/confirmation/:orderId', element: <OrderConfirmationPage /> },
+          { path: 'orders', element: <OrdersPage /> },
+          { path: 'orders/:orderId', element: <OrderDetailsPage /> },
           { path: 'seller/apply', element: <SellerApplicationPage /> },
           {
             element: <RequireRole allow={['SELLER']} />,

@@ -22,24 +22,54 @@ function renderWithRouter() {
 }
 
 describe('AccountSections', () => {
-  it('renders every non-seller future section as a genuinely disabled, non-interactive control', () => {
+  it('renders every still-unimplemented future section as a genuinely disabled, non-interactive control', () => {
     useSellerStatus.mockReturnValue({ status: 'not-applied' })
     renderWithRouter()
 
-    const buttons = screen.getAllByRole('button')
-    expect(buttons.length).toBeGreaterThan(0)
-    for (const button of buttons) {
+    for (const label of ['Addresses', 'Payment methods', 'Notifications', 'Security', 'Reviews', 'Settings']) {
+      const button = screen.getByRole('button', { name: new RegExp(label) })
       expect(button).toBeDisabled()
       expect(button).toHaveAttribute('aria-disabled', 'true')
     }
   })
 
-  it('renders no real links for unimplemented sections — only the one real seller entry', () => {
+  // UI-02: Orders and Wishlist became real, working entries (previously
+  // disabled placeholders); Sign out is a new real entry too. Seller
+  // Studio/"Become a seller" was already the one real entry before this.
+  it('renders exactly the real links this role should see: seller entry, Orders, and Wishlist', () => {
     useSellerStatus.mockReturnValue({ status: 'not-applied' })
     renderWithRouter()
 
     const links = screen.getAllByRole('link')
-    expect(links).toHaveLength(1)
+    expect(links).toHaveLength(3)
+    expect(screen.getByRole('link', { name: /become a seller/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Orders/ })).toHaveAttribute('href', '/orders')
+    expect(screen.getByRole('link', { name: /Wishlist/ })).toHaveAttribute('href', '/wishlist')
+  })
+
+  it('renders a real, working Sign out control', () => {
+    useSellerStatus.mockReturnValue({ status: 'not-applied' })
+    renderWithRouter()
+
+    const signOut = screen.getByRole('button', { name: 'Sign out' })
+    expect(signOut).not.toBeDisabled()
+  })
+
+  it('hides the Orders tile for ADMIN and SUPER_ADMIN — no commerce identity to order with — but still shows Wishlist (available to every role)', () => {
+    useAuth.mockReturnValue({ role: 'ADMIN' })
+    useSellerStatus.mockReturnValue({ status: 'not-applied' })
+    renderWithRouter()
+
+    expect(screen.queryByRole('link', { name: /Orders/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Wishlist/ })).toHaveAttribute('href', '/wishlist')
+  })
+
+  it('shows the Orders tile for a SELLER too', () => {
+    useAuth.mockReturnValue({ role: 'SELLER' })
+    useSellerStatus.mockReturnValue({ status: 'approved', application: { businessName: 'Test Gallery' } })
+    renderWithRouter()
+
+    expect(screen.getByRole('link', { name: /Orders/ })).toHaveAttribute('href', '/orders')
   })
 
   it('shows "Become a seller" linking to the application form when never applied', () => {
@@ -106,18 +136,18 @@ describe('AccountSections', () => {
     expect(screen.queryByText('Seller application page')).not.toBeInTheDocument()
   })
 
-  it('shows a non-interactive placeholder while seller status is loading — never a premature link', () => {
+  it('shows a non-interactive placeholder while seller status is loading — never a premature seller link', () => {
     useSellerStatus.mockReturnValue({ status: 'loading' })
     renderWithRouter()
 
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /become a seller|seller studio/i })).not.toBeInTheDocument()
   })
 
   it('shows a non-interactive placeholder if seller status fails to load, rather than a broken link', () => {
     useSellerStatus.mockReturnValue({ status: 'error', error: { code: 'unknown', message: 'boom' } })
     renderWithRouter()
 
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /become a seller|seller studio/i })).not.toBeInTheDocument()
   })
 
   it('never shows "Become a seller" (or any seller entry) for an ADMIN, even with no seller application at all', () => {
@@ -126,7 +156,7 @@ describe('AccountSections', () => {
     renderWithRouter()
 
     expect(screen.queryByText(/become a seller/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /become a seller|seller studio/i })).not.toBeInTheDocument()
   })
 
   it('never shows "Become a seller" for a SUPER_ADMIN', () => {
@@ -135,6 +165,6 @@ describe('AccountSections', () => {
     renderWithRouter()
 
     expect(screen.queryByText(/become a seller/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /become a seller|seller studio/i })).not.toBeInTheDocument()
   })
 })

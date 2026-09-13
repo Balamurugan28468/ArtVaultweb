@@ -1,7 +1,15 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-13 — UI-01 (Complete Responsive Marketplace UI) is
-**COMPLETE and OWNER APPROVED**, committed together with Module 13 (Admin
+_Last updated: 2026-09-13 — UI-02 (Cart, Checkout, Orders & Account
+Experience) is **COMPLETE and OWNER APPROVED**, committed in its own
+closeout commit. Frontend: **939/939** (up from 793/793 at UI-01's close).
+Firestore rules: **268/268** across 8 files. `tsc -b` clean, `oxlint`
+clean (0 errors, pre-existing warnings only in unrelated files),
+production build clean. See "UI-02 — Cart, Checkout, Orders & Account
+Experience" below for the full write-up. Next UI: **UI-03** (not started).
+
+_Previously: UI-01 (Complete Responsive Marketplace UI) is **COMPLETE and
+OWNER APPROVED**, committed together with Module 13 (Admin
 Control Center, Phases 1-4 — see its own write-up below, already fully
 implemented and tested as of the previous update but not yet committed
 until now). Frontend: **793/793** (up from 689/689 at Module 13 Phase 4).
@@ -1056,6 +1064,112 @@ Wishlist, Likes, Marketplace, artist profiles, authentication, artwork
 upload/Storage handling, and every DRAFT/SUBMITTED artwork-update rule
 path (all unchanged, not just untested) — verified unchanged by the full,
 unmodified regression suite passing alongside the new tests.
+
+## UI-02 — Cart, Checkout, Orders & Account Experience (COMPLETE, OWNER APPROVED)
+
+**Status: COMPLETE / OWNER APPROVED.** Owner manually reviewed on desktop
+and at 350px mobile width and approved: Artwork Detail's Add to Cart,
+`/cart`, `/checkout`, `/orders`, `/account`, the desktop responsive layout,
+and the 350px mobile responsive layout.
+
+**Cart.** A real, Firestore-backed cart — `carts/{uid}/items/{artworkId}`,
+deliberately just `{ quantity, addedAt }`, no price snapshot — resolved
+against the *live* artwork document at render time (`useCartLines`, same
+one-shot-`getArtwork`-per-id/TanStack-cache discipline as Wishlist's own
+`useWishlistArtworks`), so price always stays authoritative on
+`artworks/{artworkId}` alone. Guest (`localStorage`) and signed-in dual
+mode via a new `CartProvider`, mirroring `WishlistProvider`'s merge-on-
+sign-in semantics exactly (add local quantities on top of any existing
+server quantity, never overwrite, clear local storage only once every
+write succeeds). `/cart` shows real line items — thumbnail, title, seller,
+category, live unit price, a quantity stepper capped to the artwork's real
+`inventoryCount`, remove, and "Save for later" (moves the line to
+Wishlist) — plus a real Order Summary (subtotal from live prices;
+shipping/taxes shown as the explicitly-sanctioned "Calculated at
+checkout" placeholder, never a fabricated number). `AddToCartButton`
+replaced Artwork Detail's honest UI-01 placeholder; "Buy Now" adds the
+item and navigates straight to `/cart`.
+
+**Checkout.** Protected by `RequireAuth`. Contact section reads the real
+signed-in account's email/phone. Shipping Address is a real, validated
+(`react-hook-form` + `zod`) form — deliberately session-only: no
+`addresses` collection exists anywhere in this codebase, so rather than
+inventing persistence the form says plainly that saving an address for
+future orders isn't connected yet. Delivery and Payment are honest,
+non-functional sections ("Shipping options aren't connected yet." /
+"Payment integration is not connected yet.") — "Place Order" stays
+genuinely disabled, and nothing in this codebase ever writes an order.
+
+**Orders — read-only foundation.** `orders/{orderId}` and
+`orders/{orderId}/items/{itemId}` were added to `firestore.rules` with
+`allow write: if false` **unconditionally on both** — there is no client
+*or* trusted-server write path for orders anywhere yet, the same
+"server stays authoritative" precedent `publishArtwork.ts` already set for
+trusted review. A buyer may only read their own orders
+(`buyerId == request.auth.uid`). My Orders (`/orders`) and Order Details
+(`/orders/:orderId`) are real, fully wired pages that — correctly and
+honestly — show "No orders yet" for every account today, ready for real
+data the moment a future trusted order-creation operation exists. Order
+Confirmation (`/checkout/confirmation/:orderId`) only ever renders its
+success state for an order whose `paymentState` is genuinely `PAID`; since
+no order can yet be created, this page is real and tested but currently
+unreachable through any flow in the app — the intended, honest result,
+not a gap.
+
+**Account.** Orders and Wishlist became real linked tiles (previously
+disabled UI-01 placeholders); a real Sign Out tile was added alongside
+them. Addresses/Payment methods/Notifications/Security/Reviews/Settings
+remain honest disabled placeholders — no backend exists for any of them
+yet. Role visibility preserved throughout: the Orders tile stays
+CUSTOMER/SELLER-only (ADMIN/SUPER_ADMIN have no commerce identity to order
+with), Wishlist stays open to every role, and Seller Studio/Admin entries
+are unaffected.
+
+**Navigation.** Cart and Orders flipped from `comingSoon` to `available`
+in the single shared `NAV_ITEMS` list, so both now appear as real links in
+the bottom-nav "More" drawer and the hamburger drawer for CUSTOMER/SELLER.
+The top bar's Cart icon became a real link with a live item-count badge —
+and was explicitly excluded from the top bar's separate inline text-nav
+row, catching a real duplicate-navigation regression (Cart already has
+its own dedicated icon there) before it shipped, via a new dedicated test.
+The primary bottom-nav row stays capped at exactly 5 entries, unchanged
+from UI-01; it is a flex sibling in the page column, not a fixed overlay,
+so it has never been able to hide page content beneath it.
+
+**Security.** `carts/{uid}/items/{artworkId}`: owner-only read/write, a
+narrow field allow-list, `addedAt` immutable after creation, quantity
+capped at 99 as a sanity bound only (never a substitute for real inventory
+enforcement, which remains a future trusted checkout's job). `orders`:
+read-only as described above. A Firestore composite index was added for
+`orders` (`buyerId` ascending + `createdAt` descending).
+
+**Intentionally deferred (stated honestly everywhere in the UI, never
+fabricated).** No payment provider is integrated — no Stripe/Razorpay
+keys, no `payments` collection, no Cloud Function. No real order can be
+created yet — order creation, inventory deduction, and status transitions
+all require a future trusted server operation that doesn't exist. No
+delivery/shipping-rate integration exists. No `addresses` collection
+exists — Checkout's shipping address is session-only by design, never
+persisted for reuse on a future order.
+
+**Final automated test/build results (this closing commit).** `tsc -b`:
+clean. `oxlint`: clean, 0 errors (pre-existing warnings only, none in any
+file this pass touched). Frontend test suite: **939/939 passing across
+112 files** (up from 793/793 at UI-01's close — 146 new/changed tests
+added, including dedicated Cart/Checkout/Orders coverage at the
+repository, provider, hook, component, and route levels; none removed).
+Firestore rules: **268/268 passing across 8 files** (two new:
+`carts.rules.test.ts`, `orders.rules.test.ts`). Production build: succeeds
+cleanly (only the pre-existing, unrelated >500kB `AuthProvider-*.js`
+chunk-size advisory).
+
+**Not visually verified by the assistant.** No browser or screenshot tool
+was available in the assistant's environment throughout this pass — every
+round was verified via code inspection and automated tests only. The
+owner performed the real-browser visual verification (desktop and 350px
+mobile) and gave the final approval recorded at the top of this file.
+
+**Next UI: UI-03** (not started — scope is an owner decision).
 
 ## UI-01 — Complete Responsive Marketplace UI (COMPLETE, OWNER APPROVED)
 
@@ -4996,11 +5110,15 @@ module — see "Live emulator verification" above.
 
 ## Next action
 
+UI-02 (Cart, Checkout, Orders & Account Experience) is complete,
+owner-approved, and committed in its own closeout commit, on top of
 UI-01 (Complete Responsive Marketplace UI) and Module 13 (Admin Control
-Center, Phases 1-4) are both complete, owner-approved, and committed
-together in this closeout's own commit. Not pushed (no remote configured).
-No UI-02 or any other later module has been started — next module
-selection and scope for UI-02 is an owner decision. Owner still needs to
-supply the real ArtVault logo asset to the repository when convenient (not
-a blocker — a documented temporary placeholder covers development
-meanwhile; see `public/brand/README.md`).
+Center, Phases 1-4), both already committed previously. Not pushed (no
+remote configured). No UI-03 or any other later module has been started —
+next UI selection and scope for UI-03 is an owner decision. Intentionally
+deferred by UI-02 (real backend work, not yet scoped to any module): a
+payment provider integration, real order creation/inventory enforcement,
+delivery/shipping-rate integration, and a persisted `addresses` collection
+for Checkout. Owner still needs to supply the real ArtVault logo asset to
+the repository when convenient (not a blocker — a documented temporary
+placeholder covers development meanwhile; see `public/brand/README.md`).

@@ -32,8 +32,14 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'marketplace', label: 'Explore', href: '/explore', icon: Grid2x2, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'auction', label: 'Auctions', href: '/auction', icon: Gavel, status: 'comingSoon', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Heart, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
-  { id: 'cart', label: 'Cart', href: '/cart', icon: ShoppingCart, status: 'comingSoon', audiences: ['CUSTOMER', 'SELLER'] },
-  { id: 'orders', label: 'Orders', href: '/orders', icon: Package, status: 'comingSoon', audiences: ['CUSTOMER', 'SELLER'] },
+  // UI-02: Cart and Orders are now real, functional pages (see CartPage,
+  // OrdersPage) — flipped from `comingSoon` to `available`. Audiences
+  // unchanged from the UI-01 placeholder: CUSTOMER/SELLER only, since
+  // ADMIN/SUPER_ADMIN have no commerce identity of their own to shop or
+  // order with (same reasoning AccountSections' SellerSectionCard already
+  // applies to "Become a seller").
+  { id: 'cart', label: 'Cart', href: '/cart', icon: ShoppingCart, status: 'available', audiences: ['CUSTOMER', 'SELLER'] },
+  { id: 'orders', label: 'Orders', href: '/orders', icon: Package, status: 'available', audiences: ['CUSTOMER', 'SELLER'] },
   { id: 'account', label: 'Account', href: '/account', icon: User, status: 'available', audiences: ['CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'seller-studio', label: 'Seller Studio', href: '/seller-studio', icon: LayoutDashboard, status: 'available', audiences: ['SELLER'] },
   { id: 'admin', label: 'Admin Control Center', href: '/admin', icon: ShieldCheck, status: 'available', audiences: ['ADMIN', 'SUPER_ADMIN'] },

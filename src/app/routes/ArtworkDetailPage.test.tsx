@@ -38,6 +38,22 @@ const LikeButton = vi.fn((props: { artworkId: string; likeCount: number }) => (
 ))
 vi.mock('@/features/likes', () => ({ LikeButton: (props: { artworkId: string; likeCount: number }) => LikeButton(props) }))
 
+// UI-02 — real Add to Cart control + the cart context it reads from.
+// Mocked here the same way WishlistButton/LikeButton already are: this
+// file's concern is ArtworkDetailPage's own wiring (does it pass the right
+// artworkId/inventoryCount, does Buy Now call addItem and navigate), not
+// AddToCartButton's or CartProvider's own internal behavior (covered by
+// their own dedicated tests).
+const addItem = vi.fn()
+const useCart = vi.fn(() => ({ addItem, getQuantity: () => 0 }))
+const AddToCartButton = vi.fn((props: { artworkId: string; inventoryCount: number }) => (
+  <button>{props.inventoryCount > 0 ? 'Add to Cart' : 'Sold out'}</button>
+))
+vi.mock('@/features/cart', () => ({
+  useCart: () => useCart(),
+  AddToCartButton: (props: { artworkId: string; inventoryCount: number }) => AddToCartButton(props),
+}))
+
 const { ArtworkDetailPage } = await import('./ArtworkDetailPage')
 
 function renderPage(artworkId = 'a1') {
@@ -157,20 +173,41 @@ describe('ArtworkDetailPage', () => {
     expect(screen.queryByText(/★|\d+(\.\d+)?\s*stars?|only \d+ left|arrives by|business days|\(\d+\)\s*reviews?/i)).not.toBeInTheDocument()
   })
 
-  // UI-01's AR+AI product-wide requirement, plus the owner's explicit
-  // decision to now show real (honestly disabled) commerce controls instead
-  // of hiding them entirely — this deliberately replaces the prior "never
-  // renders a Buy Now control" expectation this test used to assert.
-  describe('commerce area (honestly disabled — Cart/Checkout is Phase 2)', () => {
-    it('shows Add to Cart and Buy Now, both genuinely disabled, with an honest explanation — never a completable purchase', () => {
+  // UI-02 — Add to Cart is now real (AddToCartButton, tested on its own);
+  // this page's own job is just wiring the right artworkId/inventoryCount
+  // into it, and making Buy Now add the item and take the shopper to
+  // /cart. Checkout itself still can't complete a real purchase (no
+  // payment integration), which is covered on CheckoutPage's own tests.
+  describe('commerce area (UI-02 — real Add to Cart / Buy Now)', () => {
+    it('passes the real artworkId and inventoryCount to AddToCartButton', () => {
+      usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork({ inventoryCount: 7 }) })
+      renderPage()
+
+      expect(AddToCartButton).toHaveBeenCalledWith(expect.objectContaining({ artworkId: 'a1', inventoryCount: 7 }))
+    })
+
+    it('Buy Now adds the artwork to the cart and navigates to /cart', () => {
+      usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork({ inventoryCount: 3 }) })
+      renderPage()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Buy Now' }))
+
+      expect(addItem).toHaveBeenCalledWith('a1', 1)
+    })
+
+    it('disables Buy Now and labels it "Sold out" once inventory reaches 0 — never a completable purchase for an out-of-stock artwork', () => {
+      usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork({ inventoryCount: 0 }) })
+      renderPage()
+
+      const buyNow = screen.getByRole('button', { name: 'Buy Now' })
+      expect(buyNow).toBeDisabled()
+    })
+
+    it('explains that payment is not connected yet, without ever claiming checkout itself is unavailable', () => {
       usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
       renderPage()
 
-      const addToCart = screen.getByRole('button', { name: 'Add to Cart' })
-      const buyNow = screen.getByRole('button', { name: 'Buy Now' })
-      expect(addToCart).toBeDisabled()
-      expect(buyNow).toBeDisabled()
-      expect(screen.getByText(/checkout is coming in a later module/i)).toBeInTheDocument()
+      expect(screen.getByText(/payment isn't connected yet/i)).toBeInTheDocument()
     })
   })
 

@@ -18,10 +18,17 @@ describe('useNavItems', () => {
     expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'wishlist'])
   })
 
-  it('adds Account for an authenticated CUSTOMER', () => {
+  it('adds Cart, Orders, and Account for an authenticated CUSTOMER (Cart/Orders are genuinely available, UI-02)', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'CUSTOMER' })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'wishlist', 'account'])
+    expect(result.current.map((item) => item.id)).toEqual([
+      'home',
+      'marketplace',
+      'wishlist',
+      'cart',
+      'orders',
+      'account',
+    ])
   })
 
   // UI-01 mobile correction: Categories was removed as a duplicate of
@@ -79,16 +86,23 @@ describe('useMoreMenuItems', () => {
     expect(result.current.map((item) => item.id)).toEqual(['auction', 'notifications', 'help'])
   })
 
-  it('shows Auctions, Notifications, Cart, and Help for a CUSTOMER — never Seller Studio or Admin', () => {
+  it('shows Auctions, Notifications, Cart, Orders, and Help for a CUSTOMER — never Seller Studio or Admin', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'CUSTOMER' })
     const { result } = renderHook(() => useMoreMenuItems())
-    expect(result.current.map((item) => item.id)).toEqual(['auction', 'notifications', 'cart', 'help'])
+    expect(result.current.map((item) => item.id)).toEqual(['auction', 'notifications', 'cart', 'orders', 'help'])
   })
 
-  it('shows Auctions, Notifications, Cart, Seller Studio, and Help for a SELLER', () => {
+  it('shows Auctions, Notifications, Cart, Orders, Seller Studio, and Help for a SELLER', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'SELLER' })
     const { result } = renderHook(() => useMoreMenuItems())
-    expect(result.current.map((item) => item.id)).toEqual(['auction', 'notifications', 'cart', 'seller-studio', 'help'])
+    expect(result.current.map((item) => item.id)).toEqual([
+      'auction',
+      'notifications',
+      'cart',
+      'orders',
+      'seller-studio',
+      'help',
+    ])
   })
 
   it('shows Auctions, Notifications, Admin Control Center, and Help for ADMIN/SUPER_ADMIN — never Cart', () => {

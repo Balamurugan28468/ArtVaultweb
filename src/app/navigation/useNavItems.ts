@@ -30,8 +30,9 @@ export function useNavItems(): NavItem[] {
 // convention as everywhere else, never a dead link.
 const MORE_MENU_IDS: Record<NavAudience, string[]> = {
   guest: ['auction', 'notifications', 'help'],
-  CUSTOMER: ['auction', 'notifications', 'cart', 'help'],
-  SELLER: ['auction', 'notifications', 'cart', 'seller-studio', 'help'],
+  // UI-02: Orders joins Cart here, both now genuinely `available`.
+  CUSTOMER: ['auction', 'notifications', 'cart', 'orders', 'help'],
+  SELLER: ['auction', 'notifications', 'cart', 'orders', 'seller-studio', 'help'],
   ADMIN: ['auction', 'notifications', 'admin', 'help'],
   SUPER_ADMIN: ['auction', 'notifications', 'admin', 'help'],
 }

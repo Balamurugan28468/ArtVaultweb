@@ -458,6 +458,67 @@ the `/wishlist` page via one `WishlistProvider` mounted near the app root —
 never one listener per artwork card, regardless of how many cards are on
 screen at once.
 
+## `carts/{uid}/items/{artworkId}` (implemented in UI-02)
+
+`{ quantity: number, addedAt: Timestamp }`. Deliberately drops the
+`unitPriceSnapshot` field this doc originally sketched under "Draft
+collection layout" below: a cart line is not yet a purchase, and storing a
+price snapshot here would create a second place price could be read from,
+undermining the one rule that matters most for commerce data —
+`artworks/{artworkId}.price` stays the *only* authoritative source right
+up until an order actually exists. `/cart`
+(`src/app/routes/CartPage.tsx`) resolves each line's *current* artwork data
+at render time via `useCartLines` (one one-shot `getArtwork` read per id,
+same TanStack Query dedup/caching as `useWishlistArtworks`), so a seller's
+price change is reflected immediately and a line total is never computed
+from a stale number. A real order's own `items` subcollection (below) is
+where a genuine, immutable price-at-purchase snapshot belongs instead —
+once a trusted server operation exists to write one.
+
+Otherwise mirrors `wishlists/{uid}/items/{artworkId}` closely: same
+guest/account dual mode (`src/features/cart/api/guestCartStorage.ts` +
+`CartProvider`, merge-on-sign-in with the same "add on top, never
+overwrite an existing server quantity" semantics), and the same
+**Security** shape in `firestore.rules` — `isOwner(uid)` only, a narrow
+field allow-list, `addedAt` immutable after creation (an update may only
+ever change `quantity`, capped at 99 as a sanity bound — never a
+substitute for real inventory enforcement, which remains a future trusted
+checkout's job).
+
+## `orders/{orderId}` + `orders/{orderId}/items/{itemId}` (read-only foundation, implemented in UI-02)
+
+Real shape read by My Orders / Order Details
+(`src/app/routes/OrdersPage.tsx`, `OrderDetailsPage.tsx`) and mapped by
+`src/features/orders/api/orderRepository.ts`: `buyerId`, `status` (one of
+the 13-value lifecycle in `src/features/orders/types.ts` —
+`CREATED`/`PAYMENT_PENDING`/`PAID`/`SELLER_CONFIRMED`/`PROCESSING`/
+`PACKED`/`SHIPPED`/`OUT_FOR_DELIVERY`/`DELIVERED`/`CANCELLED`/
+`REFUND_REQUESTED`/`REFUNDED`/`DELIVERY_FAILED`), `paymentState`,
+`subtotal`/`shippingCost`/`total`, a `shippingAddress` snapshot,
+`trackingState`, `statusHistory` (an array of `{ status, at }` events —
+small and bounded by the fixed lifecycle above, unlike the open-ended
+arrays the guiding rule below warns against), and `itemsPreview` (a small
+denormalized `{ title, imageUrl, quantity }` array so the orders *list*
+never needs an extra per-order read of the full `items` subcollection just
+to render a thumbnail). `orders/{orderId}/items/{itemId}` holds the real,
+authoritative per-item snapshot — `artworkId`, `sellerId`, `title`,
+`unitPrice`, `quantity`, `subtotal` — taken at order-creation time, exactly
+as this doc's original "Draft collection layout" sketch below describes:
+an immutable record of what was actually charged and shipped, never
+re-reading the live artwork price after the fact.
+
+**No client write path exists for either collection.** `firestore.rules`
+sets `allow write: if false` unconditionally on both — order creation
+requires verifying real inventory and recording real payment state, which
+needs a trusted server operation (a future Cloud Function) that doesn't
+exist yet, the same reasoning `publishArtwork.ts` already established for
+trusted artwork review. A buyer may only `get`/`list` their own orders
+(`resource.data.buyerId == request.auth.uid`); an order item's read rule
+checks the same condition on its parent via `get()`. Until that trusted
+write path is built, My Orders genuinely, correctly shows "No orders yet"
+for every account — not a bug, the honest result of a collection nothing
+can write to yet.
+
 ## Guiding rule: no unbounded arrays
 
 Any relationship that can grow open-endedly (cart contents, order line
@@ -470,8 +531,9 @@ computed by reading an entire subcollection.
 ## Draft collection layout
 
 (`users/{uid}`, `sellers/{uid}`, `artworks/{artworkId}`, `artists/{artistId}`,
-and `wishlists/{uid}/items/{artworkId}` are now implemented as described
-above; everything below remains design-only. Note `artworks/{artworkId}`
+`wishlists/{uid}/items/{artworkId}`, `carts/{uid}/items/{artworkId}`, and
+`orders/{orderId}` (+ `orders/{orderId}/items/{itemId}`, read-only) are now
+implemented as described above; everything below remains design-only. Note `artworks/{artworkId}`
 will gain an `ar: {...}` sub-object — see that section above — and further
 status values, once the AR and review modules that would actually use them
 exist. The `follows/{artistId}/followers/{followerUid}` entry below refers
@@ -484,15 +546,11 @@ different (and riskier) kind of change than Wishlist, not merely a
 same-shaped feature bundled in for free.)
 
 ```
-carts/{uid}/items/{artworkId}
-  quantity, unitPriceSnapshot, addedAt
-
-orders/{orderId}
-  buyerId, sellerIds[], status, totals, cancellation: { reason, note, at }
-orders/{orderId}/items/{itemId}
-  artworkId, titleSnapshot, unitPriceSnapshot, quantity
-  -- an immutable snapshot taken at purchase time; never re-reads the live
-     artwork price after the fact.
+-- carts/{uid}/items/{artworkId} and orders/{orderId} (+ its items
+   subcollection) are now implemented — see their own sections above
+   rather than this sketch, which described an earlier, since-revised
+   shape (notably: no unitPriceSnapshot on a cart line, and orders has no
+   client write path at all yet).
 
 likes/{artworkId}/by/{uid}
   likedAt

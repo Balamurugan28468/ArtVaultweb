@@ -77,17 +77,6 @@ export function AppTopBar({ onOpenDrawer }: { onOpenDrawer: () => void }) {
               </Link>
             )
           })}
-          {/* Honestly disabled, not hidden — the Auctions module doesn't
-              exist yet (see docs/AUCTION_ARCHITECTURE.md), so this is a
-              genuinely non-interactive label with a "Coming soon" tooltip,
-              never a link to a page that doesn't exist. */}
-          <span
-            aria-disabled="true"
-            title="Auctions — coming soon"
-            className="cursor-not-allowed rounded-md px-3 py-2 text-sm font-medium text-text-muted opacity-60"
-          >
-            Auctions
-          </span>
         </nav>
 
         {/* Hidden on Explore itself — that page already has its own

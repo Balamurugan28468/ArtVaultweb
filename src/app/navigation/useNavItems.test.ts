@@ -9,13 +9,13 @@ describe('useNavItems', () => {
   it('shows only guest-available items while loading (no premature role-gated links)', () => {
     useAuth.mockReturnValue({ status: 'loading', role: null })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'wishlist'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'auction', 'wishlist'])
   })
 
-  it('shows only guest-available items when signed out (Wishlist, Module 09, is available to guests too)', () => {
+  it('shows only guest-available items when signed out (Wishlist, Module 09, and Auctions, UI-04, are available to guests too)', () => {
     useAuth.mockReturnValue({ status: 'unauthenticated', role: null })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'wishlist'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'auction', 'wishlist'])
   })
 
   it('adds Cart, Orders, and Account for an authenticated CUSTOMER (Cart/Orders are genuinely available, UI-02)', () => {
@@ -24,6 +24,7 @@ describe('useNavItems', () => {
     expect(result.current.map((item) => item.id)).toEqual([
       'home',
       'marketplace',
+      'auction',
       'wishlist',
       'cart',
       'orders',
@@ -43,11 +44,11 @@ describe('useNavItems', () => {
     expect(renderHook(() => useNavItems()).result.current.map((item) => item.id)).not.toContain('categories')
   })
 
-  it('never renders a comingSoon item regardless of role (Marketplace/Wishlist/Admin are now genuinely available)', () => {
+  it('never renders a comingSoon item regardless of role (Marketplace/Wishlist/Admin/Auctions are now genuinely available)', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'ADMIN' })
     const { result } = renderHook(() => useNavItems())
     expect(
-      result.current.every((item) => ['home', 'marketplace', 'wishlist', 'account', 'admin'].includes(item.id)),
+      result.current.every((item) => ['home', 'marketplace', 'auction', 'wishlist', 'account', 'admin'].includes(item.id)),
     ).toBe(true)
   })
 

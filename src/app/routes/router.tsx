@@ -29,6 +29,10 @@ const ArtworkDetailPage = lazy(() =>
 const MarketplacePage = lazy(() =>
   import('@/app/routes/MarketplacePage').then((m) => ({ default: m.MarketplacePage })),
 )
+const AuctionsPage = lazy(() => import('@/app/routes/AuctionsPage').then((m) => ({ default: m.AuctionsPage })))
+const AuctionDetailPage = lazy(() =>
+  import('@/app/routes/AuctionDetailPage').then((m) => ({ default: m.AuctionDetailPage })),
+)
 const WishlistPage = lazy(() =>
   import('@/app/routes/WishlistPage').then((m) => ({ default: m.WishlistPage })),
 )
@@ -56,6 +60,10 @@ export const router = createBrowserRouter([
       { path: 'sign-in', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
       { path: 'explore', element: <MarketplacePage /> },
+      // UI-04 — public, same as Explore/Artwork Detail: works whether or
+      // not anyone is signed in.
+      { path: 'auctions', element: <AuctionsPage /> },
+      { path: 'auctions/:auctionId', element: <AuctionDetailPage /> },
       // UI-01 mobile correction: Categories was a duplicate of Explore's own
       // category discovery (strip + sidebar filter) — removed as a distinct
       // page and nav entry. This redirect keeps any bookmarked/shared

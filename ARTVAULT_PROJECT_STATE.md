@@ -1,26 +1,42 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-14 — UI-03 (Seller Studio, Artwork Management &
-Admin Moderation Override) is **COMPLETE and OWNER APPROVED**, committed in
-its own closeout commit. Owner manually retested and confirmed: ADMIN
-suspension works end-to-end, a suspended artwork disappears from
-`/explore` immediately, the seller sees the suspension reason, the seller
-retains Edit + Delete on a SUSPENDED artwork, REJECTED/PUBLISHED/SUSPENDED
-seller controls all behave as required, and SUBMITTED remains
-locked/read-only. Frontend: **1033/1035 passing** (1035 total; the 2
-non-passing are `router.test.tsx`'s own known, pre-existing,
-machine-specific resource-contention artifact — re-confirmed passing
-15/15 in isolation the same day, not a regression; up from 939/939 at
-UI-02's close). Firestore rules: **292/292** across 9 files (up from
-268/268 at UI-02's close — one new file, `adminLogs.rules.test.ts`).
-Storage rules: **22/22**. Functions: **179/179**. `tsc -b`/`tsc --noEmit`
-clean (both root and `functions/`), `oxlint` clean (0 errors, pre-existing
-warnings only in unrelated files), production build clean. See "UI-03 —
-Seller Studio, Artwork Management & Admin Moderation Override" below for
-the full write-up and the final seller artwork lifecycle/control rules.
-Next UI: **UI-04** (not started).
+_Last updated: 2026-09-15 — UI-04 (Auctions Experience) is **COMPLETE,
+OWNER APPROVED, and COMMITTED**. A full read-only Auctions UI/UX
+foundation: landing page (`/auctions`) with Upcoming/Live/Past tabs, and a
+single detail page (`/auctions/:auctionId`) that renders three genuinely
+different compositions — upcoming, live, and a dedicated completed-auction
+result page — driven entirely by real `auctions` Firestore documents and
+each auction's real, trusted `startAt`/`endAt` timestamps. No trusted
+bid-placement, bid-history, or auction-finalization backend exists yet
+(see docs/AUCTION_ARCHITECTURE.md) — bidding, live bidding/bid history,
+and top bidders all render real, honestly-disabled/not-connected controls
+rather than any fabricated data; winner/final-bid rendering only ever
+appears from real `winnerUid`/`winningBidAmount` fields. Frontend:
+**1103/1113 passing** (1113 total; the 10 non-passing are all in
+`router.test.tsx`, the same pre-existing, machine-specific
+resource-contention artifact documented at every prior UI closeout on this
+machine — re-confirmed passing 15/15 in isolation the same day, not a
+regression; up from 1033/1035 at UI-03's close, +78 new/changed auction
+tests). Firestore rules: **307/307** across 10 files (up from 292/292 at
+UI-03's close — one new file, `auctions.rules.test.ts`). `tsc -b` clean,
+`oxlint` clean (0 errors, pre-existing warnings only in unrelated files),
+production build clean. See "UI-04 — Auctions Experience" below for the
+full write-up. Next UI: **UI-05** (not started).
 
-_Previously: UI-02 (Cart, Checkout, Orders & Account Experience) is
+_Previously: UI-03 (Seller Studio, Artwork Management & Admin Moderation
+Override) is **COMPLETE and OWNER APPROVED**, committed in its own
+closeout commit. Owner manually retested and confirmed: ADMIN suspension
+works end-to-end, a suspended artwork disappears from `/explore`
+immediately, the seller sees the suspension reason, the seller retains
+Edit + Delete on a SUSPENDED artwork, REJECTED/PUBLISHED/SUSPENDED seller
+controls all behave as required, and SUBMITTED remains locked/read-only.
+Frontend: **1033/1035 passing**. Firestore rules: **292/292** across 9
+files. Storage rules: **22/22**. Functions: **179/179**. `tsc -b`/`tsc
+--noEmit` clean, `oxlint` clean, production build clean. See "UI-03 —
+Seller Studio, Artwork Management & Admin Moderation Override" below for
+the full write-up._
+
+_Before that: UI-02 (Cart, Checkout, Orders & Account Experience) is
 **COMPLETE and OWNER APPROVED**, committed in its own closeout commit.
 Frontend: **939/939** (up from 793/793 at UI-01's close). Firestore rules:
 **268/268** across 8 files. `tsc -b` clean, `oxlint` clean (0 errors,
@@ -28,7 +44,7 @@ pre-existing warnings only in unrelated files), production build clean.
 See "UI-02 — Cart, Checkout, Orders & Account Experience" below for the
 full write-up._
 
-_Before that: UI-01 (Complete Responsive Marketplace UI) is **COMPLETE and
+_Earlier still: UI-01 (Complete Responsive Marketplace UI) is **COMPLETE and
 OWNER APPROVED**, committed together with Module 13 (Admin
 Control Center, Phases 1-4 — see its own write-up below, already fully
 implemented and tested as of the previous update but not yet committed
@@ -1084,6 +1100,181 @@ Wishlist, Likes, Marketplace, artist profiles, authentication, artwork
 upload/Storage handling, and every DRAFT/SUBMITTED artwork-update rule
 path (all unchanged, not just untested) — verified unchanged by the full,
 unmodified regression suite passing alongside the new tests.
+
+## UI-04 — Auctions Experience (COMPLETE, OWNER APPROVED, COMMITTED)
+
+**Status: COMPLETE / OWNER APPROVED / COMMITTED.** Owner reviewed the
+Auctions UI across multiple passes (initial build, a visual-matching pass
+against a reference design, and a further strict reference-match
+refinement pass) and approved the current implementation for commit.
+
+### Scope
+
+A read-only Auctions UI/UX foundation — deliberately UI-only, since no
+trusted server-side auction/bidding backend exists anywhere in this
+codebase (see `docs/AUCTION_ARCHITECTURE.md`, which is itself still
+"design only"). Gives ArtVault a real Auctions landing page and a real
+per-auction detail page, all driven by genuine (if today still empty in
+production) Firestore data, with every not-yet-built capability rendered
+as an honest, clearly-disabled control rather than anything fabricated.
+
+### Routes
+
+- `/auctions` — landing page: Upcoming Auctions / Live Now (count) / Past
+  Auctions tabs, a cinematic hero (a real upcoming auction's own artwork
+  photo, heavily darkened, with a gradient fallback when none exists —
+  same "real photo or honest gradient, never a stock image" convention
+  HomePage's own hero already established), a real "Next Auction Starts
+  In" countdown (shown only when a real upcoming auction exists), and an
+  auction grid built from `AuctionCard`.
+- `/auctions/:auctionId` — a single detail page that renders three
+  genuinely different compositions from one route, chosen by the
+  auction's real, derived status:
+  - **SCHEDULED/LIVE**: three-column desktop layout (gallery + AR/AI
+    shortcuts | artist/description/likes/wishlist/share | bid panel +
+    live bidding), collapsing to one mobile column in a fixed order
+    (status → title → countdown → gallery → info → bid panel → bid
+    history → info tabs → AI card) that the desktop grid never reorders.
+  - **ENDED**: a dedicated "Auction Ended" result-page composition (not
+    the same layout with a label swapped) — trophy/congratulations
+    treatment (only when a real `winnerUid` exists), the real Winning Bid
+    panel, "View Next Auction" (only when another real SCHEDULED auction
+    exists) / "Explore More Artworks" CTAs, an Auction Details card, an
+    honest "Bid ranking unavailable" Top Bidders panel, and a "What's
+    Next?" card.
+  - A shared info-tab strip (Details / Bidding History / Artist Info /
+    Shipping / FAQs) appears under every status.
+
+### Data model and Firestore rules
+
+`auctions/{auctionId}` (matches the shape `docs/DATABASE.md` already
+planned): `artworkId`, `sellerId`, `startAt`/`endAt` (explicit trusted
+`Timestamp`s, never `serverTimestamp()` — see `AUCTION_ARCHITECTURE.md`'s
+trusted-time model), `startingBid`, `bidIncrement`, `currentHighBid`,
+`bidCount`, `winnerUid`, `winningBidAmount`, `createdAt`/`updatedAt`.
+`firestore.rules` grants public `allow read: if true` (same posture as a
+PUBLISHED artwork) and `allow write: if false` unconditionally — exactly
+like `orders/{orderId}`'s own precedent: no trusted write path exists yet,
+so this is the deliberate current truth, not a placeholder to relax
+later. `auctions/{auctionId}/bids/{bidId}` is fully closed
+(`allow read, write: if false`) — the public-vs-private projection of a
+bid is explicitly left undecided in both design docs until real bidding
+is built, so this pass never guessed at a privacy-sensitive rule it had
+no authority to invent. Auction status (SCHEDULED/LIVE/ENDED) is
+deliberately never stored/trusted as a field — `deriveAuctionStatus`
+computes it client-side from the real `startAt`/`endAt` against the
+current time, so the UI is always correct even though no
+Cloud-Scheduler-style status-flipping job exists.
+
+### Major components/hooks/repositories added
+
+`src/features/auctions/`: `types.ts` (+`deriveAuctionStatus`,
+`minimumNextBid`), `api/auctionsRepository.ts` (`fetchAllAuctions`,
+`getAuction`, `mapToAuction`, `toAuctionError`), hooks (`useAuctions`,
+`useAuction`, `useAuctionArtworks`, `useAuctionCountdown` +
+`splitCountdown`/`formatCountdown`), and components (`AuctionCard`,
+`AuctionStatusBadge`, `AuctionCountdown` (compact single-line),
+`AuctionCountdownBoxes` (the prominent Days/Hours/Minutes/Seconds boxed
+display used by the hero and the bid panel), `CurrentBidPanel`,
+`BidHistoryPanel`, `TopBiddersPanel`). Route pages: `AuctionsPage.tsx`,
+`AuctionDetailPage.tsx`. Navigation: `navItems.ts`'s `auction` entry
+flipped from `comingSoon` to `available` (href corrected from the old
+placeholder `/auction` to the real `/auctions`); the old hardcoded
+disabled "Auctions" span in `AppTopBar.tsx` was removed since the item now
+flows through the same real nav-items list as every other link;
+HomePage's Auctions teaser card now links to `/auctions` instead of a
+static "Coming soon" badge.
+
+### Responsive behavior
+
+Built entirely from ArtVault's existing dark navy/gold/purple(AI)/blue(AR)
+design tokens (already the app's real theme, not a new one introduced for
+this UI) — `Card`, `Badge`, `ResponsiveGrid`, `EmptyState`, `ErrorState`,
+`Skeleton`. Desktop: `xl:`-gated multi-column grids on the auction grid
+and the detail page's gallery/info/bid-panel composition. Mobile: every
+multi-column area is a plain `flex-col`/single-column by default, so the
+required stacking order is the component's own literal DOM order, never
+CSS-reordered — verified by code review and the automated test suite (no
+browser tool was available in this environment to visually confirm at
+specific pixel widths).
+
+### Real functionality connected
+
+Live public Firestore reads (landing + detail, one-shot, not listeners);
+real client-side Upcoming/Live/Ended bucketing and live, ticking
+countdowns from real timestamps; a real linked-artwork join
+(title/images/description/artist) on every card and the detail page; real
+Wishlist save, real Likes (count + toggle), real Share — all reused
+verbatim from `ArtworkDetailPage` against the linked artwork, not
+reimplemented; real navigation wiring (top bar, mobile "More" drawer,
+homepage); a real "Next Auction"/"View Next Auction" link computed from
+actually-scheduled auctions, never a guess or dead link.
+
+### Functionality intentionally deferred / not connected
+
+- **Trusted real-time bid-placement backend** — no Cloud Function exists
+  to place a bid; `CurrentBidPanel` renders real quick-bid presets, a
+  custom amount input, and a Place Bid button, all disabled, with an
+  honest "Bidding isn't connected yet" message. No bid is ever written
+  client-side (`firestore.rules` denies it unconditionally regardless).
+- **Real bid-history/live-bidding data** — `BidHistoryPanel` (shown both
+  as a sidebar panel and inside the "Bidding History" tab) always states
+  it isn't connected yet; the `bids` subcollection stays fully closed in
+  rules (see "Data model" above).
+- **Auction finalization backend** — nothing sets `status`,
+  `winnerUid`, or `winningBidAmount` automatically; these fields only
+  ever reflect real data if something (currently only the manual seed
+  script below) writes them directly via the Admin SDK.
+- **Top Bidders / bid ranking** — `TopBiddersPanel` always says "Bid
+  ranking unavailable," for the same bid-privacy reason as above.
+- **AI** (auction insights, "Curated with AI", "Ask ArtVault AI", AI
+  Artwork Analysis) and **AR** (View in AR) — both reuse the exact same
+  honest "not connected yet" modal/badge convention `ArtworkDetailPage`
+  already established; neither is Auctions-specific work, both remain
+  whatever their existing project-wide state already was.
+
+### Manual-testing seed script
+
+`functions/scripts/seed-auctions.mjs` — never imported by the app itself.
+Seeds exactly 3 auctions (SCHEDULED, LIVE, and ENDED-with-a-winner) into
+the *already-running* dev emulator via the Admin SDK (the one sanctioned
+way to write `auctions`, since `firestore.rules` denies every client write
+unconditionally). Always links to real PUBLISHED artworks already in the
+emulator (queried live, reusing the same artwork across all three seeds
+when fewer than 3 exist) — never a fabricated artworkId. Run from
+`functions/`: `node scripts/seed-auctions.mjs`.
+
+### Final automated test/build results (this closing commit)
+
+`tsc -b` (root): clean. `oxlint`: clean, 0 errors (pre-existing warnings
+only, none in any file this UI touched). Firestore rules:
+**307/307 passing across 10 files** (up from 292/292 at UI-03's close —
+one new file, `auctions.rules.test.ts`, 15 tests). Frontend test suite:
+**1103/1113 passing across 130 files** (up from 1033/1035 at UI-03's
+close) — the 10 non-passing are all in `router.test.tsx`, via the same
+`findByRole`/`waitFor` timeout pattern documented at every prior UI
+closeout on this development machine as a pre-existing,
+resource-contention artifact (never a content mismatch); re-run in
+isolation the same day: **15/15 passing**. Production build: succeeds
+cleanly (only the pre-existing, unrelated >500kB `AuthProvider-*.js`
+chunk-size advisory).
+
+### Known limitations
+
+No browser or screenshot tool was available in the assistant's
+environment throughout this UI — every pass (including the two
+reference-visual-matching passes) was verified via code/CSS review and
+the automated test suite only, never an actual rendered screenshot at any
+specific viewport width. `ResponsiveGrid`'s column-count breakpoints were
+deliberately left unchanged (it's shared with Marketplace/Wishlist) even
+though the owner's reference asked for a slightly different mobile card
+density — changing a shared component's breakpoints for one caller was
+judged out of scope for a UI-04-only pass. The completed-result page
+intentionally omits Wishlist/Like/Share (matching the reference's own
+result screen); the underlying capability is untouched and still present
+on the upcoming/live states and the artwork's own page.
+
+**Next UI: UI-05** (not started — scope is an owner decision).
 
 ## UI-03 — Seller Studio, Artwork Management & Admin Moderation Override (COMPLETE, OWNER APPROVED)
 
@@ -5305,15 +5496,19 @@ module — see "Live emulator verification" above.
 
 ## Next action
 
-UI-03 (Seller Studio, Artwork Management & Admin Moderation Override) is
-complete, owner-approved, and committed in its own closeout commit, on top
-of UI-02 (Cart, Checkout, Orders & Account Experience), UI-01 (Complete
-Responsive Marketplace UI), and Module 13 (Admin Control Center, Phases
-1-4), all already committed previously. Not pushed (no remote configured).
-No UI-04 or any other later module has been started — next UI selection
-and scope for UI-04 is an owner decision. Intentionally deferred by UI-02
-(real backend work, not yet scoped to any module): a payment provider
-integration, real order creation/inventory enforcement,
+UI-04 (Auctions Experience) is complete, owner-approved, and committed in
+its own closeout commit, on top of UI-03 (Seller Studio, Artwork
+Management & Admin Moderation Override), UI-02 (Cart, Checkout, Orders &
+Account Experience), UI-01 (Complete Responsive Marketplace UI), and
+Module 13 (Admin Control Center, Phases 1-4), all already committed
+previously. Not pushed (no remote configured). No UI-05 or any other later
+module has been started — next UI selection and scope for UI-05 is an
+owner decision. Intentionally deferred by UI-04 (real backend work, not
+yet scoped to any module): a trusted real-time bid-placement Cloud
+Function, real bid-history/live-bidding data (including the still-
+undecided public-vs-private bid projection), and auction finalization
+(winner/final-bid recording). Intentionally deferred by UI-02: a payment
+provider integration, real order creation/inventory enforcement,
 delivery/shipping-rate integration, and a persisted `addresses` collection
 for Checkout. Owner still needs to supply the real ArtVault logo asset to
 the repository when convenient (not a blocker — a documented temporary

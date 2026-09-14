@@ -30,7 +30,12 @@ export const NAV_ITEMS: NavItem[] = [
   // `/categories` itself now redirects to `/explore` (see router.tsx) so no
   // bookmarked/shared link breaks.
   { id: 'marketplace', label: 'Explore', href: '/explore', icon: Grid2x2, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
-  { id: 'auction', label: 'Auctions', href: '/auction', icon: Gavel, status: 'comingSoon', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
+  // UI-04: Auctions is now a real, working page (see AuctionsPage) —
+  // flipped from `comingSoon` to `available`, href corrected to the
+  // actual registered route (`/auctions`, plural — the previous
+  // `/auction` was only ever a placeholder href for a page that didn't
+  // exist yet).
+  { id: 'auction', label: 'Auctions', href: '/auctions', icon: Gavel, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'wishlist', label: 'Wishlist', href: '/wishlist', icon: Heart, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   // UI-02: Cart and Orders are now real, functional pages (see CartPage,
   // OrdersPage) — flipped from `comingSoon` to `available`. Audiences

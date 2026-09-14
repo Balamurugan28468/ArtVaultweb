@@ -642,6 +642,31 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // UI-04 — Auctions (UI/UX foundation only). No trusted server
+    // operation exists yet to create an auction, place a bid, or finalize
+    // one (see docs/AUCTION_ARCHITECTURE.md) — `allow write: if false`
+    // unconditionally, for every field, exactly like `orders/{orderId}`
+    // above: not a placeholder to relax later but the deliberate current
+    // truth. Read is public, same posture as a PUBLISHED artwork, since an
+    // auction (once real ones exist) is meant to be browsable by anyone,
+    // signed in or not.
+    match /auctions/{auctionId} {
+      allow read: if true;
+      allow write: if false;
+
+      // The public-vs-private projection of a bid (bidder identity must
+      // never be exposed publicly — see docs/SECURITY.md,
+      // AUCTION_ARCHITECTURE.md's "Bid privacy") is explicitly left
+      // undecided until the auctions module actually builds real bidding
+      // (see docs/DATABASE.md: "the precise public-vs-private bid document
+      // split... finalized when the... auctions modules are actually
+      // built"). Fully closed rather than guessing at a privacy-sensitive
+      // rule this UI-only pass has no authority to invent.
+      match /bids/{bidId} {
+        allow read, write: if false;
+      }
+    }
+
     // Deny-by-default foundation for every other collection. Each later
     // feature module adds its own explicit, narrowly-scoped rules (with
     // role checks against custom auth claims) when that module is built.

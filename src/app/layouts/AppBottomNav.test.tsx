@@ -87,13 +87,13 @@ describe('AppBottomNav — More menu', () => {
     expect(screen.getByRole('link', { name: /Admin Control Center/ })).toHaveAttribute('href', '/admin')
   })
 
-  it('shows Auctions, Notifications, and Help as honestly disabled for a CUSTOMER — never fake working links', () => {
+  it('shows Notifications and Help as honestly disabled for a CUSTOMER — never fake working links', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'CUSTOMER' })
     renderBottomNav()
 
     fireEvent.click(screen.getByRole('button', { name: /More/ }))
 
-    for (const label of ['Auctions', 'Notifications', 'Help']) {
+    for (const label of ['Notifications', 'Help']) {
       const el = screen.getByText(label)
       expect(el.closest('[aria-disabled="true"]')).not.toBeNull()
     }
@@ -101,7 +101,8 @@ describe('AppBottomNav — More menu', () => {
 
   // UI-02: Cart and Orders are now genuinely available pages — the More
   // menu renders them as real links, not honestly-disabled placeholders.
-  it('shows Cart and Orders as real, working links in More for a CUSTOMER', () => {
+  // UI-04: Auctions joins them.
+  it('shows Cart, Orders, and Auctions as real, working links in More for a CUSTOMER', () => {
     useAuth.mockReturnValue({ status: 'authenticated', role: 'CUSTOMER' })
     renderBottomNav()
 
@@ -109,5 +110,6 @@ describe('AppBottomNav — More menu', () => {
 
     expect(screen.getByRole('link', { name: /Cart/ })).toHaveAttribute('href', '/cart')
     expect(screen.getByRole('link', { name: /Orders/ })).toHaveAttribute('href', '/orders')
+    expect(screen.getByRole('link', { name: /Auctions/ })).toHaveAttribute('href', '/auctions')
   })
 })

@@ -57,7 +57,8 @@ const PLATFORM_BENEFITS: PlatformBenefit[] = [
   { icon: Store, title: 'Direct from independent artists', description: "Every listing is a real artist's own work, reviewed before it goes live." },
   { icon: Sparkles, title: 'AI-powered art insights', description: 'Ask ArtVault AI about a piece, or get an AI analysis of its style and medium.', comingSoon: true, accent: 'ai' },
   { icon: Box, title: 'View artwork in your space', description: 'Preview a piece at true scale in your own room using augmented reality.', comingSoon: true, accent: 'ar' },
-  { icon: Gavel, title: 'Curated auctions', description: 'Bid on hand-picked artwork in a live weekly auction.', comingSoon: true },
+  // UI-04: Auctions is now a real page — no longer `comingSoon`.
+  { icon: Gavel, title: 'Curated auctions', description: 'Bid on hand-picked artwork in a live weekly auction.' },
   { icon: ShieldCheck, title: 'Secure by design', description: 'Firebase-backed accounts with role-based access for buyers, sellers, and admins.' },
   { icon: Heart, title: 'Save what you love', description: 'Build a Wishlist as you browse, on this device or synced to your account.' },
 ]
@@ -242,20 +243,25 @@ export function HomePage() {
 
         <div className="flex flex-col gap-4">
           <SectionHeader title="Auctions" />
-          <Card className="flex flex-col items-start gap-3 p-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent-gold/15 text-accent-gold">
-                <Gavel aria-hidden="true" className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="font-medium text-text-primary">Weekly curated auctions</p>
-                <p className="text-sm text-text-secondary">
-                  Bid on hand-picked artwork in a live weekly auction — coming to ArtVault soon.
-                </p>
+          {/* UI-04: Auctions is now a real page — this card links straight
+              into it instead of a static "Coming soon" placeholder. The
+              copy stays honest either way: if no auction is currently
+              scheduled/live, AuctionsPage itself says so plainly rather
+              than this card implying one exists. */}
+          <Link to="/auctions" className="block">
+            <Card className="flex flex-col items-start gap-3 p-6 transition-colors duration-150 ease-standard hover:border-accent-gold/50 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent-gold/15 text-accent-gold">
+                  <Gavel aria-hidden="true" className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="font-medium text-text-primary">Weekly curated auctions</p>
+                  <p className="text-sm text-text-secondary">Bid on hand-picked artwork in a live weekly auction.</p>
+                </div>
               </div>
-            </div>
-            <Badge tone="gold">Coming soon</Badge>
-          </Card>
+              <Badge tone="gold">View Auctions</Badge>
+            </Card>
+          </Link>
         </div>
 
         <div className="flex flex-col gap-4">

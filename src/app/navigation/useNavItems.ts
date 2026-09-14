@@ -25,9 +25,9 @@ export function useNavItems(): NavItem[] {
 // ordered set per role — not "everything else in NAV_ITEMS" — so this reads
 // specific ids out of the same single NAV_ITEMS source rather than deriving
 // the list generically (which would have also pulled in `orders`, never
-// requested here). `available` items render as real links; `comingSoon`
-// ones (Auctions/Cart/Notifications/Help) render honestly disabled — same
-// convention as everywhere else, never a dead link.
+// requested here). `available` items (now including Auctions, UI-04) render
+// as real links; `comingSoon` ones (Notifications/Help) render honestly
+// disabled — same convention as everywhere else, never a dead link.
 const MORE_MENU_IDS: Record<NavAudience, string[]> = {
   guest: ['auction', 'notifications', 'help'],
   // UI-02: Orders joins Cart here, both now genuinely `available`.

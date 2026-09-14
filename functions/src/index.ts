@@ -5,7 +5,7 @@ import { auth as authTrigger } from 'firebase-functions/v1'
 
 initializeApp()
 
-export { approveSellerApplication, moderateArtwork, rejectSellerApplication } from './adminActions'
+export { approveSellerApplication, moderateArtwork, rejectSellerApplication, suspendArtwork } from './adminActions'
 
 const DEFAULT_ROLE = 'CUSTOMER'
 

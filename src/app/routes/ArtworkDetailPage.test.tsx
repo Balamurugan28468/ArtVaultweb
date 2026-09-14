@@ -274,6 +274,20 @@ describe('ArtworkDetailPage', () => {
       expect(screen.queryByText('Year')).not.toBeInTheDocument()
     })
 
+    // UI-03 final correction — the real Firestore document id, shown
+    // read-only with a Copy control, so admin moderation never requires
+    // inspecting the URL. Never any other internal field (e.g. sellerId).
+    it('Details tab shows the real artwork ID with a Copy control, and no other internal field', () => {
+      usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
+      renderPage('a1')
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Details' }))
+      expect(screen.getByText('Artwork ID')).toBeInTheDocument()
+      expect(screen.getByText('a1')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /copy artwork id/i })).toBeInTheDocument()
+      expect(screen.queryByText('alice')).not.toBeInTheDocument()
+    })
+
     it('Shipping & Returns and Reviews both state plainly that nothing is connected yet — never a fabricated policy or review count', () => {
       usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
       renderPage()

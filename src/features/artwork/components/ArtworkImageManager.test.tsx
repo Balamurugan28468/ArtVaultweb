@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Timestamp } from 'firebase/firestore'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ArtworkImageManager } from './ArtworkImageManager'
@@ -111,13 +111,34 @@ describe('ArtworkImageManager — DRAFT (editable)', () => {
     expect(startArtworkImageUpload).not.toHaveBeenCalled()
   })
 
-  it('clicking Remove photo removes it via mutateArtworkImages', async () => {
+  // UI-03 final correction — removing an already-saved photo now requires
+  // an explicit confirmation first; clicking the X never deletes by itself.
+  it('clicking Remove photo opens a confirmation dialog, and only removes it after confirming', async () => {
     render(<ArtworkImageManager artwork={buildArtwork({ images: [buildImage()] })} />)
 
     fireEvent.click(screen.getByRole('button', { name: /remove photo/i }))
+    const dialog = await screen.findByRole('dialog', { name: /remove this photo/i })
+    expect(dialog).toHaveTextContent('cannot be undone')
+    expect(mutateArtworkImages).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /remove photo/i }))
 
     await waitFor(() => expect(mutateArtworkImages).toHaveBeenCalledWith('a1', expect.any(Function)))
     expect(deleteArtworkImageObject).toHaveBeenCalledWith('artworks/alice/a1/img1.jpg')
+  })
+
+  it('cancelling the confirmation never removes the photo', async () => {
+    render(<ArtworkImageManager artwork={buildArtwork({ images: [buildImage()] })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /remove photo/i }))
+    await screen.findByRole('dialog', { name: /remove this photo/i })
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mutateArtworkImages).not.toHaveBeenCalled()
+    expect(deleteArtworkImageObject).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /remove photo/i })).toBeInTheDocument()
   })
 
   it('disables Add photos and explains the limit once the maximum is reached', () => {
@@ -149,7 +170,10 @@ describe('ArtworkImageManager — SUBMITTED (read-only)', () => {
 // capability at all, and an empty one showed "No photos were added." with no
 // way out of it. Both are fixed by useArtworkImages now treating PUBLISHED
 // and REJECTED as editable (as a staged material edit — see its own tests).
-describe.each(['PUBLISHED', 'REJECTED'] as const)('ArtworkImageManager — %s (editable, staged material edit)', (status) => {
+// SUSPENDED joins this same group as of the seller artwork recovery/control
+// pass (UI-03 final correction): an admin-suspended artwork's owner may now
+// also correct its photos before resubmitting for review.
+describe.each(['PUBLISHED', 'REJECTED', 'SUSPENDED'] as const)('ArtworkImageManager — %s (editable, staged material edit)', (status) => {
   it('shows Add photos and, for an existing photo, Remove/reorder controls', () => {
     render(<ArtworkImageManager artwork={buildArtwork({ status, images: [buildImage()] })} />)
 
@@ -165,10 +189,12 @@ describe.each(['PUBLISHED', 'REJECTED'] as const)('ArtworkImageManager — %s (e
     expect(screen.queryByText('No photos were added.')).not.toBeInTheDocument()
   })
 
-  it('removing a photo stages the change locally, without calling mutateArtworkImages (the artwork is not DRAFT)', async () => {
+  it('removing a photo (after confirming) stages the change locally, without calling mutateArtworkImages (the artwork is not DRAFT)', async () => {
     render(<ArtworkImageManager artwork={buildArtwork({ status, images: [buildImage()] })} />)
 
     fireEvent.click(screen.getByRole('button', { name: /remove photo/i }))
+    const dialog = await screen.findByRole('dialog', { name: /remove this photo/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: /remove photo/i }))
 
     await waitFor(() => expect(screen.queryByRole('button', { name: /remove photo/i })).not.toBeInTheDocument())
     expect(mutateArtworkImages).not.toHaveBeenCalled()

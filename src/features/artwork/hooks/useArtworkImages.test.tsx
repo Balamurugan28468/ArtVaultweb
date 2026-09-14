@@ -283,8 +283,11 @@ describe('useArtworkImages — moveImage', () => {
 // SUBMITTED and lock the document, per firestore.rules — see the required
 // "SUBMITTED cannot mutate photos" test elsewhere). Every action instead
 // stages locally until ArtworkForm's Save actually persists the batch via
-// getImagesForSave()/finalizeSave().
-describe.each(['PUBLISHED', 'REJECTED'] as const)('useArtworkImages — %s (staged material edit)', (status) => {
+// getImagesForSave()/finalizeSave(). SUSPENDED joins this same group as of
+// the seller artwork recovery/control pass (UI-03 final correction) — an
+// admin-suspended artwork's owner may now also correct its photos before
+// resubmitting for review, exactly like a REJECTED one.
+describe.each(['PUBLISHED', 'REJECTED', 'SUSPENDED'] as const)('useArtworkImages — %s (staged material edit)', (status) => {
   it('is editable, unlike SUBMITTED', () => {
     const { result } = renderHook(() => useArtworkImages(baseArtwork({ status })))
     expect(result.current.editable).toBe(true)

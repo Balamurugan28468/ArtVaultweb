@@ -54,6 +54,7 @@ const EXISTING_DRAFT = {
 const EXISTING_SUBMITTED = { ...EXISTING_DRAFT, status: 'SUBMITTED' }
 const EXISTING_PUBLISHED = { ...EXISTING_DRAFT, status: 'PUBLISHED', reviewedAt: 2, rejectionReason: null }
 const EXISTING_REJECTED = { ...EXISTING_DRAFT, status: 'REJECTED', reviewedAt: 2, rejectionReason: 'blurry photos' }
+const EXISTING_SUSPENDED = { ...EXISTING_DRAFT, status: 'SUSPENDED', reviewedAt: 2, rejectionReason: 'Reported for a policy violation.' }
 
 beforeAll(async () => {
   const { host, port } = assertIsolatedFirestoreTestEnvironment()
@@ -636,6 +637,43 @@ describe('artworks/{artworkId} rules — PUBLISHED material-content edit re-ente
   })
 })
 
+// UI-03 final correction — "Remove from sale" reuses this exact same
+// PUBLISHED -> SUBMITTED branch, but touching none of the content fields:
+// only status/reviewedAt/rejectionReason/updatedAt change. This is the
+// safest existing lifecycle transition a seller's own client can reach for
+// taking a PUBLISHED artwork off the public marketplace without a hard
+// delete (which `allow delete` never permits for PUBLISHED) — the artwork
+// record itself is preserved, just re-enters the moderation queue.
+describe('artworks/{artworkId} rules — PUBLISHED remove-from-sale / content-unchanged resubmission (UI-03 final correction)', () => {
+  let artworkId: string
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_PUBLISHED)
+      artworkId = ref.id
+    })
+  })
+
+  function removeFromSale(overrides: Record<string, unknown> = {}) {
+    return { status: 'SUBMITTED', reviewedAt: null, rejectionReason: null, updatedAt: serverTimestamp(), ...overrides }
+  }
+
+  it('allows the owner to take their own PUBLISHED artwork off the marketplace without changing any content', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(updateDoc(doc(aliceDb, 'artworks', artworkId), removeFromSale()))
+  })
+
+  it("blocks another seller from removing this seller's PUBLISHED artwork from sale", async () => {
+    const bobDb = sellerContext('bob')
+    await assertFails(updateDoc(doc(bobDb, 'artworks', artworkId), removeFromSale()))
+  })
+
+  it('blocks a CUSTOMER from removing a PUBLISHED artwork from sale', async () => {
+    const customerDb = customerContext('mallory')
+    await assertFails(updateDoc(doc(customerDb, 'artworks', artworkId), removeFromSale()))
+  })
+})
+
 describe('artworks/{artworkId} rules — REJECTED edit & resubmit (Module 13 Phase 4)', () => {
   let artworkId: string
 
@@ -708,6 +746,70 @@ describe('artworks/{artworkId} rules — REJECTED edit & resubmit (Module 13 Pha
   })
 })
 
+// UI-03 final correction (seller artwork recovery/control) — the same
+// edit-and-resubmit transition REJECTED already had, now also open to
+// SUSPENDED: an admin-suspended artwork's owner may correct it and ask for
+// a fresh review, landing at SUBMITTED exactly like a REJECTED resubmit
+// does, with the admin's prior reviewedAt/rejectionReason decision cleared
+// on the artwork document itself (the adminLogs audit entry is untouched —
+// see firestore.rules' own comment).
+describe('artworks/{artworkId} rules — SUSPENDED edit & resubmit (UI-03 final correction)', () => {
+  let artworkId: string
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_SUSPENDED)
+      artworkId = ref.id
+    })
+  })
+
+  function resubmitEdit(overrides: Record<string, unknown> = {}) {
+    return {
+      title: 'Corrected Title',
+      description: 'A corrected description that still meets the length minimum.',
+      price: 100000,
+      category: 'painting',
+      tags: [],
+      inventoryCount: 1,
+      status: 'SUBMITTED',
+      reviewedAt: null,
+      rejectionReason: null,
+      updatedAt: serverTimestamp(),
+      ...overrides,
+    }
+  }
+
+  it('allows the owner to correct the artwork and resubmit, SUSPENDED -> SUBMITTED, clearing the admin suspension reason', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit()))
+  })
+
+  it("blocks another seller from editing this seller's SUSPENDED artwork", async () => {
+    const bobDb = sellerContext('bob')
+    await assertFails(updateDoc(doc(bobDb, 'artworks', artworkId), resubmitEdit()))
+  })
+
+  it('blocks a CUSTOMER from resubmitting a SUSPENDED artwork', async () => {
+    const customerDb = customerContext('mallory')
+    await assertFails(updateDoc(doc(customerDb, 'artworks', artworkId), resubmitEdit()))
+  })
+
+  it('blocks the previous suspension reason from remaining active — a non-null rejectionReason on resubmit is always denied', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit({ rejectionReason: 'Reported for a policy violation.' })))
+  })
+
+  it('blocks the client from directly forcing SUSPENDED -> PUBLISHED — only trusted admin moderation may ever publish', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit({ status: 'PUBLISHED' })))
+  })
+
+  it('blocks staying SUSPENDED while editing fields — never silently patched in place without a fresh review', async () => {
+    const aliceDb = sellerContext('alice')
+    await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), resubmitEdit({ status: 'SUSPENDED' })))
+  })
+})
+
 describe('artworks/{artworkId} rules — PUBLISHED is publicly readable (Module 07)', () => {
   let artworkId: string
 
@@ -771,9 +873,24 @@ describe('artworks/{artworkId} rules — PUBLISHED is publicly readable (Module 
     await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { title: 'Edited', updatedAt: serverTimestamp() }))
   })
 
-  it('once PUBLISHED, the owner cannot delete it', async () => {
+  // UI-03 final correction (seller artwork recovery/control) — the owner
+  // may now hard-delete a PUBLISHED artwork directly, alongside the
+  // existing Remove-from-sale (PUBLISHED -> SUBMITTED) transition; see
+  // `allow delete`'s own comment for why every status but SUBMITTED is
+  // now owner-deletable.
+  it('lets the owner delete their own PUBLISHED artwork', async () => {
     const aliceDb = sellerContext('alice')
-    await assertFails(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
+    await assertSucceeds(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
+  })
+
+  it("still blocks another seller from deleting this seller's PUBLISHED artwork", async () => {
+    const bobDb = sellerContext('bob')
+    await assertFails(deleteDoc(doc(bobDb, 'artworks', artworkId)))
+  })
+
+  it('still blocks a CUSTOMER from deleting a PUBLISHED artwork', async () => {
+    const customerDb = testEnv.authenticatedContext('mallory', { role: 'CUSTOMER' }).firestore()
+    await assertFails(deleteDoc(doc(customerDb, 'artworks', artworkId)))
   })
 })
 
@@ -872,10 +989,9 @@ describe('artworks/{artworkId} rules — REJECTED stays private (Module 07)', ()
     await assertFails(updateDoc(doc(aliceDb, 'artworks', artworkId), { status: 'SUBMITTED', updatedAt: serverTimestamp() }))
   })
 
-  it('once REJECTED, the owner cannot delete it', async () => {
-    const aliceDb = sellerContext('alice')
-    await assertFails(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
-  })
+  // UI-03 final correction moved the REJECTED-delete assertion itself into
+  // the "delete" describe block below, now that it asserts assertSucceeds
+  // instead of assertFails.
 })
 
 describe('artworks/{artworkId} rules — DRAFT stays private (Module 07 regression check)', () => {
@@ -928,16 +1044,24 @@ describe('artworks/{artworkId} rules — ADMIN queue read access (Module 13 Phas
     await assertSucceeds(getDoc(doc(superAdminDb, 'artworks', submitted)))
   })
 
-  it('blocks an ADMIN from reading a DRAFT artwork — the queue grant covers SUBMITTED only', async () => {
+  // The admin moderation override (UI-03 final correction) widened the
+  // admin read grant from SUBMITTED-only to any existing artwork — an
+  // admin who must be able to moderate (suspend) a DRAFT/PUBLISHED/
+  // REJECTED artwork, not just a SUBMITTED one, needs to be able to look
+  // it up first. These two tests used to assert the opposite (the
+  // narrower Module 13 Phase 3 grant); they now assert the new, intended
+  // behavior instead of being deleted outright, so the read boundary stays
+  // under test either way.
+  it('lets an ADMIN read a DRAFT artwork — the moderation-override read grant covers every status', async () => {
     const { draft } = await seedFixtures()
     const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
-    await assertFails(getDoc(doc(adminDb, 'artworks', draft)))
+    await assertSucceeds(getDoc(doc(adminDb, 'artworks', draft)))
   })
 
-  it('blocks an ADMIN from reading an already-REJECTED artwork — no need for the queue to list a decided artwork', async () => {
+  it('lets an ADMIN read an already-REJECTED artwork', async () => {
     const { rejected } = await seedFixtures()
     const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
-    await assertFails(getDoc(doc(adminDb, 'artworks', rejected)))
+    await assertSucceeds(getDoc(doc(adminDb, 'artworks', rejected)))
   })
 
   it('blocks a CUSTOMER and a non-owning SELLER from reading a SUBMITTED artwork — the new grant is admin-only', async () => {
@@ -955,17 +1079,32 @@ describe('artworks/{artworkId} rules — ADMIN queue read access (Module 13 Phas
     expect(snapshot.docs.map((d) => d.id)).toEqual([submitted])
   })
 
-  it('an ADMIN query for status == DRAFT is denied outright — the read grant never covers non-SUBMITTED statuses, queried or not', async () => {
-    await seedFixtures()
+  // Was denied under the narrower Module 13 Phase 3 grant; the admin
+  // moderation override widened `allow read` to any existing artwork
+  // (`isAdmin() && resource != null`, no status filter), which
+  // necessarily also permits a list/query read for any other status, not
+  // just a get-by-id — this is the same rule, exercised as a query instead
+  // of a direct read, not a separate grant.
+  it('an ADMIN query for status == DRAFT now succeeds under the widened moderation-override read grant', async () => {
+    const { draft } = await seedFixtures()
     const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
-    await assertFails(getDocs(query(collection(adminDb, 'artworks'), where('status', '==', 'DRAFT'))))
+    const snapshot = await assertSucceeds(getDocs(query(collection(adminDb, 'artworks'), where('status', '==', 'DRAFT'))))
+    expect(snapshot.docs.map((d) => d.id)).toEqual([draft])
   })
 
-  it("an ADMIN's new read access grants no write capability — update/delete remain exactly as before", async () => {
-    const { submitted } = await seedFixtures()
+  it("an ADMIN's read access — including the moderation-override widening — grants no direct write capability from the client", async () => {
+    const { submitted, draft, rejected } = await seedFixtures()
     const adminDb = testEnv.authenticatedContext('admin-1', { role: 'ADMIN' }).firestore()
     await assertFails(updateDoc(doc(adminDb, 'artworks', submitted), { status: 'PUBLISHED' }))
     await assertFails(deleteDoc(doc(adminDb, 'artworks', submitted)))
+    // Every real status change this module adds (SUSPENDED included) is
+    // still exclusively an Admin-SDK write from inside the
+    // `suspendArtwork`/`moderateArtwork` callables — never a client-side
+    // Firestore write the new read grant would otherwise make look
+    // possible.
+    await assertFails(updateDoc(doc(adminDb, 'artworks', draft), { status: 'SUSPENDED', updatedAt: serverTimestamp() }))
+    await assertFails(updateDoc(doc(adminDb, 'artworks', rejected), { status: 'SUSPENDED', updatedAt: serverTimestamp() }))
+    await assertFails(deleteDoc(doc(adminDb, 'artworks', draft)))
   })
 })
 
@@ -990,6 +1129,29 @@ describe('artworks/{artworkId} rules — delete', () => {
     await assertFails(deleteDoc(doc(bobDb, 'artworks', artworkId)))
   })
 
+  // UI-03 final correction — REJECTED joins DRAFT as hard-deletable (see
+  // firestore.rules' own comment on `allow delete`): both are terminal,
+  // owner-private states with no public marketplace visibility to lose.
+  it('allows the owner to delete their own REJECTED artwork', async () => {
+    let artworkId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_REJECTED)
+      artworkId = ref.id
+    })
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
+  })
+
+  it("blocks another seller from deleting this seller's REJECTED artwork", async () => {
+    let artworkId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_REJECTED)
+      artworkId = ref.id
+    })
+    const bobDb = sellerContext('bob')
+    await assertFails(deleteDoc(doc(bobDb, 'artworks', artworkId)))
+  })
+
   it('blocks a CUSTOMER (no SELLER claim) from deleting any artwork, even their own uid as sellerId', async () => {
     let artworkId = ''
     await testEnv.withSecurityRulesDisabled(async (context) => {
@@ -1003,5 +1165,39 @@ describe('artworks/{artworkId} rules — delete', () => {
   it('blocks deleting a nonexistent artwork (safe failure, not a crash)', async () => {
     const aliceDb = sellerContext('alice')
     await assertFails(deleteDoc(doc(aliceDb, 'artworks', 'does-not-exist')))
+  })
+
+  // UI-03 final correction (seller artwork recovery/control) — SUSPENDED
+  // joins DRAFT/REJECTED/PUBLISHED as owner-hard-deletable. The admin's own
+  // audit entry in `adminLogs` is a separate collection, untouched by
+  // deleting the artwork document itself.
+  it('allows the owner to delete their own SUSPENDED artwork', async () => {
+    let artworkId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_SUSPENDED)
+      artworkId = ref.id
+    })
+    const aliceDb = sellerContext('alice')
+    await assertSucceeds(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
+  })
+
+  it("blocks another seller from deleting this seller's SUSPENDED artwork", async () => {
+    let artworkId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_SUSPENDED)
+      artworkId = ref.id
+    })
+    const bobDb = sellerContext('bob')
+    await assertFails(deleteDoc(doc(bobDb, 'artworks', artworkId)))
+  })
+
+  it('still blocks deleting a SUBMITTED artwork — the one status that always stays locked', async () => {
+    let artworkId = ''
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const ref = await addDoc(collection(context.firestore(), 'artworks'), EXISTING_SUBMITTED)
+      artworkId = ref.id
+    })
+    const aliceDb = sellerContext('alice')
+    await assertFails(deleteDoc(doc(aliceDb, 'artworks', artworkId)))
   })
 })

@@ -284,16 +284,21 @@ export async function updatePublishedArtworkSafeFields(id: string, input: Artwor
 }
 
 /**
- * Module 13 Phase 4 (and its own photo-editing follow-up) — the seller-facing
- * path back into moderation: a PUBLISHED artwork whose owner is changing real
- * public content (title/description/category/images), or a REJECTED
- * artwork's owner correcting it and asking for a fresh decision. Both cases
+ * Module 13 Phase 4 (and its own photo-editing follow-up, extended again by
+ * the seller artwork recovery/control pass) — the seller-facing path back
+ * into moderation: a PUBLISHED artwork whose owner is changing real public
+ * content (title/description/category/images), a REJECTED artwork's owner
+ * correcting it and asking for a fresh decision, or a SUSPENDED artwork's
+ * owner doing the same after an admin moderation action. All three cases
  * end at exactly the same place — `status: 'SUBMITTED'`, `reviewedAt`/
- * `rejectionReason` both reset to `null` so a stale prior decision can never
- * read as the active one during the new review cycle — because
- * `firestore.rules` itself treats them as the same transition (see its own
- * comment); this function mirrors that unification rather than duplicating
- * it into two near-identical functions.
+ * `rejectionReason` both reset to `null` so a stale prior decision (a
+ * rejection reason or an admin's suspension reason alike) can never read as
+ * the active one during the new review cycle — because `firestore.rules`
+ * itself treats them as the same transition (see its own comment); this
+ * function mirrors that unification rather than duplicating it into three
+ * near-identical functions. A SUSPENDED artwork's resubmission does not
+ * touch `adminLogs` — that audit trail is a separate collection, and the
+ * original suspension record is preserved exactly as it was written.
  *
  * `images` is always written explicitly (never merged from the caller's
  * stale copy) — the caller (ArtworkForm, via useArtworkImages'
@@ -323,10 +328,45 @@ export async function resubmitArtworkForReview(id: string, input: ArtworkDraftIn
   }
 }
 
-/** Only ever called while an artwork is still DRAFT — firestore.rules rejects deleting a SUBMITTED one. */
-export async function deleteArtworkDraft(id: string): Promise<void> {
+/**
+ * Works for any status except SUBMITTED — firestore.rules' `allow delete`
+ * rejects only that one (seller artwork recovery/control pass: DRAFT,
+ * REJECTED, SUSPENDED, and PUBLISHED are all owner-deletable now). See
+ * `removeArtworkFromSale` below for the non-destructive alternative that
+ * takes a PUBLISHED artwork off the marketplace while preserving the
+ * record, which stays available alongside this hard delete.
+ */
+export async function deleteOwnedArtwork(id: string): Promise<void> {
   try {
     await deleteDoc(artworkDocRef(id))
+  } catch (error) {
+    throw toArtworkError(error)
+  }
+}
+
+/**
+ * UI-03 final correction — the only safe way for an owner to take a
+ * PUBLISHED artwork off the public marketplace without hard-deleting it
+ * (firestore.rules never allows deleting a PUBLISHED document at all).
+ * Reuses the exact same PUBLISHED -> SUBMITTED branch
+ * `resubmitArtworkForReview` uses for an edited listing, but touches no
+ * content field — `diff().affectedKeys()` stays inside
+ * `['status','reviewedAt','rejectionReason','updatedAt']`, so the rule's
+ * content/image validation passes trivially against the artwork's own
+ * already-valid, unchanged data. The artwork disappears from
+ * `subscribePublishedArtworks`/the public marketplace immediately (it is
+ * no longer `status == 'PUBLISHED'`) while the document itself is fully
+ * preserved — it simply re-enters the admin moderation queue rather than
+ * being destroyed.
+ */
+export async function removeArtworkFromSale(id: string): Promise<void> {
+  try {
+    await updateDoc(artworkDocRef(id), {
+      status: 'SUBMITTED',
+      reviewedAt: null,
+      rejectionReason: null,
+      updatedAt: serverTimestamp(),
+    })
   } catch (error) {
     throw toArtworkError(error)
   }

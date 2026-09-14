@@ -358,16 +358,24 @@ service cloud.firestore {
       // this is safe for any authenticated user, not just an owner;
       // reading an *existing*, non-PUBLISHED artwork still requires true
       // ownership.
-      // Module 13 Phase 3 — the third, purely additive branch: an
-      // ADMIN/SUPER_ADMIN may read a SUBMITTED artwork, the exact and only
-      // scope the artwork-moderation review queue needs. DRAFT stays
-      // exactly as owner-private as before this module (no branch here ever
-      // grants an admin access to it), and PUBLISHED was already public via
-      // the first branch above — this only ever adds SUBMITTED visibility.
+      // Module 13 Phase 3 added a purely additive branch: an ADMIN/
+      // SUPER_ADMIN may read a SUBMITTED artwork, the exact and only scope
+      // the artwork-moderation review queue needed at the time. The admin
+      // moderation override (UI-03 final correction) widens this to any
+      // existing artwork regardless of status — an admin who must be able
+      // to moderate (suspend) a DRAFT/PUBLISHED/REJECTED artwork, not just a
+      // SUBMITTED one, needs to be able to look it up first to confirm what
+      // they're acting on. This grants READ only; it adds no write
+      // capability of any kind (see the "ADMIN's new read access grants no
+      // write capability" regression test below) — every privileged status
+      // change still goes exclusively through the Admin-SDK-backed
+      // `suspendArtwork`/`moderateArtwork` callables, which bypass these
+      // rules entirely and do their own independent
+      // `request.auth.token.role` check server-side.
       allow read: if
         (resource != null && resource.data.status == 'PUBLISHED') ||
         (isSignedIn() && (resource == null || isOwner(resource.data.sellerId))) ||
-        (isAdmin() && resource != null && resource.data.status == 'SUBMITTED');
+        (isAdmin() && resource != null);
 
       allow create: if
         hasRole('SELLER') &&
@@ -378,19 +386,21 @@ service cloud.firestore {
         request.resource.data.createdAt == request.time &&
         request.resource.data.updatedAt == request.time;
 
-      // Legal transitions from an update, as of Module 13 Phase 4: (1)
-      // editing ordinary fields while still DRAFT, (2) submitting — DRAFT to
-      // SUBMITTED with no other field touched, (3) a PUBLISHED artwork's
-      // owner changing only the three fields that carry no content-
-      // moderation risk (price/inventoryCount/tags) while remaining
-      // PUBLISHED, or (4) a PUBLISHED or REJECTED artwork's owner editing
-      // real public content (title/description/category/images, optionally
-      // alongside price/inventoryCount/tags too) — which can never stay live
-      // unreviewed, so this branch's *only* target status is SUBMITTED,
-      // re-entering the exact same Admin moderation queue Module 13 Phases
-      // 1-3 already built, with reviewedAt/rejectionReason forced back to
-      // null (a client-chosen value here would be a real gap: it could carry
-      // a stale/forged prior decision into the new review cycle).
+      // Legal transitions from an update, as of UI-03 final correction
+      // (seller artwork recovery/control): (1) editing ordinary fields
+      // while still DRAFT, (2) submitting — DRAFT to SUBMITTED with no
+      // other field touched, (3) a PUBLISHED artwork's owner changing only
+      // the three fields that carry no content-moderation risk
+      // (price/inventoryCount/tags) while remaining PUBLISHED, or (4) a
+      // PUBLISHED, REJECTED, or SUSPENDED artwork's owner editing real
+      // public content (title/description/category/images, optionally
+      // alongside price/inventoryCount/tags too) — which can never stay
+      // live/reinstated unreviewed, so this branch's *only* target status
+      // is SUBMITTED, re-entering the exact same Admin moderation queue
+      // Module 13 Phases 1-3 already built, with reviewedAt/rejectionReason
+      // forced back to null (a client-chosen value here would be a real
+      // gap: it could carry a stale/forged prior decision into the new
+      // review cycle).
       // A SUBMITTED artwork can still never be updated at all by its owner —
       // no branch's `resource.data.status` guard ever matches it — covers
       // "locked while awaiting review" and "SUBMITTED -> DRAFT/PUBLISHED
@@ -452,8 +462,15 @@ service cloud.firestore {
             // rejectionReason itself (both forced to null here, not read
             // from the request). Reuses isValidArtworkFields/
             // isValidArtworkImages unchanged — the exact same shape
-            // validation a fresh DRAFT edit already goes through.
-            ((resource.data.status == 'PUBLISHED' || resource.data.status == 'REJECTED') &&
+            // validation a fresh DRAFT edit already goes through. UI-03
+            // final correction (seller artwork recovery/control) — SUSPENDED
+            // joins this same branch: an admin-suspended artwork's owner may
+            // correct it and resubmit for a fresh review, exactly like a
+            // REJECTED one, landing at the same SUBMITTED state and clearing
+            // the admin's prior reviewedAt/rejectionReason decision (the
+            // adminLogs audit entry for the original suspension is untouched
+            // — a separate collection, never rewritten by this branch).
+            ((resource.data.status == 'PUBLISHED' || resource.data.status == 'REJECTED' || resource.data.status == 'SUSPENDED') &&
              request.resource.data.status == 'SUBMITTED' &&
              isValidArtworkFields(request.resource.data) &&
              isValidArtworkImages(request.resource.data.images, resource.data.sellerId, artworkId) &&
@@ -466,7 +483,21 @@ service cloud.firestore {
         ) ||
         isValidLikeCountUpdate(artworkId);
 
-      allow delete: if hasRole('SELLER') && isOwner(resource.data.sellerId) && resource.data.status == 'DRAFT';
+      // UI-03 final correction (seller artwork recovery/control) — the
+      // owner may hard-delete their own artwork in every status except
+      // SUBMITTED, which stays fully locked (no branch here ever matches
+      // it). This now deliberately includes PUBLISHED and SUSPENDED too,
+      // alongside the existing DRAFT/REJECTED: PUBLISHED already has a
+      // non-destructive alternative (the update branch above that moves
+      // PUBLISHED -> SUBMITTED, "Remove from sale"), but the owner
+      // explicitly also wants a real hard delete available, with
+      // confirmation, handled client-side (see useUpdateArtwork's
+      // `remove()`, which also best-effort cleans up each image's Storage
+      // object first). SUSPENDED deletion does not erase the admin's own
+      // audit trail — `adminLogs` is an independent collection never tied
+      // to the artwork document's lifecycle.
+      allow delete: if hasRole('SELLER') && isOwner(resource.data.sellerId) &&
+        resource.data.status != 'SUBMITTED';
     }
 
     // Module 12 — Likes. Deliberately private: the aggregate `likeCount` on
@@ -589,6 +620,26 @@ service cloud.firestore {
           get(/databases/$(database)/documents/orders/$(orderId)).data.buyerId == request.auth.uid;
         allow write: if false;
       }
+    }
+
+    // Admin moderation override (UI-03 final correction) — the audit trail
+    // for every trusted admin moderation action (currently just
+    // `suspendArtwork`; `moderateArtwork`'s own publish/reject decisions
+    // could be logged here too in a future pass, but are deliberately left
+    // alone for this one since nothing required it). Every document is
+    // written exclusively by the Admin-SDK-backed callable inside the same
+    // transaction as the moderation write itself
+    // (functions/src/moderateArtworkRemoval.ts) — `allow write: if false`
+    // unconditionally, for every field, exactly like `orders/{orderId}`
+    // above: there is no client write path here by design, trusted or not,
+    // since even a genuine ADMIN/SUPER_ADMIN's privileged writes always go
+    // through a callable's own independent authorization check, never a
+    // direct Firestore write. Read access is admin-only — an ordinary
+    // SELLER/CUSTOMER has no legitimate reason to see another user's
+    // moderation history, and this grants strictly read, never write.
+    match /adminLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     // Deny-by-default foundation for every other collection. Each later

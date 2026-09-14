@@ -8,12 +8,21 @@ export function ArtworkModerationCard({
   artistDisplayName,
   onApprove,
   onReject,
+  onSuspend,
   disabled,
 }: {
   artwork: Artwork
   artistDisplayName: string | null | undefined
   onApprove: () => void
   onReject: () => void
+  /**
+   * Admin moderation override (UI-03 final correction) — a third outcome
+   * alongside Publish/Reject, for a SUBMITTED artwork an admin wants to
+   * remove from consideration entirely (e.g. it was already flagged for a
+   * policy violation) rather than simply decide on its content. Optional
+   * so this card stays usable anywhere Suspend isn't wired up.
+   */
+  onSuspend?: () => void
   disabled: boolean
 }) {
   const primaryImage = [...artwork.images].sort((a, b) => a.order - b.order)[0]
@@ -59,13 +68,23 @@ export function ArtworkModerationCard({
           <span>Updated {artwork.updatedAt.toDate().toLocaleDateString()}</span>
         </div>
 
-        <div className="flex flex-wrap gap-3 pt-1">
+        <div className="flex flex-wrap items-center gap-3 pt-1">
           <Button size="sm" onClick={onApprove} disabled={disabled}>
             Publish
           </Button>
           <Button size="sm" variant="secondary" onClick={onReject} disabled={disabled}>
             Reject
           </Button>
+          {onSuspend && (
+            <button
+              type="button"
+              onClick={onSuspend}
+              disabled={disabled}
+              className="text-sm font-medium text-danger hover:underline disabled:opacity-60"
+            >
+              Suspend
+            </button>
+          )}
         </div>
       </div>
     </Card>

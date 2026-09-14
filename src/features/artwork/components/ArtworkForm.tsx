@@ -1,8 +1,9 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { ImageOff } from 'lucide-react'
-import { useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { ImageOff, Sparkles, Truck } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router'
+import { ArtworkIdField } from './ArtworkIdField'
 import { ArtworkImageManager, type ArtworkImageManagerHandle } from './ArtworkImageManager'
 import { ConfirmDeleteDraftModal } from './ConfirmDeleteDraftModal'
 import { ConfirmResubmitModal } from './ConfirmResubmitModal'
@@ -11,6 +12,27 @@ import { useUpdateArtwork } from '../hooks/useUpdateArtwork'
 import { artworkDraftSchema, parseTags, type ArtworkDraftFormValues } from '../schemas'
 import { ARTWORK_CATEGORIES, type Artwork, type ArtworkDraftInput } from '../types'
 import { Badge, Button, Input, TextArea } from '@/shared/ui'
+
+/**
+ * UI-03 — a named, visually grouped section of the form (Media / Details /
+ * Pricing & Inventory / Shipping / AI Analysis), each with its own heading
+ * so the workflow reads as distinct steps even though this stays the one
+ * real single-page form underneath (no wizard state machine was added —
+ * see this component's own history for why that would have meant rebuilding
+ * a lot of already-working, already-tested lifecycle logic for a purely
+ * visual ask). Shipping and AI Analysis render as honestly inert sections
+ * further down — no shipping-rate field or AI analysis feature exists on
+ * the Artwork document or anywhere in this codebase yet, so neither is a
+ * real, working form section; both say so plainly instead of pretending.
+ */
+function FormSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-elevated/40 p-3 sm:p-4">
+      <h3 className="font-display text-base font-medium text-text-primary">{title}</h3>
+      {children}
+    </div>
+  )
+}
 
 const CATEGORY_LABEL: Record<(typeof ARTWORK_CATEGORIES)[number], string> = {
   painting: 'Painting',
@@ -59,6 +81,14 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
   const isAwaitingReview = artwork?.status === 'SUBMITTED'
   const isPublished = artwork?.status === 'PUBLISHED'
   const isRejected = artwork?.status === 'REJECTED'
+  // SUSPENDED is set exclusively by the Admin-SDK-backed `suspendArtwork`
+  // callable (see firestore.rules' own comment on `allow update`: no branch
+  // there ever permits a client to write this status directly). The seller
+  // artwork recovery/control pass treats it exactly like REJECTED from here
+  // on, though: the owner can see the admin's reason, correct the listing,
+  // and resubmit for a fresh review (SUSPENDED -> SUBMITTED) — it falls
+  // into the same editable form below, not a locked summary.
+  const isSuspended = artwork?.status === 'SUSPENDED'
   const navigate = useNavigate()
   const { create, status: createStatus } = useCreateArtwork()
   const { update, submit, remove, updateSafeFields, resubmitForReview, status: mutateStatus } = useUpdateArtwork()
@@ -71,12 +101,17 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<ArtworkDraftFormValues>({
     resolver: zodResolver(artworkDraftSchema),
     defaultValues: toFormValues(artwork),
     mode: 'onTouched',
   })
+  // Watched only for the live Review summary below — never used to build
+  // the actual save payload (onSubmit's own `values` parameter, from
+  // handleSubmit, remains the single source of truth for that).
+  const reviewValues = useWatch({ control })
 
   const busy = isSubmitting || createStatus === 'saving' || mutateStatus === 'saving'
 
@@ -99,10 +134,11 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
         return
       }
 
-      if (isRejected) {
+      if (isRejected || isSuspended) {
         // Always an explicit resubmission — the confirmation makes it
-        // doubly so, even though a REJECTED artwork has no live visibility
-        // to lose by comparison to a PUBLISHED one.
+        // doubly so, even though neither a REJECTED nor a SUSPENDED artwork
+        // has any live marketplace visibility to lose by comparison to a
+        // PUBLISHED one.
         setPendingResubmitInput(input)
         setConfirmResubmitOpen(true)
         return
@@ -178,6 +214,12 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
         </p>
         <dl className="flex flex-col gap-3">
           <div>
+            <dt className="text-xs text-text-muted">Artwork ID</dt>
+            <dd className="text-sm text-text-primary">
+              <ArtworkIdField artworkId={artwork.id} />
+            </dd>
+          </div>
+          <div>
             <dt className="text-xs text-text-muted">Title</dt>
             <dd className="text-sm text-text-primary">{artwork.title}</dd>
           </div>
@@ -212,6 +254,12 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
   return (
     <>
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
+      {artwork && (
+        <div className="flex items-center gap-1.5 text-xs text-text-muted">
+          <span>Artwork ID:</span>
+          <ArtworkIdField artworkId={artwork.id} />
+        </div>
+      )}
       {isRejected && (
         <div className="flex flex-col gap-1.5 rounded-md border border-danger/40 bg-surface-elevated p-3">
           <div className="flex items-center gap-2">
@@ -225,6 +273,20 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
         </div>
       )}
 
+      {isSuspended && (
+        <div className="flex flex-col gap-1.5 rounded-md border border-danger/40 bg-surface-elevated p-3">
+          <div className="flex items-center gap-2">
+            <Badge tone="danger">Suspended by admin</Badge>
+          </div>
+          <p role="status" className="text-sm text-text-secondary">
+            {artwork.rejectionReason
+              ? `An administrator removed this artwork from the marketplace. Reason: ${artwork.rejectionReason}`
+              : 'An administrator removed this artwork from the marketplace.'}{' '}
+            Correct it below and resubmit for another review.
+          </p>
+        </div>
+      )}
+
       {isPublished && (
         <p role="status" className="text-sm text-text-secondary">
           This artwork is live. Price, inventory, and tag changes save immediately and stay live. Changing the
@@ -233,134 +295,194 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
         </p>
       )}
 
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="artwork-title" className="text-sm font-medium text-text-secondary">
-          Title
-        </label>
-        <Input
-          id="artwork-title"
-          aria-invalid={!!errors.title}
-          aria-describedby={errors.title ? 'artwork-title-error' : undefined}
-          {...register('title')}
-        />
-        {errors.title && (
-          <span id="artwork-title-error" className="text-sm font-normal text-danger">
-            {errors.title.message}
-          </span>
+      {/* Media */}
+      <FormSection title="Media">
+        {artwork ? (
+          <ArtworkImageManager artwork={artwork} ref={imageManagerRef} />
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-text-secondary">Photos</span>
+            <div className="flex items-center gap-2 rounded-md border border-dashed border-border-strong px-3 py-3 text-sm text-text-muted">
+              <ImageOff aria-hidden="true" className="h-4 w-4 shrink-0" />
+              Save this draft to add photos.
+            </div>
+          </div>
         )}
-      </div>
+      </FormSection>
 
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="artwork-description" className="text-sm font-medium text-text-secondary">
-          Description
-        </label>
-        <TextArea
-          id="artwork-description"
-          aria-invalid={!!errors.description}
-          aria-describedby={errors.description ? 'artwork-description-error' : undefined}
-          {...register('description')}
-        />
-        {errors.description && (
-          <span id="artwork-description-error" className="text-sm font-normal text-danger">
-            {errors.description.message}
-          </span>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {/* Details */}
+      <FormSection title="Details">
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="artwork-price" className="text-sm font-medium text-text-secondary">
-            Price (₹)
+          <label htmlFor="artwork-title" className="text-sm font-medium text-text-secondary">
+            Title
           </label>
           <Input
-            id="artwork-price"
-            type="text"
-            inputMode="numeric"
-            aria-invalid={!!errors.price}
-            aria-describedby={errors.price ? 'artwork-price-error' : undefined}
-            {...register('price')}
+            id="artwork-title"
+            aria-invalid={!!errors.title}
+            aria-describedby={errors.title ? 'artwork-title-error' : undefined}
+            {...register('title')}
           />
-          {errors.price && (
-            <span id="artwork-price-error" className="text-sm font-normal text-danger">
-              {errors.price.message}
+          {errors.title && (
+            <span id="artwork-title-error" className="text-sm font-normal text-danger">
+              {errors.title.message}
             </span>
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="artwork-inventory" className="text-sm font-medium text-text-secondary">
-            Inventory count
+          <label htmlFor="artwork-description" className="text-sm font-medium text-text-secondary">
+            Description
           </label>
-          <Input
-            id="artwork-inventory"
-            type="text"
-            inputMode="numeric"
-            aria-invalid={!!errors.inventoryCount}
-            aria-describedby={errors.inventoryCount ? 'artwork-inventory-error' : undefined}
-            {...register('inventoryCount')}
+          <TextArea
+            id="artwork-description"
+            aria-invalid={!!errors.description}
+            aria-describedby={errors.description ? 'artwork-description-error' : undefined}
+            {...register('description')}
           />
-          {errors.inventoryCount && (
-            <span id="artwork-inventory-error" className="text-sm font-normal text-danger">
-              {errors.inventoryCount.message}
+          {errors.description && (
+            <span id="artwork-description-error" className="text-sm font-normal text-danger">
+              {errors.description.message}
             </span>
           )}
         </div>
-      </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="artwork-category" className="text-sm font-medium text-text-secondary">
-          Category
-        </label>
-        <select
-          id="artwork-category"
-          aria-invalid={!!errors.category}
-          aria-describedby={errors.category ? 'artwork-category-error' : undefined}
-          className="h-11 w-full rounded-md border border-border-on-light bg-surface-light px-3 text-sm text-text-on-light focus-visible:border-brand-primary aria-invalid:border-danger"
-          {...register('category')}
-        >
-          <option value="">Choose a category</option>
-          {ARTWORK_CATEGORIES.map((category) => (
-            <option key={category} value={category}>
-              {CATEGORY_LABEL[category]}
-            </option>
-          ))}
-        </select>
-        {errors.category && (
-          <span id="artwork-category-error" className="text-sm font-normal text-danger">
-            {errors.category.message}
-          </span>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="artwork-tags" className="text-sm font-medium text-text-secondary">
-          Tags <span className="font-normal text-text-muted">(optional, comma-separated)</span>
-        </label>
-        <Input
-          id="artwork-tags"
-          placeholder="e.g. abstract, canvas, blue"
-          aria-invalid={!!errors.tags}
-          aria-describedby={errors.tags ? 'artwork-tags-error' : undefined}
-          {...register('tags')}
-        />
-        {errors.tags && (
-          <span id="artwork-tags-error" className="text-sm font-normal text-danger">
-            {errors.tags.message}
-          </span>
-        )}
-      </div>
-
-      {artwork ? (
-        <ArtworkImageManager artwork={artwork} ref={imageManagerRef} />
-      ) : (
         <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-text-secondary">Photos</span>
-          <div className="flex items-center gap-2 rounded-md border border-dashed border-border-strong px-3 py-3 text-sm text-text-muted">
-            <ImageOff aria-hidden="true" className="h-4 w-4 shrink-0" />
-            Save this draft to add photos.
+          <label htmlFor="artwork-category" className="text-sm font-medium text-text-secondary">
+            Category
+          </label>
+          <select
+            id="artwork-category"
+            aria-invalid={!!errors.category}
+            aria-describedby={errors.category ? 'artwork-category-error' : undefined}
+            className="h-11 w-full rounded-md border border-border-on-light bg-surface-light px-3 text-sm text-text-on-light focus-visible:border-brand-primary aria-invalid:border-danger"
+            {...register('category')}
+          >
+            <option value="">Choose a category</option>
+            {ARTWORK_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {CATEGORY_LABEL[category]}
+              </option>
+            ))}
+          </select>
+          {errors.category && (
+            <span id="artwork-category-error" className="text-sm font-normal text-danger">
+              {errors.category.message}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="artwork-tags" className="text-sm font-medium text-text-secondary">
+            Tags <span className="font-normal text-text-muted">(optional, comma-separated)</span>
+          </label>
+          <Input
+            id="artwork-tags"
+            placeholder="e.g. abstract, canvas, blue"
+            aria-invalid={!!errors.tags}
+            aria-describedby={errors.tags ? 'artwork-tags-error' : undefined}
+            {...register('tags')}
+          />
+          {errors.tags && (
+            <span id="artwork-tags-error" className="text-sm font-normal text-danger">
+              {errors.tags.message}
+            </span>
+          )}
+        </div>
+      </FormSection>
+
+      {/* Pricing & Inventory */}
+      <FormSection title="Pricing & Inventory">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="artwork-price" className="text-sm font-medium text-text-secondary">
+              Price (₹)
+            </label>
+            <Input
+              id="artwork-price"
+              type="text"
+              inputMode="numeric"
+              aria-invalid={!!errors.price}
+              aria-describedby={errors.price ? 'artwork-price-error' : undefined}
+              {...register('price')}
+            />
+            {errors.price && (
+              <span id="artwork-price-error" className="text-sm font-normal text-danger">
+                {errors.price.message}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="artwork-inventory" className="text-sm font-medium text-text-secondary">
+              Inventory count
+            </label>
+            <Input
+              id="artwork-inventory"
+              type="text"
+              inputMode="numeric"
+              aria-invalid={!!errors.inventoryCount}
+              aria-describedby={errors.inventoryCount ? 'artwork-inventory-error' : undefined}
+              {...register('inventoryCount')}
+            />
+            {errors.inventoryCount && (
+              <span id="artwork-inventory-error" className="text-sm font-normal text-danger">
+                {errors.inventoryCount.message}
+              </span>
+            )}
           </div>
         </div>
-      )}
+      </FormSection>
+
+      {/* Shipping — honestly inert: no shipping-rate/weight/dimension field
+          exists on the Artwork document, and no carrier integration exists
+          anywhere in this codebase (see CheckoutPage's own DeliverySection
+          from UI-02 for the same gap on the buyer side). Shown, not
+          omitted, so the seller sees this step exists and is explicitly
+          not connected yet, rather than wondering if it was missed. */}
+      <FormSection title="Shipping">
+        <div className="flex items-start gap-3 rounded-lg border border-border-strong bg-surface p-3">
+          <Truck aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-text-muted" />
+          <p className="text-sm text-text-secondary">Shipping options aren't connected yet — every artwork uses ArtVault's default handling for now.</p>
+        </div>
+      </FormSection>
+
+      {/* AI Analysis — same honest-placeholder treatment as
+          ArtworkDetailPage's own "AI Artwork Analysis" panel (UI-01): no
+          AI integration exists for seller-side listing analysis yet. */}
+      <FormSection title="AI Analysis">
+        <div className="flex items-start gap-3 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3">
+          <Sparkles aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-brand-primary-on-dark" />
+          <p className="text-sm text-text-secondary">AI-assisted listing analysis isn't connected yet — once available, you'll get real suggestions here before submitting.</p>
+        </div>
+      </FormSection>
+
+      {/* Review — a real, live summary of what's about to be saved, not a
+          fabricated confirmation step; values come straight from the same
+          watched form state the Submit button itself reads. */}
+      <FormSection title="Review">
+        <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-xs text-text-muted">Title</dt>
+            <dd className="truncate text-text-primary">{reviewValues?.title || '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-text-muted">Category</dt>
+            <dd className="text-text-primary">
+              {reviewValues?.category
+                ? CATEGORY_LABEL[reviewValues.category as keyof typeof CATEGORY_LABEL] ?? reviewValues.category
+                : '—'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-text-muted">Price</dt>
+            <dd className="text-text-primary">{reviewValues?.price ? `₹${reviewValues.price}` : '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-text-muted">Inventory</dt>
+            <dd className="text-text-primary">{reviewValues?.inventoryCount || '—'}</dd>
+          </div>
+        </dl>
+      </FormSection>
 
       {actionError && (
         <p role="alert" className="text-sm text-danger">
@@ -373,7 +495,7 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
           <Button type="submit" disabled={busy}>
             {busy ? 'Saving…' : 'Save changes'}
           </Button>
-        ) : isRejected ? (
+        ) : isRejected || isSuspended ? (
           <Button type="submit" disabled={busy}>
             {busy ? 'Saving…' : 'Save & resubmit'}
           </Button>
@@ -396,7 +518,7 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
         )}
       </div>
       </form>
-      {isEdit && !isPublished && !isRejected && (
+      {isEdit && !isPublished && !isRejected && !isSuspended && (
         <ConfirmDeleteDraftModal
           open={confirmDeleteOpen}
           onClose={() => setConfirmDeleteOpen(false)}
@@ -404,13 +526,13 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
           busy={mutateStatus === 'saving'}
         />
       )}
-      {isEdit && (isPublished || isRejected) && (
+      {isEdit && (isPublished || isRejected || isSuspended) && (
         <ConfirmResubmitModal
           open={confirmResubmitOpen}
           onClose={() => setConfirmResubmitOpen(false)}
           onConfirm={handleConfirmResubmit}
           busy={mutateStatus === 'saving'}
-          variant={isRejected ? 'rejected-resubmit' : 'material-change'}
+          variant={isRejected || isSuspended ? 'rejected-resubmit' : 'material-change'}
         />
       )}
     </>

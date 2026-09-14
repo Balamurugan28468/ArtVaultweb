@@ -355,4 +355,26 @@ describe('router', () => {
 
     expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
   })
+
+  // UI-03 — Seller Studio route protection, verified end-to-end through
+  // the real router wiring (RequireAuth wrapping RequireRole in
+  // router.tsx), not just RequireRole's own unit tests. A signed-out
+  // visitor hits RequireAuth first, exactly like every other protected
+  // route in this file.
+  it('redirects "/seller-studio" to "/sign-in" for a signed-out visitor', async () => {
+    render(
+      <AppProviders>
+        <AuthProvider>
+          <WishlistProvider>
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
+          </WishlistProvider>
+        </AuthProvider>
+      </AppProviders>,
+    )
+    await router.navigate('/seller-studio')
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
+  })
 })

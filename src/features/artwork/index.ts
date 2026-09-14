@@ -1,10 +1,11 @@
 export {
   createArtworkDraft,
-  deleteArtworkDraft,
+  deleteOwnedArtwork,
   getArtwork,
   getPublicArtwork,
   mapToArtwork,
   mutateArtworkImages,
+  removeArtworkFromSale,
   resubmitArtworkForReview,
   subscribeArtwork,
   subscribePublishedArtworks,
@@ -26,13 +27,17 @@ export {
 } from './api/artworkImageStorage'
 export { ArtworkForm } from './components/ArtworkForm'
 export { ArtworkGallery } from './components/ArtworkGallery'
+export { ArtworkIdField } from './components/ArtworkIdField'
 export { ArtworkImageManager } from './components/ArtworkImageManager'
 export { ArtworkList } from './components/ArtworkList'
 export { ArtworkListItem } from './components/ArtworkListItem'
+export { ConfirmDeleteArtworkModal } from './components/ConfirmDeleteArtworkModal'
+export { ConfirmRemoveFromSaleModal } from './components/ConfirmRemoveFromSaleModal'
 export { PublicArtworkCard } from './components/PublicArtworkCard'
 export { PublicArtworkGrid } from './components/PublicArtworkGrid'
 export { useArtwork } from './hooks/useArtwork'
 export { useArtworkImages, type PendingArtworkImage } from './hooks/useArtworkImages'
+export { useArtworkLifecycleActions } from './hooks/useArtworkLifecycleActions'
 export { useCreateArtwork, type CreateStatus } from './hooks/useCreateArtwork'
 export { usePublicArtwork } from './hooks/usePublicArtwork'
 export { usePublishedArtworks } from './hooks/usePublishedArtworks'

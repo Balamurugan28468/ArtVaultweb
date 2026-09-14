@@ -5,9 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ArtworkListItem } from './ArtworkListItem'
 import type { Artwork } from '../types'
 
-const deleteArtworkDraft = vi.fn()
+const deleteOwnedArtwork = vi.fn()
+const removeArtworkFromSale = vi.fn()
 vi.mock('../api/artworkRepository', () => ({
-  deleteArtworkDraft: (...args: unknown[]) => deleteArtworkDraft(...args),
+  deleteOwnedArtwork: (...args: unknown[]) => deleteOwnedArtwork(...args),
+  removeArtworkFromSale: (...args: unknown[]) => removeArtworkFromSale(...args),
   updateArtworkDraft: vi.fn(),
   submitArtwork: vi.fn(),
 }))
@@ -20,7 +22,8 @@ vi.mock('../api/artworkImageStorage', () => ({
 }))
 
 beforeEach(() => {
-  deleteArtworkDraft.mockReset()
+  deleteOwnedArtwork.mockReset()
+  removeArtworkFromSale.mockReset()
 })
 
 const now = Timestamp.now()
@@ -110,25 +113,76 @@ describe('ArtworkListItem', () => {
     expect(screen.queryByText('Draft')).not.toBeInTheDocument()
   })
 
-  it('shows a "Delete draft" action for a DRAFT artwork only', () => {
+  it('shows a "Delete" action for a DRAFT artwork', () => {
     render(
       <MemoryRouter>
         <ArtworkListItem artwork={buildArtwork({ status: 'DRAFT' })} />
       </MemoryRouter>,
     )
-    expect(screen.getByRole('button', { name: /delete draft/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove from sale/i })).not.toBeInTheDocument()
   })
 
-  it('shows no delete action for a SUBMITTED, PUBLISHED, or REJECTED artwork — delete would always be denied by firestore.rules for these', () => {
-    for (const status of ['SUBMITTED', 'PUBLISHED', 'REJECTED'] as const) {
-      const { unmount } = render(
-        <MemoryRouter>
-          <ArtworkListItem artwork={buildArtwork({ status })} />
-        </MemoryRouter>,
-      )
-      expect(screen.queryByRole('button', { name: /delete draft/i })).not.toBeInTheDocument()
-      unmount()
-    }
+  // UI-03 final correction — REJECTED joins DRAFT as deletable (see
+  // firestore.rules' own `allow delete`); it was previously wrongly denied
+  // a delete action even though nothing about it is locked the way
+  // SUBMITTED is.
+  it('shows a "Delete" action for a REJECTED artwork too', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'REJECTED' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove from sale/i })).not.toBeInTheDocument()
+  })
+
+  // Seller artwork recovery/control (UI-03 final correction) — PUBLISHED
+  // now gets both controls side by side: Remove from sale (non-destructive,
+  // re-enters moderation) and a real hard Delete, not one instead of the
+  // other.
+  it('shows both "Remove from sale" and "Delete" actions for a PUBLISHED artwork', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'PUBLISHED' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('button', { name: /remove from sale/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument()
+  })
+
+  it('shows neither Delete nor Remove from sale for a SUBMITTED artwork — it stays locked', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'SUBMITTED' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove from sale/i })).not.toBeInTheDocument()
+  })
+
+  // Seller artwork recovery/control (UI-03 final correction) — a SUSPENDED
+  // artwork is no longer locked to the owner: it gets a real Delete, exactly
+  // like REJECTED, but never "Remove from sale" (it's already off the
+  // marketplace, so that transition has nothing to do).
+  it('shows a "Delete" action (never "Remove from sale") for a SUSPENDED artwork', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'SUSPENDED' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove from sale/i })).not.toBeInTheDocument()
+    expect(screen.getByText('Suspended')).toBeInTheDocument()
+  })
+
+  it('links to "Edit", never "View", for a SUSPENDED artwork — it is fully editable again', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'SUSPENDED' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/seller-studio/artworks/a1/edit')
   })
 
   it('shows the real rejection reason for a REJECTED artwork', () => {
@@ -140,6 +194,15 @@ describe('ArtworkListItem', () => {
     expect(screen.getByText(/blurry photos/i)).toBeInTheDocument()
   })
 
+  it('shows the real admin suspension reason for a SUSPENDED artwork', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'SUSPENDED', rejectionReason: 'Reported for a policy violation.' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText(/reported for a policy violation/i)).toBeInTheDocument()
+  })
+
   it('never shows the rejection reason line for a non-REJECTED artwork', () => {
     render(
       <MemoryRouter>
@@ -149,35 +212,165 @@ describe('ArtworkListItem', () => {
     expect(screen.queryByText(/rejection/i)).not.toBeInTheDocument()
   })
 
-  it('deletes the draft after confirming in the accessible dialog', async () => {
-    deleteArtworkDraft.mockResolvedValueOnce(undefined)
+  it('deletes a DRAFT after confirming in the accessible dialog, which names the artwork', async () => {
+    deleteOwnedArtwork.mockResolvedValueOnce(undefined)
     render(
       <MemoryRouter>
-        <ArtworkListItem artwork={buildArtwork()} />
+        <ArtworkListItem artwork={buildArtwork({ title: 'Sunset' })} />
       </MemoryRouter>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
-    const dialog = await screen.findByRole('dialog', { name: /delete this draft/i })
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    const dialog = await screen.findByRole('dialog', { name: /delete this artwork/i })
+    expect(dialog).toHaveTextContent('Sunset')
+    expect(dialog).toHaveTextContent('This action cannot be undone.')
 
-    fireEvent.click(within(dialog).getByRole('button', { name: /^delete draft$/i }))
+    fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }))
 
-    await waitFor(() => expect(deleteArtworkDraft).toHaveBeenCalledWith('a1'))
+    await waitFor(() => expect(deleteOwnedArtwork).toHaveBeenCalledWith('a1'))
   })
 
-  it('leaves the draft unchanged when the confirmation is cancelled', async () => {
+  it('deletes a REJECTED artwork after confirming — owner-authorized via the same repository path as DRAFT', async () => {
+    deleteOwnedArtwork.mockResolvedValueOnce(undefined)
     render(
       <MemoryRouter>
-        <ArtworkListItem artwork={buildArtwork()} />
+        <ArtworkListItem artwork={buildArtwork({ status: 'REJECTED', title: 'Blurry piece' })} />
       </MemoryRouter>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
-    await screen.findByRole('dialog', { name: /delete this draft/i })
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    const dialog = await screen.findByRole('dialog', { name: /delete this artwork/i })
+    expect(dialog).toHaveTextContent('Blurry piece')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }))
+
+    await waitFor(() => expect(deleteOwnedArtwork).toHaveBeenCalledWith('a1'))
+  })
+
+  it('deletes a SUSPENDED artwork after confirming — owner-authorized via the same repository path as DRAFT/REJECTED', async () => {
+    deleteOwnedArtwork.mockResolvedValueOnce(undefined)
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'SUSPENDED', title: 'Flagged piece' })} />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    const dialog = await screen.findByRole('dialog', { name: /delete this artwork/i })
+    expect(dialog).toHaveTextContent('Flagged piece')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }))
+
+    await waitFor(() => expect(deleteOwnedArtwork).toHaveBeenCalledWith('a1'))
+  })
+
+  it('deletes a PUBLISHED artwork after confirming, independent of Remove from sale', async () => {
+    deleteOwnedArtwork.mockResolvedValueOnce(undefined)
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'PUBLISHED', title: 'Ocean view' })} />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    const dialog = await screen.findByRole('dialog', { name: /delete this artwork/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }))
+
+    await waitFor(() => expect(deleteOwnedArtwork).toHaveBeenCalledWith('a1'))
+    expect(removeArtworkFromSale).not.toHaveBeenCalled()
+  })
+
+  it('removes a PUBLISHED artwork from sale after confirming — the safe PUBLISHED -> SUBMITTED transition, never a hard delete', async () => {
+    removeArtworkFromSale.mockResolvedValueOnce(undefined)
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'PUBLISHED', title: 'Ocean view' })} />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /remove from sale/i }))
+    const dialog = await screen.findByRole('dialog', { name: /remove from sale/i })
+    expect(dialog).toHaveTextContent('Ocean view')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /^remove from sale$/i }))
+
+    await waitFor(() => expect(removeArtworkFromSale).toHaveBeenCalledWith('a1'))
+    expect(deleteOwnedArtwork).not.toHaveBeenCalled()
+  })
+
+  it('cancelling the Remove from sale dialog never mutates the artwork', async () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ status: 'PUBLISHED' })} />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /remove from sale/i }))
+    await screen.findByRole('dialog', { name: /remove from sale/i })
 
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(deleteArtworkDraft).not.toHaveBeenCalled()
+    expect(removeArtworkFromSale).not.toHaveBeenCalled()
+  })
+
+  // UI-03 — real data added to the card: thumbnail, category, last-updated.
+  it('shows the artwork thumbnail when one exists', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ArtworkListItem
+          artwork={buildArtwork({
+            images: [{ id: 'i1', path: 'p', url: 'https://example.com/a.jpg', order: 0, contentType: 'image/jpeg', size: 1 }],
+          })}
+        />
+      </MemoryRouter>,
+    )
+    // Decorative (alt=""), so it has no accessible "img" role — queried
+    // directly rather than via screen.getByRole.
+    expect(container.querySelector('img')).toHaveAttribute('src', 'https://example.com/a.jpg')
+  })
+
+  it('shows a placeholder icon, never a broken image, when the artwork has no photos', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ images: [] })} />
+      </MemoryRouter>,
+    )
+    expect(container.querySelector('img')).not.toBeInTheDocument()
+  })
+
+  it('shows the real category', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ category: 'sculpture' })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Sculpture')).toBeInTheDocument()
+  })
+
+  it('shows real stock and last-updated information', () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork({ inventoryCount: 7, updatedAt: Timestamp.fromDate(new Date('2026-03-15')) })} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText(/7 in stock/)).toBeInTheDocument()
+    expect(screen.getByText(/Updated/)).toBeInTheDocument()
+  })
+
+  it('leaves the artwork unchanged when the delete confirmation is cancelled', async () => {
+    render(
+      <MemoryRouter>
+        <ArtworkListItem artwork={buildArtwork()} />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    await screen.findByRole('dialog', { name: /delete this artwork/i })
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(deleteOwnedArtwork).not.toHaveBeenCalled()
   })
 })

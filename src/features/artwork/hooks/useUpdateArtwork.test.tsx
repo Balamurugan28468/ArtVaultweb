@@ -5,13 +5,15 @@ import type { ArtworkImage } from '../types'
 
 const updateArtworkDraft = vi.fn()
 const submitArtwork = vi.fn()
-const deleteArtworkDraft = vi.fn()
+const deleteOwnedArtwork = vi.fn()
+const removeArtworkFromSale = vi.fn()
 const updatePublishedArtworkSafeFields = vi.fn()
 const resubmitArtworkForReview = vi.fn()
 vi.mock('../api/artworkRepository', () => ({
   updateArtworkDraft: (...args: unknown[]) => updateArtworkDraft(...args),
   submitArtwork: (...args: unknown[]) => submitArtwork(...args),
-  deleteArtworkDraft: (...args: unknown[]) => deleteArtworkDraft(...args),
+  deleteOwnedArtwork: (...args: unknown[]) => deleteOwnedArtwork(...args),
+  removeArtworkFromSale: (...args: unknown[]) => removeArtworkFromSale(...args),
   updatePublishedArtworkSafeFields: (...args: unknown[]) => updatePublishedArtworkSafeFields(...args),
   resubmitArtworkForReview: (...args: unknown[]) => resubmitArtworkForReview(...args),
 }))
@@ -24,7 +26,8 @@ vi.mock('../api/artworkImageStorage', () => ({
 beforeEach(() => {
   updateArtworkDraft.mockReset()
   submitArtwork.mockReset()
-  deleteArtworkDraft.mockReset()
+  deleteOwnedArtwork.mockReset()
+  removeArtworkFromSale.mockReset()
   updatePublishedArtworkSafeFields.mockReset()
   resubmitArtworkForReview.mockReset()
   deleteArtworkImageObject.mockReset().mockResolvedValue(undefined)
@@ -57,21 +60,21 @@ describe('useUpdateArtwork', () => {
     expect(result.current.status).toBe('success')
   })
 
-  it('remove() calls deleteArtworkDraft', async () => {
-    deleteArtworkDraft.mockResolvedValueOnce(undefined)
+  it('remove() calls deleteOwnedArtwork', async () => {
+    deleteOwnedArtwork.mockResolvedValueOnce(undefined)
     const { result } = renderHook(() => useUpdateArtwork())
 
     await act(async () => {
       await result.current.remove('a1')
     })
 
-    expect(deleteArtworkDraft).toHaveBeenCalledWith('a1')
+    expect(deleteOwnedArtwork).toHaveBeenCalledWith('a1')
     expect(deleteArtworkImageObject).not.toHaveBeenCalled()
     expect(result.current.status).toBe('success')
   })
 
   it("remove() best-effort deletes each of the draft's images before deleting the document", async () => {
-    deleteArtworkDraft.mockResolvedValueOnce(undefined)
+    deleteOwnedArtwork.mockResolvedValueOnce(undefined)
     const images: ArtworkImage[] = [
       { id: 'a', path: 'artworks/alice/a1/a.jpg', url: 'u', order: 0, contentType: 'image/jpeg', size: 1 },
       { id: 'b', path: 'artworks/alice/a1/b.jpg', url: 'u', order: 1, contentType: 'image/jpeg', size: 1 },
@@ -84,11 +87,11 @@ describe('useUpdateArtwork', () => {
 
     expect(deleteArtworkImageObject).toHaveBeenCalledWith('artworks/alice/a1/a.jpg')
     expect(deleteArtworkImageObject).toHaveBeenCalledWith('artworks/alice/a1/b.jpg')
-    expect(deleteArtworkDraft).toHaveBeenCalledWith('a1')
+    expect(deleteOwnedArtwork).toHaveBeenCalledWith('a1')
   })
 
   it('remove() still deletes the document even when an image Storage delete fails', async () => {
-    deleteArtworkDraft.mockResolvedValueOnce(undefined)
+    deleteOwnedArtwork.mockResolvedValueOnce(undefined)
     deleteArtworkImageObject.mockRejectedValueOnce(new Error('storage/unauthorized'))
     const images: ArtworkImage[] = [{ id: 'a', path: 'artworks/alice/a1/a.jpg', url: 'u', order: 0, contentType: 'image/jpeg', size: 1 }]
     const { result } = renderHook(() => useUpdateArtwork())
@@ -97,7 +100,19 @@ describe('useUpdateArtwork', () => {
       await result.current.remove('a1', images)
     })
 
-    expect(deleteArtworkDraft).toHaveBeenCalledWith('a1')
+    expect(deleteOwnedArtwork).toHaveBeenCalledWith('a1')
+    expect(result.current.status).toBe('success')
+  })
+
+  it('removeFromSale() calls removeArtworkFromSale (UI-03 final correction)', async () => {
+    removeArtworkFromSale.mockResolvedValueOnce(undefined)
+    const { result } = renderHook(() => useUpdateArtwork())
+
+    await act(async () => {
+      await result.current.removeFromSale('a1')
+    })
+
+    expect(removeArtworkFromSale).toHaveBeenCalledWith('a1')
     expect(result.current.status).toBe('success')
   })
 

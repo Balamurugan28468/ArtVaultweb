@@ -1,14 +1,34 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-13 — UI-02 (Cart, Checkout, Orders & Account
-Experience) is **COMPLETE and OWNER APPROVED**, committed in its own
-closeout commit. Frontend: **939/939** (up from 793/793 at UI-01's close).
-Firestore rules: **268/268** across 8 files. `tsc -b` clean, `oxlint`
-clean (0 errors, pre-existing warnings only in unrelated files),
-production build clean. See "UI-02 — Cart, Checkout, Orders & Account
-Experience" below for the full write-up. Next UI: **UI-03** (not started).
+_Last updated: 2026-09-14 — UI-03 (Seller Studio, Artwork Management &
+Admin Moderation Override) is **COMPLETE and OWNER APPROVED**, committed in
+its own closeout commit. Owner manually retested and confirmed: ADMIN
+suspension works end-to-end, a suspended artwork disappears from
+`/explore` immediately, the seller sees the suspension reason, the seller
+retains Edit + Delete on a SUSPENDED artwork, REJECTED/PUBLISHED/SUSPENDED
+seller controls all behave as required, and SUBMITTED remains
+locked/read-only. Frontend: **1033/1035 passing** (1035 total; the 2
+non-passing are `router.test.tsx`'s own known, pre-existing,
+machine-specific resource-contention artifact — re-confirmed passing
+15/15 in isolation the same day, not a regression; up from 939/939 at
+UI-02's close). Firestore rules: **292/292** across 9 files (up from
+268/268 at UI-02's close — one new file, `adminLogs.rules.test.ts`).
+Storage rules: **22/22**. Functions: **179/179**. `tsc -b`/`tsc --noEmit`
+clean (both root and `functions/`), `oxlint` clean (0 errors, pre-existing
+warnings only in unrelated files), production build clean. See "UI-03 —
+Seller Studio, Artwork Management & Admin Moderation Override" below for
+the full write-up and the final seller artwork lifecycle/control rules.
+Next UI: **UI-04** (not started).
 
-_Previously: UI-01 (Complete Responsive Marketplace UI) is **COMPLETE and
+_Previously: UI-02 (Cart, Checkout, Orders & Account Experience) is
+**COMPLETE and OWNER APPROVED**, committed in its own closeout commit.
+Frontend: **939/939** (up from 793/793 at UI-01's close). Firestore rules:
+**268/268** across 8 files. `tsc -b` clean, `oxlint` clean (0 errors,
+pre-existing warnings only in unrelated files), production build clean.
+See "UI-02 — Cart, Checkout, Orders & Account Experience" below for the
+full write-up._
+
+_Before that: UI-01 (Complete Responsive Marketplace UI) is **COMPLETE and
 OWNER APPROVED**, committed together with Module 13 (Admin
 Control Center, Phases 1-4 — see its own write-up below, already fully
 implemented and tested as of the previous update but not yet committed
@@ -1064,6 +1084,181 @@ Wishlist, Likes, Marketplace, artist profiles, authentication, artwork
 upload/Storage handling, and every DRAFT/SUBMITTED artwork-update rule
 path (all unchanged, not just untested) — verified unchanged by the full,
 unmodified regression suite passing alongside the new tests.
+
+## UI-03 — Seller Studio, Artwork Management & Admin Moderation Override (COMPLETE, OWNER APPROVED)
+
+**Status: COMPLETE / OWNER APPROVED.** Owner manually retested and
+confirmed every required behavior (see the "Last updated" paragraph at the
+top of this file for the exact confirmation list).
+
+### Objective and scope
+
+Gives sellers a real Seller Studio (dashboard, My Artworks, Create/Edit
+Artwork form) and gives ArtVault's admins real, trusted authority to
+moderate *any* seller's artwork regardless of owner or status — building
+on Module 13's callable-function foundation (`approveSellerApplication`,
+`rejectSellerApplication`, `moderateArtwork`) with a fourth callable,
+`suspendArtwork`. Authorization throughout is via trusted custom claims
+and Firestore/Storage rules, never hidden UI alone.
+
+### Seller Studio base build
+
+Seller Studio dashboard (Inventory Overview, quick actions), My Artworks
+list, and a single Create/Edit Artwork form (`react-hook-form` + `zod`)
+shared by both flows. Responsive at desktop and mobile widths. Every
+mutation goes through the existing, tested artwork repository/hooks layer
+— no new ad hoc Firestore calls.
+
+### Final seller artwork lifecycle/control rules
+
+The complete, final capability matrix for a seller acting on their own
+artwork (never reachable for a non-owner; SELLER/CUSTOMER can never act on
+someone else's artwork; admin authority below is independent of this and
+always wins regardless of owner):
+
+| Status | Seller can... |
+| --- | --- |
+| DRAFT | Edit, Delete |
+| SUBMITTED | **Locked/read-only** — no Edit, no Delete (awaiting admin review) |
+| PUBLISHED | Edit, Remove from sale (→ SUBMITTED), Delete |
+| REJECTED | Edit (shows the admin's rejection reason), Delete, Resubmit for review (→ SUBMITTED) |
+| SUSPENDED | Edit (shows the admin's suspension reason), Delete, Resubmit for review (→ SUBMITTED) |
+
+Editing a REJECTED or SUSPENDED artwork and resubmitting moves it back to
+SUBMITTED (locked again, reappears in Admin → Awaiting review) via the
+same existing confirmation modal (`ConfirmResubmitModal`) REJECTED already
+used. Deleting any non-SUBMITTED artwork uses one shared confirmation
+modal and safely cleans up its Storage photos via the existing deletion
+mechanism. `firestore.rules`' `allow delete` covers every status except
+SUBMITTED (owner-only); the PUBLISHED/REJECTED/SUSPENDED → SUBMITTED
+resubmission branch is one unified rule, not three copies. `storage.rules`
+mirrors this exactly (editable/uploadable/deletable for the owner on every
+status except SUBMITTED). `adminLogs` (below) is untouched by either
+operation — deleting or resubmitting an artwork never erases its admin
+moderation history.
+
+### Admin Moderation Override
+
+A trusted ADMIN/SUPER_ADMIN-only `suspendArtwork` callable can move *any*
+artwork — any owner, any status (DRAFT/SUBMITTED/PUBLISHED/REJECTED) —
+to a new terminal-but-recoverable `SUSPENDED` status, given a required
+moderation reason. Never a hard delete, for any starting status: a
+seller's record may be referenced by past orders/carts/wishlists the
+instant it was ever PUBLISHED, so suspension uniformly avoids destroying
+anything. SUSPENDED is not publicly readable (`firestore.rules`' public
+read branch requires `status == 'PUBLISHED'`), so the artwork disappears
+from `/explore`, category/search listings, and the artist's public profile
+immediately. The transition, plus a full audit record (admin uid, artwork
+id, previous status, resulting status, reason, server timestamp), is
+written atomically in one Firestore transaction to a new `adminLogs`
+collection (admin-read-only, client-write `false` unconditionally — the
+trusted Cloud Function is the only writer). `adminLogs` is never
+cascade-deleted and never rewritten by a later resubmission, so admin
+moderation history is preserved regardless of what the seller does to the
+artwork afterward. SELLER/CUSTOMER callers are rejected with
+`permission-denied` before any Firestore access is attempted. Surfaced in
+the existing Admin Control Center (`ArtworkModerationQueue`'s by-ID lookup,
+`ArtworkModerationLookup`) — never added to seller-facing pages.
+
+### Artwork ID visibility
+
+A previously-missing, owner-requested affordance: the real Firestore
+artwork document id is now visible, read-only, with a Copy button
+(`ArtworkIdField`), on both the public Artwork Detail page and the
+seller's own Edit Artwork page — no other internal field exposed.
+
+### Real defect fixes (reproduced and root-caused against the live dev emulator, not guessed from code)
+
+- **Admin Suspend "internal [0]"** — root cause: `functions/lib` was stale
+  relative to `functions/src` (the emulator hadn't been rebuilt since
+  `suspendArtwork` was added), so the client's `httpsCallable` hit an
+  unregistered function; the Functions emulator's 404 becomes a
+  client-fabricated `FirebaseError('functions/internal', 'internal [0]')`
+  with no real server code ever involved. Fixed by rebuilding
+  `functions/`. A secondary bug found during the same investigation:
+  `toAdminActionError` (frontend) was echoing that raw SDK-fabricated
+  message verbatim instead of a safe, useful one — fixed to special-case
+  `functions/internal`.
+- **Seller photo upload/delete failure** — root cause: `storage.rules`
+  still required `status == 'DRAFT'` for a seller to write/delete an
+  artwork's photos, predating PUBLISHED/REJECTED (and later SUSPENDED)
+  becoming owner-editable. Fixed by widening the rule to every status
+  except SUBMITTED. A missing delete-confirmation UI for an
+  already-saved photo was added to `ArtworkImageManager` at the same time.
+- **Admin Suspend generic failure (recurrence)** — a second, distinct
+  incident after the above fix shipped: the *running* Functions emulator's
+  one-time trigger-discovery cache had gone stale again relative to a
+  later `functions/lib` rebuild (an emulator hot-reload gap, not a code
+  regression — confirmed by calling `suspendArtworkByAdmin` directly via
+  the Admin SDK, which succeeded immediately, while the real callable HTTP
+  endpoint reported the function as unregistered). No code changed;
+  rebuilding `functions/` again forced the emulator to re-discover every
+  trigger, proven via a live, end-to-end reproduction: a freshly-minted
+  ADMIN token's `suspendArtwork` call succeeded, a CUSTOMER token's call
+  was correctly denied, and a matching `adminLogs` entry appeared.
+
+### Security
+
+- Owner-only `allow delete`/edit/resubmit on every path — never weakened
+  for any status, including the widenings above.
+- Admin moderation authority is completely independent of, and always
+  overrides, seller ownership — verified by dedicated tests (ADMIN/
+  SUPER_ADMIN can suspend another seller's artwork in any status; SELLER/
+  CUSTOMER cannot call `suspendArtwork` at all).
+- SUBMITTED remains the one status no owner action (edit/delete/resubmit)
+  can ever touch, for either the seller or a non-owner.
+- `adminLogs`: admin-read-only, `allow write: if false` unconditionally —
+  the Cloud Function (trusted Admin SDK, bypasses rules) is the only
+  writer, by design.
+
+### Files changed (cumulative across this UI)
+
+`firestore.rules`, `storage.rules`; `functions/src/adminActions.ts` +
+`.test.ts`, `functions/src/moderateArtworkRemoval.ts` (new) + `.test.ts`,
+`functions/src/index.ts`; `firestore-tests/artworks.rules.test.ts`,
+`firestore-tests/adminLogs.rules.test.ts` (new);
+`storage-tests/artworkImages.rules.test.ts`;
+`src/features/artwork/{types.ts, index.ts}`;
+`src/features/artwork/api/artworkRepository.ts` + `.test.ts`;
+`src/features/artwork/hooks/{useArtworkImages.ts, useUpdateArtwork.ts,
+useArtworkLifecycleActions.ts (new)}` + tests;
+`src/features/artwork/components/{ArtworkForm, ArtworkListItem,
+ArtworkImageManager, ArtworkIdField (new), ConfirmResubmitModal,
+ConfirmDeleteArtworkModal (new), ConfirmRemoveFromSaleModal (new)}.tsx` +
+tests; `src/features/admin/{index.ts, api/adminApi.ts, hooks/
+useSuspendArtwork.ts (new), components/{ArtworkModerationCard,
+ArtworkModerationQueue, ArtworkModerationLookup (new)}.tsx}` + tests;
+`src/features/seller-studio/components/SellerStudioShell.tsx` + new test;
+`src/app/routes/{ArtworkDetailPage, ArtworkListPage (+ new test),
+SellerProfilePage, SellerStudioHomePage, router}.test.tsx`/`.tsx`.
+
+**Explicitly not touched:** UI-01, UI-02, checkout/orders, primary
+navigation structure, Admin UI visual design, authentication.
+
+### Final automated test/build results (this closing commit)
+
+`tsc -b` (root) and `tsc --noEmit` (`functions/`): both clean. `oxlint`:
+clean, 0 errors (pre-existing warnings only, none in any file this UI
+touched). Functions test suite: **179/179 passing across 9 files**.
+Firestore rules: **292/292 passing across 9 files** (up from 268/268 at
+UI-02's close). Storage rules: **22/22 passing**. Frontend test suite:
+**1033/1035 passing across 116 files** (up from 939/939 at UI-02's close)
+— the 2 non-passing are both in `router.test.tsx`, via the same
+`findByRole`/`waitFor` timeout pattern documented repeatedly throughout
+this UI's development as a pre-existing, machine-specific (8GB RAM)
+resource-contention artifact of this development machine, never a content
+mismatch; re-run in isolation the same day: **15/15 passing**. Production
+build: succeeds cleanly (only the pre-existing, unrelated >500kB
+`AuthProvider-*.js` chunk-size advisory).
+
+**Not visually verified by the assistant.** No browser or screenshot tool
+was available in the assistant's environment throughout this UI — every
+round was verified via code inspection, live-emulator reproduction (for
+the real defect fixes above), and automated tests. The owner performed
+the real manual retest and gave the final approval recorded at the top of
+this file.
+
+**Next UI: UI-04** (not started — scope is an owner decision).
 
 ## UI-02 — Cart, Checkout, Orders & Account Experience (COMPLETE, OWNER APPROVED)
 
@@ -5110,14 +5305,15 @@ module — see "Live emulator verification" above.
 
 ## Next action
 
-UI-02 (Cart, Checkout, Orders & Account Experience) is complete,
-owner-approved, and committed in its own closeout commit, on top of
-UI-01 (Complete Responsive Marketplace UI) and Module 13 (Admin Control
-Center, Phases 1-4), both already committed previously. Not pushed (no
-remote configured). No UI-03 or any other later module has been started —
-next UI selection and scope for UI-03 is an owner decision. Intentionally
-deferred by UI-02 (real backend work, not yet scoped to any module): a
-payment provider integration, real order creation/inventory enforcement,
+UI-03 (Seller Studio, Artwork Management & Admin Moderation Override) is
+complete, owner-approved, and committed in its own closeout commit, on top
+of UI-02 (Cart, Checkout, Orders & Account Experience), UI-01 (Complete
+Responsive Marketplace UI), and Module 13 (Admin Control Center, Phases
+1-4), all already committed previously. Not pushed (no remote configured).
+No UI-04 or any other later module has been started — next UI selection
+and scope for UI-04 is an owner decision. Intentionally deferred by UI-02
+(real backend work, not yet scoped to any module): a payment provider
+integration, real order creation/inventory enforcement,
 delivery/shipping-rate integration, and a persisted `addresses` collection
 for Checkout. Owner still needs to supply the real ArtVault logo asset to
 the repository when convenient (not a blocker — a documented temporary

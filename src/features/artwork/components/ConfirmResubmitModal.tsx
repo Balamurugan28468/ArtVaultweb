@@ -1,17 +1,18 @@
 import { Button, Modal } from '@/shared/ui'
 
 /**
- * Module 13 Phase 4 — shown before any write that moves a PUBLISHED or
- * REJECTED artwork back into the Admin moderation queue (SUBMITTED). Two
- * copy variants share one component since both are the exact same
+ * Module 13 Phase 4 — shown before any write that moves a PUBLISHED,
+ * REJECTED, or SUSPENDED (seller artwork recovery/control pass) artwork
+ * back into the Admin moderation queue (SUBMITTED). Two copy variants share
+ * one component since all three source statuses land on the exact same
  * underlying transition (firestore.rules treats them as one branch, not
- * two): `material-change` warns about the real, easy-to-miss consequence of
- * editing a PUBLISHED artwork's public content — it stops being visible in
- * the marketplace until approved again, never a silent surprise;
- * `rejected-resubmit` makes the already-explicit "Edit & resubmit" action
- * doubly explicit, matching the owner's own "explicit resubmission"
- * requirement, even though a REJECTED artwork has no live marketplace
- * visibility to lose.
+ * separate ones): `material-change` warns about the real, easy-to-miss
+ * consequence of editing a PUBLISHED artwork's public content — it stops
+ * being visible in the marketplace until approved again, never a silent
+ * surprise; `rejected-resubmit` makes the already-explicit "Edit &
+ * resubmit" action doubly explicit for REJECTED or SUSPENDED, matching the
+ * owner's own "explicit resubmission" requirement, even though neither has
+ * any live marketplace visibility to lose.
  */
 export function ConfirmResubmitModal({
   open,

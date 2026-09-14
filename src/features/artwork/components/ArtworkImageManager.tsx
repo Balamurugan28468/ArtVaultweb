@@ -1,8 +1,8 @@
 import { ImageOff, RotateCcw, X } from 'lucide-react'
-import { forwardRef, useImperativeHandle, useRef, type ChangeEvent } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState, type ChangeEvent } from 'react'
 import { useArtworkImages } from '../hooks/useArtworkImages'
 import { ARTWORK_IMAGE_CONTENT_TYPES, ARTWORK_MAX_IMAGES, type Artwork, type ArtworkImage } from '../types'
-import { Button, IconButton, Spinner } from '@/shared/ui'
+import { Button, IconButton, Modal, Spinner } from '@/shared/ui'
 
 /**
  * Imperative bridge to ArtworkForm's Save flow — deliberately not props,
@@ -49,12 +49,25 @@ export const ArtworkImageManager = forwardRef<ArtworkImageManagerHandle, { artwo
     finalizeSave,
   } = useArtworkImages(artwork)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // UI-03 final correction — an already-saved photo (one that exists in
+  // `images`, as opposed to a still-uploading/failed entry in `pending`)
+  // now requires an explicit confirmation before it's actually removed;
+  // clicking the X button opens this instead of calling removeImage
+  // directly.
+  const [confirmDeleteImage, setConfirmDeleteImage] = useState<ArtworkImage | null>(null)
 
   useImperativeHandle(ref, () => ({ isDirty, getImagesForSave, finalizeSave }))
 
   const handleFilesSelected = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files.length > 0) addFiles(event.target.files)
     event.target.value = ''
+  }
+
+  async function handleConfirmDeleteImage() {
+    if (!confirmDeleteImage) return
+    const image = confirmDeleteImage
+    setConfirmDeleteImage(null)
+    await removeImage(image)
   }
 
   const hasNothing = images.length === 0 && pending.length === 0
@@ -88,7 +101,7 @@ export const ArtworkImageManager = forwardRef<ArtworkImageManagerHandle, { artwo
                     variant="solid"
                     className="absolute top-1.5 right-1.5 h-8 w-8"
                     disabled={removingId === image.id}
-                    onClick={() => void removeImage(image)}
+                    onClick={() => setConfirmDeleteImage(image)}
                   />
                 )}
               </div>
@@ -195,6 +208,29 @@ export const ArtworkImageManager = forwardRef<ArtworkImageManagerHandle, { artwo
           </p>
         </div>
       )}
+
+      <Modal
+        open={confirmDeleteImage !== null}
+        onClose={() => setConfirmDeleteImage(null)}
+        title="Remove this photo?"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => setConfirmDeleteImage(null)} disabled={removingId !== null}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleConfirmDeleteImage()}
+              disabled={removingId !== null}
+              className="!bg-danger text-white hover:!bg-danger/90"
+            >
+              {removingId !== null ? 'Removing…' : 'Remove photo'}
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-text-secondary">This photo will be permanently removed. This action cannot be undone.</p>
+      </Modal>
     </div>
   )
 })

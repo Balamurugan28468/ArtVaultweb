@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react'
 import { deleteArtworkImageObject } from '../api/artworkImageStorage'
 import {
-  deleteArtworkDraft,
+  deleteOwnedArtwork,
+  removeArtworkFromSale,
   resubmitArtworkForReview,
   submitArtwork,
   updateArtworkDraft,
@@ -47,19 +48,26 @@ export function useUpdateArtwork() {
     (id: string, input: ArtworkDraftInput, images: ArtworkImage[]) => runMutation(() => resubmitArtworkForReview(id, input, images)),
     [runMutation],
   )
-  // Deletes the draft's own photos first — while the artwork doc still
-  // exists and is still DRAFT, the only state storage.rules ever allows a
-  // delete in — then the Firestore document itself. Best-effort per image:
-  // an already-missing Storage object (e.g. a save that failed partway)
-  // must never block discarding the draft it belongs to.
+  // Deletes the artwork's own photos first — while the document still
+  // exists and is in any status firestore.rules' `allow delete` permits
+  // (seller artwork recovery/control pass: every status except SUBMITTED) —
+  // then the Firestore document itself. Best-effort per image: an
+  // already-missing Storage object (e.g. a save that failed partway) must
+  // never block deleting the artwork it belongs to.
   const remove = useCallback(
     (id: string, images: readonly ArtworkImage[] = []) =>
       runMutation(async () => {
         await Promise.all(images.map((image) => deleteArtworkImageObject(image.path).catch(() => {})))
-        await deleteArtworkDraft(id)
+        await deleteOwnedArtwork(id)
       }),
     [runMutation],
   )
+  // UI-03 final correction — the owner-facing "Remove from sale" action: a
+  // non-destructive alternative to hard-deleting a PUBLISHED artwork (`remove`
+  // above also works on PUBLISHED now, but this preserves the record while
+  // taking it off the public marketplace, re-entering the moderation queue
+  // instead — see removeArtworkFromSale's own comment).
+  const removeFromSale = useCallback((id: string) => runMutation(() => removeArtworkFromSale(id)), [runMutation])
 
-  return { update, submit, remove, updateSafeFields, resubmitForReview, status, error }
+  return { update, submit, remove, removeFromSale, updateSafeFields, resubmitForReview, status, error }
 }

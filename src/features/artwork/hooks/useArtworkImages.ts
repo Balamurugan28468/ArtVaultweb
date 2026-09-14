@@ -58,20 +58,24 @@ function sortImages(images: readonly ArtworkImage[]): ArtworkImage[] {
  *
  * A DRAFT artwork's photo actions commit to Firestore immediately, one at a
  * time (via `mutateArtworkImages`) — safe because DRAFT stays DRAFT no
- * matter how its images change. A PUBLISHED or REJECTED artwork's photo
- * actions are a *material* edit (see firestore.rules' own comment on its
- * update rule): they can never land on the live document one action at a
- * time, because the very first one would flip `status` to `SUBMITTED` and
- * firestore.rules then locks the document completely — the required
- * behavior anyway ("SUBMITTED cannot mutate photos or any artwork fields").
- * So for these two statuses, every add/remove/reorder only ever changes a
- * local, staged copy (`stagedImages`) — never Firestore — until the seller
- * explicitly saves through ArtworkForm's existing confirm-and-resubmit flow,
- * which calls `getImagesForSave()`/`finalizeSave()` below to commit the
- * whole batch in the one write `resubmitArtworkForReview` already makes.
+ * matter how its images change. A PUBLISHED, REJECTED, or SUSPENDED
+ * artwork's photo actions are a *material* edit (see firestore.rules' own
+ * comment on its update rule): they can never land on the live document one
+ * action at a time, because the very first one would flip `status` to
+ * `SUBMITTED` and firestore.rules then locks the document completely — the
+ * required behavior anyway ("SUBMITTED cannot mutate photos or any artwork
+ * fields"). So for these three statuses, every add/remove/reorder only ever
+ * changes a local, staged copy (`stagedImages`) — never Firestore — until
+ * the seller explicitly saves through ArtworkForm's existing
+ * confirm-and-resubmit flow, which calls `getImagesForSave()`/
+ * `finalizeSave()` below to commit the whole batch in the one write
+ * `resubmitArtworkForReview` already makes. SUSPENDED joining this list is
+ * the seller artwork recovery/control pass (UI-03 final correction) — an
+ * admin-suspended artwork's owner may correct its photos before
+ * resubmitting for a fresh review, exactly like a REJECTED one.
  */
 export function useArtworkImages(artwork: Pick<Artwork, 'id' | 'sellerId' | 'images' | 'status'>) {
-  const staged = artwork.status === 'PUBLISHED' || artwork.status === 'REJECTED'
+  const staged = artwork.status === 'PUBLISHED' || artwork.status === 'REJECTED' || artwork.status === 'SUSPENDED'
   const editable = artwork.status === 'DRAFT' || staged
 
   const [pending, setPending] = useState<PendingUploadInternal[]>([])

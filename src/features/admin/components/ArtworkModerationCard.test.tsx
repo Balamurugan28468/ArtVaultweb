@@ -88,4 +88,28 @@ describe('ArtworkModerationCard — content', () => {
     )
     expect(screen.getByText('Unknown artist')).toBeInTheDocument()
   })
+
+  // Admin moderation override (UI-03 final correction) — Suspend only
+  // renders when the caller actually wires it up (onSuspend is optional),
+  // and calls straight through when it does.
+  it('does not render a Suspend action when onSuspend is not provided', () => {
+    renderCard()
+    expect(screen.queryByRole('button', { name: /suspend/i })).not.toBeInTheDocument()
+  })
+
+  it('renders and wires up a Suspend action when onSuspend is provided', () => {
+    const onSuspend = vi.fn()
+    render(
+      <ArtworkModerationCard
+        artwork={buildArtwork()}
+        artistDisplayName="Alice Fine Art"
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+        onSuspend={onSuspend}
+        disabled={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /suspend/i }))
+    expect(onSuspend).toHaveBeenCalledTimes(1)
+  })
 })

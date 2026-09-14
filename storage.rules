@@ -37,10 +37,24 @@ service firebase.storage {
       return firestore.get(/databases/(default)/documents/artworks/$(artworkId));
     }
 
+    // UI-03 final correction — this used to require `status == 'DRAFT'`
+    // only, which was correct when Module 05 first wrote it but went stale
+    // the moment Module 13 Phase 4's "photo-editing follow-up" taught
+    // useArtworkImages.ts to also stage photo edits for a PUBLISHED or
+    // REJECTED artwork (see that hook's own `editable`/`staged` flags):
+    // every add/remove/reorder on a PUBLISHED/REJECTED artwork was silently
+    // denied by Storage, surfacing to a seller as a generic "Upload failed.
+    // Try again." with no indication it was a permissions problem, not a
+    // transient one. The seller artwork recovery/control pass adds
+    // SUSPENDED to the same list: an admin-suspended artwork's owner may
+    // now also correct its photos before resubmitting for review, exactly
+    // like a REJECTED one. Only SUBMITTED stays fully locked — the one
+    // status firestore.rules' own artwork update rule never lets its owner
+    // touch `images` (or anything else) on either.
     function artworkExistsAndIsEditableBy(artworkId, ownerUid) {
       return firestore.exists(/databases/(default)/documents/artworks/$(artworkId)) &&
         artworkDoc(artworkId).data.sellerId == ownerUid &&
-        artworkDoc(artworkId).data.status == 'DRAFT';
+        artworkDoc(artworkId).data.status != 'SUBMITTED';
     }
 
     // Owner-scoped artwork photos: artworks/{ownerUid}/{artworkId}/{imageId}.
@@ -50,10 +64,14 @@ service firebase.storage {
     // way to browse it. A seller may only write/delete while (a) they are
     // signed in as the path's own owner, (b) they hold the SELLER claim,
     // and (c) the artwork this image belongs to still exists, is still
-    // theirs, and is still DRAFT — matching the same "locked once
-    // SUBMITTED" lifecycle firestore.rules enforces for the artwork
-    // document itself, so media can never be added, replaced, or removed
-    // after submission any more than the artwork's own fields can.
+    // theirs, and is in one of the statuses its owner may still edit
+    // photos on (see `artworkExistsAndIsEditableBy` above) — SUBMITTED
+    // stays fully locked, matching firestore.rules exactly. `allow delete`
+    // also backs the full-artwork-delete flow (useUpdateArtwork's
+    // `remove()`), which best-effort deletes every image's Storage object
+    // before deleting the Firestore document itself, for every status that
+    // document delete is now allowed in (see firestore.rules' own
+    // `allow delete`) — these two rules are deliberately kept in sync.
     match /artworks/{ownerUid}/{artworkId}/{imageId} {
       allow read: if isOwner(ownerUid);
 

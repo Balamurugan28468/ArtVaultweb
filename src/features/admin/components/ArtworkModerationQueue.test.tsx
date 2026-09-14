@@ -21,10 +21,12 @@ vi.mock('../api/adminQueueRepository', () => ({
 }))
 
 const moderateArtwork = vi.fn()
+const suspendArtwork = vi.fn()
 vi.mock('../api/adminApi', () => ({
   approveSellerApplication: vi.fn(),
   rejectSellerApplication: vi.fn(),
   moderateArtwork: (...args: unknown[]) => moderateArtwork(...args),
+  suspendArtwork: (...args: unknown[]) => suspendArtwork(...args),
   isAdminActionError: (value: unknown) => typeof value === 'object' && value !== null && 'message' in value,
 }))
 
@@ -64,6 +66,7 @@ function renderQueue() {
 beforeEach(() => {
   getSubmittedArtworks.mockReset()
   moderateArtwork.mockReset()
+  suspendArtwork.mockReset()
   toastSuccess.mockReset()
   toastError.mockReset()
 })
@@ -79,6 +82,17 @@ describe('ArtworkModerationQueue — queue states', () => {
     getSubmittedArtworks.mockResolvedValue([])
     renderQueue()
     expect(await screen.findByText(/no artworks awaiting review/i)).toBeInTheDocument()
+  })
+
+  // Admin moderation override (UI-03 final correction) — the by-id lookup
+  // tool targets any artwork regardless of status, so it must stay visible
+  // no matter what state the SUBMITTED queue itself is in.
+  it('shows the "Moderate an artwork by ID" lookup tool regardless of queue state', async () => {
+    getSubmittedArtworks.mockResolvedValue([])
+    renderQueue()
+    expect(screen.getByRole('heading', { name: /moderate an artwork by id/i })).toBeInTheDocument()
+    await screen.findByText(/no artworks awaiting review/i)
+    expect(screen.getByRole('heading', { name: /moderate an artwork by id/i })).toBeInTheDocument()
   })
 
   it('shows an error state on query failure, with a retry action', async () => {
@@ -196,5 +210,44 @@ describe('ArtworkModerationQueue — reject', () => {
 
     resolveReject()
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled())
+  })
+})
+
+// Admin moderation override (UI-03 final correction) — a SUBMITTED
+// artwork's own "Suspend" action, alongside Publish/Reject.
+describe('ArtworkModerationQueue — suspend (admin moderation override)', () => {
+  it('requires a reason, then sends it to suspendArtwork, and the artwork leaves the queue on success', async () => {
+    getSubmittedArtworks.mockResolvedValueOnce([artwork()]).mockResolvedValueOnce([])
+    suspendArtwork.mockResolvedValue(undefined)
+    renderQueue()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^suspend$/i }))
+    const dialog = screen.getByRole('dialog', { name: /suspend artwork/i })
+    const confirmButton = within(dialog).getByRole('button', { name: /^suspend$/i })
+
+    fireEvent.click(confirmButton)
+    expect(suspendArtwork).not.toHaveBeenCalled()
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/reason is required/i)
+
+    fireEvent.input(within(dialog).getByLabelText(/reason/i), { target: { value: 'Reported for a policy violation.' } })
+    fireEvent.click(confirmButton)
+
+    await waitFor(() => expect(suspendArtwork).toHaveBeenCalledWith('a1', 'Reported for a policy violation.'))
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByText(/no artworks awaiting review/i)).toBeInTheDocument())
+  })
+
+  it('shows an error toast and keeps the artwork in the queue on callable failure', async () => {
+    getSubmittedArtworks.mockResolvedValue([artwork()])
+    suspendArtwork.mockRejectedValue({ message: 'This action requires an administrator account.' })
+    renderQueue()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^suspend$/i }))
+    const dialog = screen.getByRole('dialog', { name: /suspend artwork/i })
+    fireEvent.input(within(dialog).getByLabelText(/reason/i), { target: { value: 'x' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: /^suspend$/i }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('This action requires an administrator account.'))
+    expect(screen.getByText('Sunset Over the Bay')).toBeInTheDocument()
   })
 })

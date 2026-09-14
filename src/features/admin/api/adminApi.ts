@@ -19,19 +19,28 @@ export interface AdminActionError {
 }
 
 /**
- * The server's own `HttpsError` messages are already safe to show verbatim
- * — Phase 2's `toCallableError` (functions/src/adminActions.ts) guarantees
- * every message reaching a real `functions/*`-coded client error has
- * already been vetted (a closed allowlist of known domain outcomes, or one
- * generic "internal" message; never a raw Firestore/gRPC detail). This
- * function's only real job is guarding the *other* case: a genuinely
- * unexpected client-side failure (offline, a malformed response, anything
- * that isn't a real callable error at all) gets one generic fallback
- * instead of whatever raw message it happens to carry.
+ * The server's own `HttpsError` messages are safe to show verbatim for
+ * every outcome our own `toCallableError` (functions/src/adminActions.ts)
+ * actually constructs — a closed allowlist of known domain outcomes, or its
+ * own generic "This action could not be completed..." message. `internal`
+ * is deliberately excluded from that trust: it is the one code the
+ * `@firebase/functions` client SDK *also* fabricates on its own, client-
+ * side, whenever the underlying `fetch()` to the callable never completed
+ * at all (offline, a dropped connection, or — the real incident this
+ * guards against — a 404 from the emulator/Cloud Functions router for a
+ * route that doesn't exist, which arrives with no CORS header and is
+ * therefore indistinguishable from a network failure to the browser). That
+ * SDK-fabricated message reads as the literal, meaningless string
+ * `"internal [0]"` — our own server code never produced it, and it must
+ * never reach a real user verbatim. Every other `functions/*` code is only
+ * ever set by our own explicit `HttpsError` throws, so it stays trusted.
  */
 function toAdminActionError(error: unknown): AdminActionError {
   if (error instanceof FirebaseError && error.code.startsWith('functions/')) {
-    return { message: error.message || 'This action could not be completed. Please try again.' }
+    const isUnvettedInternalError = error.code === 'functions/internal'
+    return {
+      message: !isUnvettedInternalError && error.message ? error.message : 'This action could not be completed. Please try again.',
+    }
   }
   console.error('adminApi: unexpected error invoking an admin callable', error)
   return { message: 'Something went wrong. Please try again.' }
@@ -60,6 +69,21 @@ export async function moderateArtwork(
 ): Promise<void> {
   try {
     await httpsCallable(functions, 'moderateArtwork')({ artworkId, decision, rejectionReason })
+  } catch (error) {
+    throw toAdminActionError(error)
+  }
+}
+
+/**
+ * Admin moderation override (UI-03 final correction) — the one path that
+ * can take any artwork, regardless of owner or current status, off the
+ * public marketplace. Calls straight through to the `suspendArtwork`
+ * callable; no Firestore write happens in this file, same as every other
+ * function here.
+ */
+export async function suspendArtwork(artworkId: string, reason: string): Promise<void> {
+  try {
+    await httpsCallable(functions, 'suspendArtwork')({ artworkId, reason })
   } catch (error) {
     throw toAdminActionError(error)
   }

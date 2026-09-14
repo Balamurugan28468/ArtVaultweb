@@ -25,9 +25,10 @@ vi.mock('@/lib/firebase/config', () => ({ db: {} }))
 
 const {
   createArtworkDraft,
-  deleteArtworkDraft,
+  deleteOwnedArtwork,
   mapToArtwork,
   mutateArtworkImages,
+  removeArtworkFromSale,
   resubmitArtworkForReview,
   subscribeArtwork,
   subscribePublishedArtworks,
@@ -157,16 +158,37 @@ describe('resubmitArtworkForReview (Module 13 Phase 4; images added by its photo
   })
 })
 
-describe('deleteArtworkDraft', () => {
+describe('deleteOwnedArtwork', () => {
   it('deletes the document', async () => {
     deleteDoc.mockResolvedValueOnce(undefined)
-    await deleteArtworkDraft('a1')
+    await deleteOwnedArtwork('a1')
     expect(deleteDoc).toHaveBeenCalledTimes(1)
   })
 
-  it('throws a typed ArtworkError when denied (e.g. attempting to delete a SUBMITTED artwork)', async () => {
+  it('throws a typed ArtworkError when denied (e.g. attempting to delete a SUBMITTED or PUBLISHED artwork)', async () => {
     deleteDoc.mockRejectedValueOnce({ code: 'permission-denied' })
-    await expect(deleteArtworkDraft('a1')).rejects.toEqual({
+    await expect(deleteOwnedArtwork('a1')).rejects.toEqual({
+      code: 'permission-denied',
+      message: 'You do not have permission to do that.',
+    })
+  })
+})
+
+describe('removeArtworkFromSale', () => {
+  it('moves the artwork to SUBMITTED and clears reviewedAt/rejectionReason, touching no content field', async () => {
+    updateDoc.mockResolvedValueOnce(undefined)
+    await removeArtworkFromSale('a1')
+    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
+      status: 'SUBMITTED',
+      reviewedAt: null,
+      rejectionReason: null,
+      updatedAt: 'SERVER_TIMESTAMP',
+    })
+  })
+
+  it('throws a typed ArtworkError when denied (e.g. attempting this on a non-owned artwork)', async () => {
+    updateDoc.mockRejectedValueOnce({ code: 'permission-denied' })
+    await expect(removeArtworkFromSale('a1')).rejects.toEqual({
       code: 'permission-denied',
       message: 'You do not have permission to do that.',
     })

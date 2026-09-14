@@ -8,7 +8,7 @@ import type { Artwork } from '../types'
 const createArtworkDraft = vi.fn()
 const updateArtworkDraft = vi.fn()
 const submitArtwork = vi.fn()
-const deleteArtworkDraft = vi.fn()
+const deleteOwnedArtwork = vi.fn()
 const mutateArtworkImages = vi.fn()
 const updatePublishedArtworkSafeFields = vi.fn()
 const resubmitArtworkForReview = vi.fn()
@@ -16,7 +16,7 @@ vi.mock('../api/artworkRepository', () => ({
   createArtworkDraft: (...args: unknown[]) => createArtworkDraft(...args),
   updateArtworkDraft: (...args: unknown[]) => updateArtworkDraft(...args),
   submitArtwork: (...args: unknown[]) => submitArtwork(...args),
-  deleteArtworkDraft: (...args: unknown[]) => deleteArtworkDraft(...args),
+  deleteOwnedArtwork: (...args: unknown[]) => deleteOwnedArtwork(...args),
   mutateArtworkImages: (...args: unknown[]) => mutateArtworkImages(...args),
   updatePublishedArtworkSafeFields: (...args: unknown[]) => updatePublishedArtworkSafeFields(...args),
   resubmitArtworkForReview: (...args: unknown[]) => resubmitArtworkForReview(...args),
@@ -43,7 +43,7 @@ beforeEach(() => {
   createArtworkDraft.mockReset()
   updateArtworkDraft.mockReset()
   submitArtwork.mockReset()
-  deleteArtworkDraft.mockReset()
+  deleteOwnedArtwork.mockReset()
   mutateArtworkImages.mockReset().mockResolvedValue([])
   updatePublishedArtworkSafeFields.mockReset()
   resubmitArtworkForReview.mockReset()
@@ -184,6 +184,20 @@ describe('ArtworkForm — edit mode (DRAFT)', () => {
     expect(screen.getByRole('button', { name: /discard draft/i })).toBeInTheDocument()
   })
 
+  // UI-03 final correction — the real Firestore document id, read-only
+  // with a Copy control, so a seller can hand it to support/an admin
+  // without inspecting the URL.
+  it('shows the real artwork ID with a Copy control', () => {
+    renderForm({ artwork: buildArtwork({ id: 'a1' }) })
+    expect(screen.getByText('a1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /copy artwork id/i })).toBeInTheDocument()
+  })
+
+  it('never shows the artwork ID in create mode — there is no id to show yet', () => {
+    renderForm({})
+    expect(screen.queryByRole('button', { name: /copy artwork id/i })).not.toBeInTheDocument()
+  })
+
   it('saves edits via update, not create', async () => {
     updateArtworkDraft.mockResolvedValueOnce(undefined)
     const onSaved = vi.fn()
@@ -209,18 +223,18 @@ describe('ArtworkForm — edit mode (DRAFT)', () => {
   })
 
   it('shows an accessible confirmation dialog before discarding — never a native window.confirm', async () => {
-    deleteArtworkDraft.mockResolvedValueOnce(undefined)
+    deleteOwnedArtwork.mockResolvedValueOnce(undefined)
     renderForm({ artwork: buildArtwork() })
 
     fireEvent.click(screen.getByRole('button', { name: /discard draft/i }))
 
     const dialog = await screen.findByRole('dialog', { name: /delete this draft/i })
     expect(dialog).toHaveTextContent('This action cannot be undone.')
-    expect(deleteArtworkDraft).not.toHaveBeenCalled()
+    expect(deleteOwnedArtwork).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: /^delete draft$/i }))
 
-    await waitFor(() => expect(deleteArtworkDraft).toHaveBeenCalledWith('a1'))
+    await waitFor(() => expect(deleteOwnedArtwork).toHaveBeenCalledWith('a1'))
   })
 
   it('does not discard when the confirmation dialog is cancelled', async () => {
@@ -232,7 +246,7 @@ describe('ArtworkForm — edit mode (DRAFT)', () => {
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(deleteArtworkDraft).not.toHaveBeenCalled()
+    expect(deleteOwnedArtwork).not.toHaveBeenCalled()
   })
 })
 
@@ -248,6 +262,70 @@ describe('ArtworkForm — SUBMITTED (locked)', () => {
     expect(screen.queryByRole('button', { name: /discard draft/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /save changes/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /save & resubmit/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the real artwork ID even while locked', () => {
+    renderForm({ artwork: buildArtwork({ id: 'a1', status: 'SUBMITTED' }) })
+    expect(screen.getByText('a1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /copy artwork id/i })).toBeInTheDocument()
+  })
+})
+
+// Seller artwork recovery/control (UI-03 final correction) — SUSPENDED is
+// now editable exactly like REJECTED: the owner sees the admin's reason,
+// can correct the listing, and resubmits for a fresh review (never a
+// locked, read-only summary the way SUBMITTED still is).
+describe('ArtworkForm — edit mode (SUSPENDED, seller artwork recovery/control)', () => {
+  it('is a real editable form, not a locked summary', () => {
+    renderForm({ artwork: buildArtwork({ status: 'SUSPENDED' }) })
+    expect(screen.getByLabelText('Title')).toBeInTheDocument()
+  })
+
+  it('displays the real admin suspension reason', () => {
+    renderForm({ artwork: buildArtwork({ status: 'SUSPENDED', rejectionReason: 'Reported for a policy violation.' }) })
+    expect(screen.getByText('Suspended by admin')).toBeInTheDocument()
+    expect(screen.getByText(/reported for a policy violation/i)).toBeInTheDocument()
+  })
+
+  it('handles a SUSPENDED artwork with no recorded reason gracefully — no "null"/"undefined" text', () => {
+    renderForm({ artwork: buildArtwork({ status: 'SUSPENDED', rejectionReason: null }) })
+    expect(screen.queryByText(/null|undefined/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/an administrator removed this artwork from the marketplace/i)).toBeInTheDocument()
+  })
+
+  it('shows a "Save & resubmit" action, never Submit for review or Discard draft', () => {
+    renderForm({ artwork: buildArtwork({ status: 'SUSPENDED' }) })
+    expect(screen.getByRole('button', { name: /save & resubmit/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /submit for review/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /discard draft/i })).not.toBeInTheDocument()
+  })
+
+  it('requires confirmation before resubmitting, then calls resubmitArtworkForReview clearing the old admin reason', async () => {
+    resubmitArtworkForReview.mockResolvedValueOnce(undefined)
+    const onSaved = vi.fn()
+    renderForm({ artwork: buildArtwork({ status: 'SUSPENDED', rejectionReason: 'Reported for a policy violation.' }), onSaved })
+
+    fireEvent.input(screen.getByLabelText('Description'), { target: { value: 'A corrected description addressing the report.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save & resubmit/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: /resubmit for review/i })
+    expect(resubmitArtworkForReview).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: /submit for review/i }))
+
+    await waitFor(() =>
+      expect(resubmitArtworkForReview).toHaveBeenCalledWith(
+        'a1',
+        expect.objectContaining({ description: 'A corrected description addressing the report.' }),
+        [],
+      ),
+    )
+    expect(onSaved).toHaveBeenCalledWith('a1')
+  })
+
+  it('shows the real artwork ID while editing', () => {
+    renderForm({ artwork: buildArtwork({ id: 'a1', status: 'SUSPENDED' }) })
+    expect(screen.getByText('a1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /copy artwork id/i })).toBeInTheDocument()
   })
 })
 
@@ -406,5 +484,41 @@ describe('ArtworkForm — edit mode (REJECTED, Module 13 Phase 4)', () => {
       ),
     )
     expect(onSaved).toHaveBeenCalledWith('a1')
+  })
+})
+
+// UI-03 — the form now also renders honestly inert Shipping/AI Analysis
+// sections and a live Review summary, organized as named steps (Media →
+// Details → Pricing & Inventory → Shipping → AI Analysis → Review) without
+// any of them being a second, fake workflow implementation.
+describe('ArtworkForm — UI-03 section groups', () => {
+  it('shows Shipping as an honest, non-functional section — no fake shipping-rate/method field', () => {
+    renderForm()
+    expect(screen.getByText(/shipping options aren't connected yet/i)).toBeInTheDocument()
+  })
+
+  it('shows AI Analysis as an honest, non-functional section — no fabricated AI result', () => {
+    renderForm()
+    expect(screen.getByText(/AI-assisted listing analysis isn't connected yet/i)).toBeInTheDocument()
+  })
+
+  function reviewSection(): HTMLElement {
+    const heading = screen.getByRole('heading', { name: 'Review' })
+    return heading.parentElement as HTMLElement
+  }
+
+  it('shows a live Review summary that reflects what was actually typed', () => {
+    renderForm()
+    fillValidForm()
+
+    const review = reviewSection()
+    expect(within(review).getByText('Sunset Over the Bay')).toBeInTheDocument()
+    expect(within(review).getByText('Painting')).toBeInTheDocument()
+    expect(within(review).getByText('₹1500')).toBeInTheDocument()
+  })
+
+  it('shows a placeholder dash in Review before any value is entered', () => {
+    renderForm()
+    expect(within(reviewSection()).getAllByText('—').length).toBeGreaterThan(0)
   })
 })

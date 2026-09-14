@@ -139,6 +139,28 @@ describe('artworks storage — write (upload)', () => {
     )
   })
 
+  // UI-03 final correction — this is the real bug an owner hit in manual
+  // testing: useArtworkImages.ts (Module 13 Phase 4's photo-editing
+  // follow-up) has treated PUBLISHED/REJECTED as editable — staged,
+  // committed only on an explicit resubmit — for a while now, but
+  // storage.rules' own `artworkExistsAndIsEditableBy` was never updated to
+  // match and still required `status == 'DRAFT'` only. Every staged
+  // upload/retry for a PUBLISHED or REJECTED artwork was silently denied by
+  // Storage, surfacing to the seller as a generic "Upload failed. Try
+  // again." — reproduced directly against the running dev emulators (a
+  // real 403 "No WRITE permission") before this fix, confirmed resolved
+  // after it, alongside the fix itself.
+  // Seller artwork recovery/control (UI-03 final correction) added
+  // SUSPENDED to this same allowed list: the owner may correct a
+  // suspended artwork's photos before resubmitting for review, exactly
+  // like a REJECTED one.
+  it.each(['PUBLISHED', 'REJECTED', 'SUSPENDED'] as const)('allows the owning seller to upload to their own %s artwork (the actual regression)', async (status) => {
+    await seedArtwork('art1', { status })
+    await assertSucceeds(
+      uploadBytes(ref(sellerStorage('alice'), 'artworks/alice/art1/img1.jpg'), JPEG_BYTES, { contentType: 'image/jpeg' }),
+    )
+  })
+
   it('blocks an unsupported content type', async () => {
     await seedArtwork('art1')
     await assertFails(
@@ -200,5 +222,11 @@ describe('artworks storage — delete', () => {
     await seedArtwork('art1', { status: 'SUBMITTED' })
     await seedImage('artworks/alice/art1/img1.jpg')
     await assertFails(deleteObject(ref(sellerStorage('alice'), 'artworks/alice/art1/img1.jpg')))
+  })
+
+  it.each(['PUBLISHED', 'REJECTED', 'SUSPENDED'] as const)('allows the owner to delete their own %s artwork image (same regression as upload)', async (status) => {
+    await seedArtwork('art1', { status })
+    await seedImage('artworks/alice/art1/img1.jpg')
+    await assertSucceeds(deleteObject(ref(sellerStorage('alice'), 'artworks/alice/art1/img1.jpg')))
   })
 })

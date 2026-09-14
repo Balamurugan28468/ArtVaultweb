@@ -16,6 +16,7 @@
  * HTTP-reachable endpoint needs that a human-run local script never did.
  */
 import { HttpsError, onCall, type CallableRequest } from 'firebase-functions/v2/https'
+import { suspendArtworkByAdmin } from './moderateArtworkRemoval'
 import { decideArtworkByArtworkId, type PublishDecision } from './publishArtwork'
 import { promoteSellerByUid, rejectSellerApplicationByUid } from './promoteSeller'
 
@@ -34,8 +35,16 @@ const ADMIN_ROLES = new Set(['ADMIN', 'SUPER_ADMIN'])
  * itself is set, but this check is the project's actual security boundary,
  * so it fails closed (denies) rather than throwing an unhandled exception
  * if that contract were ever somehow violated, instead of trusting it blindly.
+ *
+ * Declared as a TypeScript assertion function (`asserts request is ...`)
+ * rather than a plain `void`-returning check — once a caller has called
+ * this, `request.auth` is narrowed to non-null for the rest of that
+ * caller's function body, letting `handleSuspendArtwork` read
+ * `request.auth.uid` directly with no unchecked `!` assertion of its own.
  */
-function requireAdminCaller(request: CallableRequest<unknown>): void {
+function requireAdminCaller(
+  request: CallableRequest<unknown>,
+): asserts request is CallableRequest<unknown> & { auth: NonNullable<CallableRequest<unknown>['auth']> } {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign-in required.')
   }
@@ -123,6 +132,9 @@ const KNOWN_DOMAIN_ERROR_PATTERNS: RegExp[] = [
   /^seller application for uid=.+ is already rejected\.$/i,
   /^no artwork found for artworkId=/i,
   /^artwork .+ is not awaiting review /i,
+  // suspendArtworkByAdmin's own idempotency guard (admin moderation
+  // override, UI-03 final correction) — see moderateArtworkRemoval.ts.
+  /^artwork .+ is already suspended\.$/i,
 ]
 
 /**
@@ -240,6 +252,40 @@ export async function handleModerateArtwork(request: CallableRequest<unknown>): 
   return { status: decision }
 }
 
+export interface SuspendArtworkResult {
+  status: 'SUSPENDED'
+}
+
+/**
+ * Admin moderation override (UI-03 final correction) — the one callable
+ * that can take any artwork, regardless of owner or current status
+ * (including an already-PUBLISHED one), off the public marketplace. A
+ * reason is always required — unlike `handleModerateArtwork`'s rejection
+ * reason (optional unless rejecting), a moderation override is a real
+ * enforcement action against a seller's live listing and must always be
+ * explainable, to both the seller and to whoever reviews the audit log
+ * later. Reuses `REJECTION_REASON_MAX_LENGTH`'s bound — the same "short
+ * admin note, not a document" shape either way — rather than inventing a
+ * second, parallel limit for what is the same kind of text.
+ */
+export async function handleSuspendArtwork(request: CallableRequest<unknown>): Promise<SuspendArtworkResult> {
+  requireAdminCaller(request)
+  const data = (request.data ?? {}) as Record<string, unknown>
+  const artworkId = requireDocumentId(data.artworkId, 'artworkId')
+  const reason = requireBoundedText(data.reason, 'reason', REJECTION_REASON_MAX_LENGTH)
+
+  try {
+    // request.auth is narrowed to non-null here by requireAdminCaller's
+    // own assertion — this is the verified caller's own uid, never a
+    // client-supplied value.
+    await suspendArtworkByAdmin(artworkId, reason, request.auth.uid)
+  } catch (error) {
+    throw toCallableError(error)
+  }
+
+  return { status: 'SUSPENDED' }
+}
+
 /**
  * App Check — reviewed for Module 13 Phase 2, deliberately not enabled yet.
  *
@@ -305,3 +351,4 @@ export async function handleModerateArtwork(request: CallableRequest<unknown>): 
 export const approveSellerApplication = onCall(handleApproveSellerApplication)
 export const rejectSellerApplication = onCall(handleRejectSellerApplication)
 export const moderateArtwork = onCall(handleModerateArtwork)
+export const suspendArtwork = onCall(handleSuspendArtwork)

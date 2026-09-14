@@ -2,7 +2,7 @@ import { Box, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useArtistProfile } from '@/features/artist-profile'
-import { ArtworkGallery, PublicArtworkCard, toArtworkError, usePublicArtwork } from '@/features/artwork'
+import { ArtworkGallery, ArtworkIdField, PublicArtworkCard, toArtworkError, usePublicArtwork } from '@/features/artwork'
 import { AddToCartButton, useCart } from '@/features/cart'
 import { LikeButton } from '@/features/likes'
 import { useArtistDisplayNames, useRelatedArtworks } from '@/features/marketplace'
@@ -285,6 +285,12 @@ export function ArtworkDetailPage() {
                   <dt className="text-xs text-text-muted">Availability</dt>
                   <dd className="text-sm text-text-primary">
                     {artwork.inventoryCount > 0 ? `${artwork.inventoryCount} available` : 'Out of stock'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-text-muted">Artwork ID</dt>
+                  <dd className="text-sm text-text-primary">
+                    <ArtworkIdField artworkId={artwork.id} />
                   </dd>
                 </div>
               </dl>

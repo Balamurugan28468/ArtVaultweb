@@ -20,7 +20,9 @@ vi.mock('firebase/firestore', async (importOriginal) => {
 })
 vi.mock('@/lib/firebase/config', () => ({ db: {} }))
 
-const { fetchCategoryArtworkCounts, fetchMarketplacePage, MARKETPLACE_PAGE_SIZE } = await import('./marketplaceRepository')
+const { fetchCategoryArtworkCounts, fetchMarketplacePage, fetchTrendingArtworks, MARKETPLACE_PAGE_SIZE } = await import(
+  './marketplaceRepository'
+)
 
 const BASE_FILTERS: MarketplaceFilters = { category: null, minPrice: null, maxPrice: null, sort: 'newest' }
 
@@ -193,5 +195,47 @@ describe('fetchCategoryArtworkCounts', () => {
   it('throws a typed ArtworkError rather than returning a partial/fabricated result on failure', async () => {
     getCountFromServer.mockRejectedValueOnce({ code: 'unavailable' })
     await expect(fetchCategoryArtworkCounts()).rejects.toMatchObject({ code: 'network' })
+  })
+})
+
+describe('fetchTrendingArtworks', () => {
+  it('filters by PUBLISHED and orders by the real likeCount field, descending — never a fabricated trending score', async () => {
+    getDocs.mockResolvedValueOnce({ docs: [] })
+    await fetchTrendingArtworks()
+    expect(where).toHaveBeenCalledWith('status', '==', 'PUBLISHED')
+    expect(orderBy).toHaveBeenCalledWith('likeCount', 'desc')
+  })
+
+  it('maps real results', async () => {
+    getDocs.mockResolvedValueOnce({
+      docs: [
+        {
+          id: 'a1',
+          data: () => ({
+            sellerId: 's1',
+            title: 'Popular Piece',
+            description: 'd',
+            price: 1000,
+            category: 'painting',
+            tags: [],
+            images: [],
+            inventoryCount: 1,
+            status: 'PUBLISHED',
+            reviewedAt: null,
+            rejectionReason: null,
+            likeCount: 42,
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
+          }),
+        },
+      ],
+    })
+    const artworks = await fetchTrendingArtworks()
+    expect(artworks).toEqual([expect.objectContaining({ id: 'a1', likeCount: 42 })])
+  })
+
+  it('throws a typed ArtworkError on failure', async () => {
+    getDocs.mockRejectedValueOnce({ code: 'unavailable' })
+    await expect(fetchTrendingArtworks()).rejects.toMatchObject({ code: 'network' })
   })
 })

@@ -1,29 +1,42 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-15 — UI-04 (Auctions Experience) is **COMPLETE,
-OWNER APPROVED, and COMMITTED**. A full read-only Auctions UI/UX
-foundation: landing page (`/auctions`) with Upcoming/Live/Past tabs, and a
-single detail page (`/auctions/:auctionId`) that renders three genuinely
-different compositions — upcoming, live, and a dedicated completed-auction
-result page — driven entirely by real `auctions` Firestore documents and
-each auction's real, trusted `startAt`/`endAt` timestamps. No trusted
-bid-placement, bid-history, or auction-finalization backend exists yet
-(see docs/AUCTION_ARCHITECTURE.md) — bidding, live bidding/bid history,
-and top bidders all render real, honestly-disabled/not-connected controls
-rather than any fabricated data; winner/final-bid rendering only ever
-appears from real `winnerUid`/`winningBidAmount` fields. Frontend:
-**1103/1113 passing** (1113 total; the 10 non-passing are all in
-`router.test.tsx`, the same pre-existing, machine-specific
-resource-contention artifact documented at every prior UI closeout on this
-machine — re-confirmed passing 15/15 in isolation the same day, not a
-regression; up from 1033/1035 at UI-03's close, +78 new/changed auction
-tests). Firestore rules: **307/307** across 10 files (up from 292/292 at
-UI-03's close — one new file, `auctions.rules.test.ts`). `tsc -b` clean,
-`oxlint` clean (0 errors, pre-existing warnings only in unrelated files),
-production build clean. See "UI-04 — Auctions Experience" below for the
-full write-up. Next UI: **UI-05** (not started).
+_Last updated: 2026-09-15 — UI-05 (AI Assistant, AI Artwork Analysis, AR
+Experience & Recommendations) is **COMPLETE and OWNER APPROVED**,
+committed in its own closeout commit. A read-only UI/UX foundation for
+four related experiences — `/ai`, `/artworks/:artworkId/analysis`,
+`/artworks/:artworkId/ar`, `/recommendations` — none of which have a real
+backend yet (see docs/AI_ARCHITECTURE.md and docs/AR_ARCHITECTURE.md, both
+still "design only"/"interface defined, nothing implemented"). Owner
+manually retested on desktop and at the real 350×515 mobile viewport and
+approved: the AI Assistant's mobile view no longer stacks the full desktop
+sidebar above the content (replaced by a compact header + drawer), the AR
+page's mobile view replaces the vertical artwork-navigation rail with a
+compact horizontal one so the artwork appears prominently, AI Analysis and
+Recommendations both keep their tab strips as a single horizontally-
+scrollable row with no page overflow, and honest "not connected yet"
+states are preserved everywhere a real backend doesn't exist. Frontend:
+**1168/1168 passing** across 138 files (up from 1103/1113 at UI-04's
+close — the router.test.tsx contention artifact from that close did not
+recur this pass). Firestore rules: **317/317** across 11 files (up from
+307/307 at UI-04's close — one new file, `artworkAnalyses.rules.test.ts`).
+`tsc -b` clean, `oxlint` clean (0 errors, pre-existing warnings only in
+unrelated files), production build clean. See "UI-05 — AI Assistant, AI
+Artwork Analysis, AR Experience & Recommendations" below for the full
+write-up. Next UI: **UI-06** (not started — scope is an owner decision;
+not yet defined anywhere in this file).
 
-_Previously: UI-03 (Seller Studio, Artwork Management & Admin Moderation
+_Previously: UI-04 (Auctions Experience) is **COMPLETE, OWNER APPROVED,
+and COMMITTED**. A full read-only Auctions UI/UX foundation: landing page
+(`/auctions`) with Upcoming/Live/Past tabs, and a single detail page
+(`/auctions/:auctionId`) that renders three genuinely different
+compositions — upcoming, live, and a dedicated completed-auction result
+page. Frontend: **1103/1113 passing** (the 10 non-passing were
+`router.test.tsx`'s known resource-contention artifact, re-confirmed
+15/15 in isolation). Firestore rules: **307/307** across 10 files. `tsc
+-b` clean, `oxlint` clean, production build clean. See "UI-04 — Auctions
+Experience" below for the full write-up._
+
+_Before that: UI-03 (Seller Studio, Artwork Management & Admin Moderation
 Override) is **COMPLETE and OWNER APPROVED**, committed in its own
 closeout commit. Owner manually retested and confirmed: ADMIN suspension
 works end-to-end, a suspended artwork disappears from `/explore`
@@ -36,7 +49,7 @@ files. Storage rules: **22/22**. Functions: **179/179**. `tsc -b`/`tsc
 Seller Studio, Artwork Management & Admin Moderation Override" below for
 the full write-up._
 
-_Before that: UI-02 (Cart, Checkout, Orders & Account Experience) is
+_Earlier still: UI-02 (Cart, Checkout, Orders & Account Experience) is
 **COMPLETE and OWNER APPROVED**, committed in its own closeout commit.
 Frontend: **939/939** (up from 793/793 at UI-01's close). Firestore rules:
 **268/268** across 8 files. `tsc -b` clean, `oxlint` clean (0 errors,
@@ -44,7 +57,7 @@ pre-existing warnings only in unrelated files), production build clean.
 See "UI-02 — Cart, Checkout, Orders & Account Experience" below for the
 full write-up._
 
-_Earlier still: UI-01 (Complete Responsive Marketplace UI) is **COMPLETE and
+_Further back: UI-01 (Complete Responsive Marketplace UI) is **COMPLETE and
 OWNER APPROVED**, committed together with Module 13 (Admin
 Control Center, Phases 1-4 — see its own write-up below, already fully
 implemented and tested as of the previous update but not yet committed
@@ -1100,6 +1113,153 @@ Wishlist, Likes, Marketplace, artist profiles, authentication, artwork
 upload/Storage handling, and every DRAFT/SUBMITTED artwork-update rule
 path (all unchanged, not just untested) — verified unchanged by the full,
 unmodified regression suite passing alongside the new tests.
+
+## UI-05 — AI Assistant, AI Artwork Analysis, AR Experience & Recommendations (COMPLETE, OWNER APPROVED, COMMITTED)
+
+**Status: COMPLETE / OWNER APPROVED / COMMITTED.** Owner reviewed across
+multiple passes (initial build, then a dedicated mobile UX correction
+pass) on desktop and at the real 350×515 mobile viewport, and approved
+the current implementation for commit.
+
+### Scope
+
+A read-only UI/UX foundation for four related, but independently
+routed, experiences. None has a real backend today — `docs/
+AI_ARCHITECTURE.md` is still "interface defined, nothing implemented: no
+provider, no key, no gateway function" and `docs/AR_ARCHITECTURE.md` is
+still "design only: no AR viewer, asset pipeline, or `<ViewInAR>`
+component exists yet" — so every page renders real, production-ready
+UI/architecture with honest "not connected yet" states wherever a real
+backend would eventually be needed, never fabricated output.
+
+### Routes
+
+- **`/ai`** — the full AI Assistant page: a real, typeable message
+  composer and genuinely working suggestion chips (a chip click fills the
+  input — a real convenience, never a fabricated reply), a sidebar of
+  capability links (some real, e.g. Discover Art → `/explore`, Auction
+  Help → `/auctions`, Order & Support → `/orders`; others honestly
+  disabled where no real destination exists yet), and an honest "No saved
+  conversations yet" Recent Chats section (no conversation persistence
+  exists anywhere in this codebase). Send is always disabled with a plain
+  "ArtVault AI isn't connected yet" explanation. The existing global
+  floating `AIAssistantLauncher` (Module 00/UI-01) now links into this
+  full page instead of being a dead end.
+- **`/artworks/:artworkId/analysis`** — AI Artwork Analysis. Reads a real
+  `artworkAnalyses/{artworkId}` Firestore document if one exists (new
+  collection, public read/write-always-false — see "Firestore rules"
+  below); every tab (Overview/Style & Technique/Composition/Colors/
+  Emotion/Authenticity) shows the honest "AI analysis isn't available
+  yet" empty state today, since nothing has ever written to that
+  collection. "Similar Artworks" reuses the pre-existing, already-honest
+  `useRelatedArtworks` ("more in this category," explicitly never AI-
+  labeled). `ArtworkDetailPage`'s "Analyze with AI" button now navigates
+  here (previously opened an inline modal).
+- **`/artworks/:artworkId/ar`** — AR "View in Your Space". Deliberately
+  performs no device-capability detection: even a WebXR-capable device
+  cannot get real AR from this app today (no `<model-viewer>`/GLB asset
+  pipeline exists), so claiming to "detect support" would itself be
+  dishonest. Every control (Start AR Preview, Try a Sample Room, Rotate/
+  Resize/Reset) is real and visibly disabled with "AR preview isn't
+  connected yet." `ArtworkDetailPage`'s "View in AR" button now navigates
+  here (previously opened an inline modal).
+- **`/recommendations`** — never labeled "AI personalized" anywhere (no
+  recommendation engine exists). For You / Similar Artworks are derived
+  from the real, signed-in-or-guest Wishlist (category-matching, one-shot
+  Firestore-native queries reusing the existing Marketplace query
+  infrastructure) — falls back to honest newest-overall when there's no
+  real Wishlist signal yet, explicitly marked `personalized: false` in
+  that case. Trending Now sorts by the real `likeCount` field (always
+  available, no sign-in needed — new `fetchTrendingArtworks` query + a
+  new composite index). Artists You Follow and Based on Your Likes both
+  render an honest, permanent "not available yet" state (see
+  "Limitations" below for why).
+
+### Firestore rules / indexes
+
+`artworkAnalyses/{artworkId}`: `allow read: if true; allow write: if
+false` — same posture as `auctions/{auctionId}` (UI-04) and
+`orders/{orderId}` (UI-02): a real, public read path ready for a future
+trusted AI gateway to populate, never a client/admin write path. One new
+composite index (`artworks`: `status ASC, likeCount DESC`) for Trending
+Now. No existing rule was weakened; no other collection was added.
+
+### Mobile UX correction pass
+
+Owner's first manual mobile review (350×515) found the AI Assistant and
+AR pages stacked their full desktop navigation above the actual content.
+Fixed without touching desktop layout at all:
+- **AI Assistant**: the permanent sidebar is now `hidden lg:flex`; a
+  mobile-only compact header (`lg:hidden`) opens the exact same sidebar
+  content in a real `Drawer` (one shared `SidebarContent` component, so
+  desktop and mobile can never drift into two different nav lists).
+- **AR page**: the 5-item vertical nav list is now `hidden lg:flex`,
+  replaced below `lg` by a compact horizontal, `overflow-x-auto` pill
+  rail directly under the title. The AR View/Room Preview tabs were also
+  moved to sit directly under the image (both breakpoints) so mobile DOM
+  order reads preview → tabs → controls, matching the intended sequence.
+- **AI Analysis / Recommendations tab strips**: already used
+  `overflow-x-auto` + `shrink-0` + `whitespace-nowrap` from the initial
+  build — verified, not changed.
+- Bottom-nav-overlap check: confirmed by reading `AppShell.tsx` — below
+  `lg` the shell is `h-screen flex-col overflow-hidden` with `<main>` as
+  its own `flex-1 overflow-y-auto` region and `AppBottomNav` as a real
+  flex sibling after it, which structurally guarantees the bottom nav can
+  never cover page content on any page — an architecture already
+  established in UI-01, not something this pass had to add.
+
+### Real functionality connected
+
+Real Firestore reads throughout (`artworkAnalyses`, trending-by-
+`likeCount`, Wishlist-derived recommendations); real navigation from
+`ArtworkDetailPage` into both new artwork-scoped pages; a real, typeable
+AI Assistant composer with working suggestion chips; real sidebar/
+capability links to Explore/Auctions/Orders; real Wishlist/Likes/Share on
+the AR page (reused verbatim from `ArtworkDetailPage`).
+
+### Limitations (explicitly documented so a later module never mistakes these UI foundations for completed backend capabilities)
+
+- **AI responses are NOT connected** — no gateway Cloud Function, no
+  provider, no key exists anywhere (`docs/AI_ARCHITECTURE.md`).
+- **AI analysis generation/writing is NOT connected** — nothing writes to
+  `artworkAnalyses`; the real read path exists and is ready, but is
+  honestly empty for every artwork today.
+- **AR rendering/device viewer pipeline is NOT connected** — no
+  `<model-viewer>`, no GLB asset pipeline, no capability detection
+  (`docs/AR_ARCHITECTURE.md`).
+- **Conversation persistence is NOT implemented** — "Recent Chats" is a
+  permanent honest empty state, not a loading placeholder.
+- **Artists You Follow recommendations are NOT implemented** — the
+  Follows feature itself was never built (explicitly deferred since
+  Module 06/09 — see this file's own repeated notes on that decision).
+- **Based on Your Likes recommendations are NOT implemented** — `likes/
+  {artworkId}/by/{uid}` denies listing by design (a write-locked
+  increment mechanism, not a query source), so "which artworks has this
+  viewer liked" isn't answerable under current rules; adding that
+  capability was judged out of scope for a UI-only pass.
+- No fabricated data is used for any of the above — every one of these
+  areas renders a real, honest "not connected/available yet" state.
+
+### Final automated test/build results (this closing commit)
+
+`tsc -b`: clean. `oxlint`: clean, 0 errors (pre-existing warnings only,
+none in any file this UI touched). Firestore rules: **317/317 passing
+across 11 files** (up from 307/307 at UI-04's close — one new file,
+`artworkAnalyses.rules.test.ts`). Frontend test suite: **1168/1168
+passing across 138 files** (up from 1103/1113 at UI-04's close — the
+`router.test.tsx` resource-contention artifact from that close did not
+recur in this closing run). Production build: succeeds cleanly (only the
+pre-existing, unrelated >500kB `AuthProvider-*.js` chunk-size advisory).
+
+**Not visually verified by the assistant.** No browser or screenshot
+tool was available in the assistant's environment throughout this UI —
+every pass was verified via code/CSS review and the automated test suite
+only. The owner performed the real desktop and 350×515 mobile manual
+verification and gave the final approval recorded at the top of this
+file.
+
+**Next UI: UI-06** (not started — scope is an owner decision, not yet
+defined anywhere in this file).
 
 ## UI-04 — Auctions Experience (COMPLETE, OWNER APPROVED, COMMITTED)
 
@@ -5496,19 +5656,28 @@ module — see "Live emulator verification" above.
 
 ## Next action
 
-UI-04 (Auctions Experience) is complete, owner-approved, and committed in
-its own closeout commit, on top of UI-03 (Seller Studio, Artwork
+UI-05 (AI Assistant, AI Artwork Analysis, AR Experience & Recommendations)
+is complete, owner-approved, and committed in its own closeout commit, on
+top of UI-04 (Auctions Experience), UI-03 (Seller Studio, Artwork
 Management & Admin Moderation Override), UI-02 (Cart, Checkout, Orders &
 Account Experience), UI-01 (Complete Responsive Marketplace UI), and
 Module 13 (Admin Control Center, Phases 1-4), all already committed
-previously. Not pushed (no remote configured). No UI-05 or any other later
-module has been started — next UI selection and scope for UI-05 is an
-owner decision. Intentionally deferred by UI-04 (real backend work, not
-yet scoped to any module): a trusted real-time bid-placement Cloud
-Function, real bid-history/live-bidding data (including the still-
-undecided public-vs-private bid projection), and auction finalization
-(winner/final-bid recording). Intentionally deferred by UI-02: a payment
-provider integration, real order creation/inventory enforcement,
+previously. Not pushed (no remote configured). **UI-06 — NOT STARTED.**
+No UI-06 scope is defined anywhere in this file — next UI selection and
+scope for UI-06 is an owner decision, to be made when the owner is ready,
+not guessed at here. Intentionally deferred by UI-05 (real backend work,
+not yet scoped to any module): a trusted AI gateway Cloud Function (no
+provider/key/gateway exists — see docs/AI_ARCHITECTURE.md), AI artwork
+analysis generation, a real AR viewer/asset pipeline (see
+docs/AR_ARCHITECTURE.md), conversation persistence, the Follows feature
+itself (so "Artists You Follow" recommendations remain unavailable), and
+a safe per-user "which artworks has this viewer liked" query path (so
+"Based on Your Likes" recommendations remain unavailable). Intentionally
+deferred by UI-04: a trusted real-time bid-placement Cloud Function, real
+bid-history/live-bidding data (including the still-undecided
+public-vs-private bid projection), and auction finalization (winner/
+final-bid recording). Intentionally deferred by UI-02: a payment provider
+integration, real order creation/inventory enforcement,
 delivery/shipping-rate integration, and a persisted `addresses` collection
 for Checkout. Owner still needs to supply the real ArtVault logo asset to
 the repository when convenient (not a blocker — a documented temporary

@@ -1,4 +1,4 @@
-export { fetchCategoryArtworkCounts, fetchMarketplacePage, MARKETPLACE_PAGE_SIZE } from './api/marketplaceRepository'
+export { fetchCategoryArtworkCounts, fetchMarketplacePage, fetchTrendingArtworks, MARKETPLACE_PAGE_SIZE } from './api/marketplaceRepository'
 export { MarketplaceFilters } from './components/MarketplaceFilters'
 export { MarketplaceGrid } from './components/MarketplaceGrid'
 export { useArtistDisplayNames } from './hooks/useArtistDisplayNames'

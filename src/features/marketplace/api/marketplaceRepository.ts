@@ -112,6 +112,25 @@ export async function fetchMarketplacePage(
   }
 }
 
+// UI-05 — a genuinely real "trending" signal: the most-liked PUBLISHED
+// artworks right now, ordered by the same `likeCount` field Module 12's
+// atomic like-counter already maintains (see firestore.indexes.json for
+// the `status ASC + likeCount DESC` composite index this query needs).
+// Never a fabricated "trending score" — this is one plain, honest sort.
+const TRENDING_PAGE_SIZE = 12
+
+export async function fetchTrendingArtworks(): Promise<Artwork[]> {
+  try {
+    const q = query(artworksCollection(), where('status', '==', 'PUBLISHED'), orderBy('likeCount', 'desc'), limit(TRENDING_PAGE_SIZE))
+    const snapshot = await getDocs(q)
+    return snapshot.docs
+      .map((docSnapshot) => mapToArtwork(docSnapshot.id, docSnapshot.data()))
+      .filter((artwork): artwork is Artwork => artwork !== null)
+  } catch (error) {
+    throw toArtworkError(error)
+  }
+}
+
 /**
  * Real per-category (and total) published-artwork counts for the Explore
  * sidebar/category strip — the one piece of "reference-shaped" UI genuinely

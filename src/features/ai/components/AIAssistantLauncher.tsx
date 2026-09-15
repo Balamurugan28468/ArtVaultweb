@@ -1,6 +1,6 @@
 import { Sparkles } from 'lucide-react'
 import { useState } from 'react'
-import { useLocation } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { Button, Modal } from '@/shared/ui'
 
 const SUGGESTED_ACTIONS = ['Recommend artwork', 'Find art by category', 'Explain this artist']
@@ -55,6 +55,11 @@ export function AIAssistantLauncher() {
           <p className="rounded-md border border-brand-primary/30 bg-brand-primary/10 px-3 py-2 text-xs text-brand-primary-on-dark">
             The AI assistant isn't connected yet — this is a preview of what's coming.
           </p>
+          {/* UI-05: a real, working link into the full AI Assistant page —
+              the one genuinely functional action this panel offers today. */}
+          <Link to="/ai" onClick={() => setOpen(false)} className="text-sm font-medium text-brand-primary-on-dark hover:underline">
+            Open full AI Assistant →
+          </Link>
           <div className="flex flex-col gap-2">
             {onArtworkPage && (
               <button

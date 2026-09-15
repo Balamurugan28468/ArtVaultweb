@@ -12,11 +12,11 @@ import {
   Avatar,
   Badge,
   Button,
+  buttonClassName,
   Card,
   Container,
   EmptyState,
   ErrorState,
-  Modal,
   ResponsiveGrid,
   SectionHeader,
   ShareButton,
@@ -54,8 +54,6 @@ export function ArtworkDetailPage() {
   const { artworkId } = useParams()
   const query = usePublicArtwork(artworkId)
   const artwork = query.status === 'success' ? query.data : undefined
-  const [arModalOpen, setArModalOpen] = useState(false)
-  const [aiModalOpen, setAiModalOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
   const { addItem } = useCart()
   const navigate = useNavigate()
@@ -156,9 +154,11 @@ export function ArtworkDetailPage() {
               {/* AI + AR entry points (UI-01 product-wide requirement) —
                   color-coded (purple = AI, blue = AR) and visually
                   distinct cards, matching how the two capabilities are
-                  presented everywhere else in the app. Both open an honest
-                  "not connected yet" panel (below) rather than any fake
-                  result. */}
+                  presented everywhere else in the app. UI-05: both now
+                  navigate to their own real, dedicated page
+                  (ArtworkAnalysisPage/ArtworkArPage) instead of opening an
+                  inline modal — each of those pages renders the same
+                  honest "not connected yet" state on its own. */}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
                 <div className="flex flex-col gap-1.5 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 sm:gap-2 sm:p-4">
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand-primary/20 text-brand-primary-on-dark sm:h-9 sm:w-9">
@@ -166,9 +166,9 @@ export function ArtworkDetailPage() {
                   </span>
                   <p className="text-sm font-medium text-text-primary">AI Artwork Analysis</p>
                   <p className="hidden text-xs text-text-secondary sm:block">Get AI-powered insights about this artwork's style and medium.</p>
-                  <Button type="button" variant="primary" size="sm" className="mt-1 self-start" onClick={() => setAiModalOpen(true)}>
+                  <Link to={`/artworks/${artwork.id}/analysis`} className={buttonClassName('primary', 'sm', 'mt-1 self-start')}>
                     Analyze with AI
-                  </Button>
+                  </Link>
                 </div>
                 <div className="flex flex-col gap-1.5 rounded-lg border border-blue-600/30 bg-blue-600/10 p-3 sm:gap-2 sm:p-4">
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/20 text-blue-400 sm:h-9 sm:w-9">
@@ -176,9 +176,9 @@ export function ArtworkDetailPage() {
                   </span>
                   <p className="text-sm font-medium text-text-primary">View in Your Space</p>
                   <p className="hidden text-xs text-text-secondary sm:block">See how this artwork looks in your room using augmented reality.</p>
-                  <Button type="button" variant="info" size="sm" className="mt-1 self-start" onClick={() => setArModalOpen(true)}>
+                  <Link to={`/artworks/${artwork.id}/ar`} className={buttonClassName('info', 'sm', 'mt-1 self-start')}>
                     View in AR
-                  </Button>
+                  </Link>
                 </div>
               </div>
 
@@ -214,23 +214,6 @@ export function ArtworkDetailPage() {
               </div>
             </div>
           </div>
-        )}
-
-        {artwork && (
-          <>
-            <Modal open={arModalOpen} onClose={() => setArModalOpen(false)} title="View in AR">
-              <p className="text-sm text-text-secondary">
-                Augmented reality preview isn't connected yet. Once available, you'll be able to place this artwork
-                in your own space using your phone's camera, at its true size, before you buy.
-              </p>
-            </Modal>
-            <Modal open={aiModalOpen} onClose={() => setAiModalOpen(false)} title="AI Artwork Analysis">
-              <p className="text-sm text-text-secondary">
-                AI-powered analysis isn't connected yet. Once available, this will surface real insights about
-                style, medium, composition, and similar artworks — never a fabricated result.
-              </p>
-            </Modal>
-          </>
         )}
 
         {/* Secondary content tabs — every value shown comes from a real

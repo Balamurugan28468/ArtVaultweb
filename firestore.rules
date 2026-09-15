@@ -667,6 +667,20 @@ service cloud.firestore {
       }
     }
 
+    // UI-05 — AI Artwork Analysis (UI/UX foundation only, same posture as
+    // `auctions/{auctionId}` above). No AI gateway Cloud Function exists
+    // yet to ever populate this (see docs/AI_ARCHITECTURE.md — "interface
+    // defined, nothing implemented: no provider, no key, no gateway
+    // function") — `allow write: if false` unconditionally is therefore the
+    // deliberate current truth, not a placeholder to relax later. Read is
+    // public, same posture as a PUBLISHED artwork/auction: an artwork's
+    // analysis (once real ones exist) describes public content and is
+    // meant to be visible to anyone viewing that artwork, signed in or not.
+    match /artworkAnalyses/{artworkId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Deny-by-default foundation for every other collection. Each later
     // feature module adds its own explicit, narrowly-scoped rules (with
     // role checks against custom auth claims) when that module is built.

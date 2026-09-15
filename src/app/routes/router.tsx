@@ -50,6 +50,16 @@ const OrderDetailsPage = lazy(() =>
   import('@/app/routes/OrderDetailsPage').then((m) => ({ default: m.OrderDetailsPage })),
 )
 const NotFoundPage = lazy(() => import('@/app/routes/NotFoundPage').then((m) => ({ default: m.NotFoundPage })))
+const AIAssistantPage = lazy(() =>
+  import('@/app/routes/AIAssistantPage').then((m) => ({ default: m.AIAssistantPage })),
+)
+const ArtworkAnalysisPage = lazy(() =>
+  import('@/app/routes/ArtworkAnalysisPage').then((m) => ({ default: m.ArtworkAnalysisPage })),
+)
+const ArtworkArPage = lazy(() => import('@/app/routes/ArtworkArPage').then((m) => ({ default: m.ArtworkArPage })))
+const RecommendationsPage = lazy(() =>
+  import('@/app/routes/RecommendationsPage').then((m) => ({ default: m.RecommendationsPage })),
+)
 
 export const router = createBrowserRouter([
   {
@@ -76,6 +86,13 @@ export const router = createBrowserRouter([
       { path: 'cart', element: <CartPage /> },
       { path: 'artists/:artistId', element: <ArtistProfilePage /> },
       { path: 'artworks/:artworkId', element: <ArtworkDetailPage /> },
+      // UI-05 — public, same posture as the artwork/auction pages they're
+      // reached from: honest "not connected yet" AI/AR UI works whether or
+      // not anyone is signed in.
+      { path: 'artworks/:artworkId/analysis', element: <ArtworkAnalysisPage /> },
+      { path: 'artworks/:artworkId/ar', element: <ArtworkArPage /> },
+      { path: 'ai', element: <AIAssistantPage /> },
+      { path: 'recommendations', element: <RecommendationsPage /> },
       {
         element: <RequireAuth />,
         children: [

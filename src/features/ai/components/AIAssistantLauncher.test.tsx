@@ -52,6 +52,12 @@ describe('AIAssistantLauncher', () => {
     expect(screen.queryByRole('button', { name: 'Ask ArtVault AI about this artwork' })).not.toBeInTheDocument()
   })
 
+  it('links to the full AI Assistant page — the one genuinely working action in this panel (UI-05)', () => {
+    renderLauncher()
+    fireEvent.click(screen.getByRole('button', { name: 'ArtVault AI Assistant' }))
+    expect(screen.getByRole('link', { name: 'Open full AI Assistant →' })).toHaveAttribute('href', '/ai')
+  })
+
   it('closes via the dialog\'s own close control', () => {
     renderLauncher()
     fireEvent.click(screen.getByRole('button', { name: 'ArtVault AI Assistant' }))

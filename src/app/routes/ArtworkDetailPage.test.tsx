@@ -211,23 +211,19 @@ describe('ArtworkDetailPage', () => {
     })
   })
 
-  describe('AR + AI entry points (UI-01)', () => {
-    it('opens an honest "View in AR" panel on click — never a live AR session or fabricated placement', () => {
+  describe('AR + AI entry points (UI-01, navigate to their own real pages since UI-05)', () => {
+    it('links "View in AR" to the artwork\'s own dedicated AR page — never a live AR session or fabricated placement inline', () => {
       usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
       renderPage()
 
-      fireEvent.click(screen.getByRole('button', { name: /view in ar/i }))
-      const dialog = screen.getByRole('dialog', { name: 'View in AR' })
-      expect(dialog).toHaveTextContent(/isn't connected yet/i)
+      expect(screen.getByRole('link', { name: /view in ar/i })).toHaveAttribute('href', '/artworks/a1/ar')
     })
 
-    it('opens an honest "AI Artwork Analysis" panel on click — never a fabricated score or result', () => {
+    it('links "Analyze with AI" to the artwork\'s own dedicated AI Analysis page — never a fabricated score or result inline', () => {
       usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
       renderPage()
 
-      fireEvent.click(screen.getByRole('button', { name: /analyze with ai/i }))
-      const dialog = screen.getByRole('dialog', { name: 'AI Artwork Analysis' })
-      expect(dialog).toHaveTextContent(/isn't connected yet/i)
+      expect(screen.getByRole('link', { name: /analyze with ai/i })).toHaveAttribute('href', '/artworks/a1/analysis')
     })
   })
 

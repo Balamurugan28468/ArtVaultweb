@@ -566,6 +566,40 @@ service cloud.firestore {
       allow delete: if isOwner(uid);
     }
 
+    function isValidAddressFields(data) {
+      return data.keys().hasOnly([
+          'fullName', 'addressLine1', 'addressLine2', 'city', 'state',
+          'postalCode', 'country', 'phone', 'isDefault', 'createdAt', 'updatedAt'
+        ]) &&
+        data.fullName is string && data.addressLine1 is string &&
+        data.city is string && data.state is string &&
+        data.postalCode is string && data.country is string &&
+        data.isDefault is bool;
+    }
+
+    // UI-06 — Address Book. Owner-only, same shape as Wishlist/Cart above.
+    // Unlike Wishlist, `update` is allowed: editing a saved address, and
+    // toggling `isDefault` (the client batches a target doc's `isDefault:
+    // true` together with clearing every *other* saved address's own flag —
+    // see addressRepository.ts — so exactly one address is ever the default
+    // at a time). `createdAt` is immutable once set, same pattern as carts'
+    // `addedAt`; `request.resource.data` is always the full resulting
+    // document (Firestore rules semantics for both set-merge and update
+    // calls), so `isValidAddressFields` correctly validates the complete
+    // field set even for a batch write that only touches `isDefault`.
+    match /addresses/{uid}/entries/{addressId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) &&
+        isValidAddressFields(request.resource.data) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+      allow update: if isOwner(uid) &&
+        isValidAddressFields(request.resource.data) &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if isOwner(uid);
+    }
+
     function isValidCartQuantity(quantity) {
       return quantity is int && quantity >= 1 && quantity <= 99;
     }

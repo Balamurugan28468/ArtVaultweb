@@ -8,6 +8,9 @@ import { RequireRole } from '@/app/routes/guards/RequireRole'
 const SignInPage = lazy(() => import('@/app/routes/SignInPage').then((m) => ({ default: m.SignInPage })))
 const SignUpPage = lazy(() => import('@/app/routes/SignUpPage').then((m) => ({ default: m.SignUpPage })))
 const AccountPage = lazy(() => import('@/app/routes/AccountPage').then((m) => ({ default: m.AccountPage })))
+const AddressBookPage = lazy(() =>
+  import('@/app/routes/AddressBookPage').then((m) => ({ default: m.AddressBookPage })),
+)
 const SellerApplicationPage = lazy(() =>
   import('@/app/routes/SellerApplicationPage').then((m) => ({ default: m.SellerApplicationPage })),
 )
@@ -97,6 +100,7 @@ export const router = createBrowserRouter([
         element: <RequireAuth />,
         children: [
           { path: 'account', element: <AccountPage /> },
+          { path: 'account/addresses', element: <AddressBookPage /> },
           { path: 'checkout', element: <CheckoutPage /> },
           { path: 'checkout/confirmation/:orderId', element: <OrderConfirmationPage /> },
           { path: 'orders', element: <OrdersPage /> },

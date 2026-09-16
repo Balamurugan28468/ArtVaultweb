@@ -356,6 +356,26 @@ describe('router', () => {
     expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
   })
 
+  // UI-06 — the real Address Book, same RequireAuth guard as the rest of
+  // /account: a signed-out visitor must never reach a page that could show
+  // saved personal shipping addresses.
+  it('redirects "/account/addresses" to "/sign-in" for a signed-out visitor', async () => {
+    render(
+      <AppProviders>
+        <AuthProvider>
+          <WishlistProvider>
+            <CartProvider>
+              <RouterProvider router={router} />
+            </CartProvider>
+          </WishlistProvider>
+        </AuthProvider>
+      </AppProviders>,
+    )
+    await router.navigate('/account/addresses')
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
+  })
+
   // UI-03 — Seller Studio route protection, verified end-to-end through
   // the real router wiring (RequireAuth wrapping RequireRole in
   // router.tsx), not just RequireRole's own unit tests. A signed-out

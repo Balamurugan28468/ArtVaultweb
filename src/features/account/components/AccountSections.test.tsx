@@ -26,7 +26,7 @@ describe('AccountSections', () => {
     useSellerStatus.mockReturnValue({ status: 'not-applied' })
     renderWithRouter()
 
-    for (const label of ['Addresses', 'Payment methods', 'Notifications', 'Security', 'Reviews', 'Settings']) {
+    for (const label of ['Payment methods', 'Notifications', 'Security', 'Reviews', 'Settings']) {
       const button = screen.getByRole('button', { name: new RegExp(label) })
       expect(button).toBeDisabled()
       expect(button).toHaveAttribute('aria-disabled', 'true')
@@ -36,15 +36,17 @@ describe('AccountSections', () => {
   // UI-02: Orders and Wishlist became real, working entries (previously
   // disabled placeholders); Sign out is a new real entry too. Seller
   // Studio/"Become a seller" was already the one real entry before this.
-  it('renders exactly the real links this role should see: seller entry, Orders, and Wishlist', () => {
+  // UI-06: Addresses became a real, working entry too.
+  it('renders exactly the real links this role should see: seller entry, Orders, Wishlist, and Addresses', () => {
     useSellerStatus.mockReturnValue({ status: 'not-applied' })
     renderWithRouter()
 
     const links = screen.getAllByRole('link')
-    expect(links).toHaveLength(3)
+    expect(links).toHaveLength(4)
     expect(screen.getByRole('link', { name: /become a seller/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Orders/ })).toHaveAttribute('href', '/orders')
     expect(screen.getByRole('link', { name: /Wishlist/ })).toHaveAttribute('href', '/wishlist')
+    expect(screen.getByRole('link', { name: /Addresses/ })).toHaveAttribute('href', '/account/addresses')
   })
 
   it('renders a real, working Sign out control', () => {

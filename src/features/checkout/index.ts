@@ -1,4 +1,6 @@
+export { AddressPicker } from './components/AddressPicker'
 export { DeliverySection } from './components/DeliverySection'
+export { PaymentMethodSelector } from './components/PaymentMethodSelector'
 export { PaymentSection } from './components/PaymentSection'
 export { ShippingAddressForm } from './components/ShippingAddressForm'
 export { shippingAddressSchema, type ShippingAddressFormValues } from './schemas'

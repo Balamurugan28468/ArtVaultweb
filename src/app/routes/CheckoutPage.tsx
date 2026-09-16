@@ -4,7 +4,7 @@ import { Link } from 'react-router'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useUserProfile } from '@/features/account'
 import { CartSummary, useCartLines } from '@/features/cart'
-import { DeliverySection, PaymentSection, ShippingAddressForm, type ShippingAddressFormValues } from '@/features/checkout'
+import { AddressPicker, DeliverySection, PaymentSection, type ShippingAddressFormValues } from '@/features/checkout'
 import { useArtistDisplayNames } from '@/features/marketplace'
 import { Button, Card, Container, EmptyState, PageHeader, Skeleton } from '@/shared/ui'
 
@@ -77,7 +77,7 @@ export function CheckoutPage() {
               </Card>
 
               {/* B. Shipping Address */}
-              <ShippingAddressForm
+              <AddressPicker
                 defaultFullName={profile?.displayName ?? ''}
                 defaultPhone={profile?.phoneNumber ?? ''}
                 onChange={(values, isComplete) => {

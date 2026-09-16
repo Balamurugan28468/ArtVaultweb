@@ -59,12 +59,32 @@ describe('OrderConfirmationPage', () => {
 
   // The core rule this page exists to enforce: never render success unless
   // the backend genuinely recorded a successful payment.
-  it('never shows the success state for an order whose payment has not actually succeeded', () => {
+  it('never shows the success state for an order whose payment is still PENDING — shows a neutral, honest explanation instead', () => {
     useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: 'PENDING' }) })
     renderPage()
 
     expect(screen.queryByText('Order confirmed')).not.toBeInTheDocument()
-    expect(screen.getByText("This order hasn't been confirmed yet")).toBeInTheDocument()
+    expect(screen.getByText('Awaiting payment confirmation')).toBeInTheDocument()
+    expect(screen.getByText(/hasn't completed yet/i)).toBeInTheDocument()
+  })
+
+  it('shows an honest failure presentation for a FAILED payment — no invented retry behavior', () => {
+    useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: 'FAILED' }) })
+    renderPage()
+
+    expect(screen.queryByText('Order confirmed')).not.toBeInTheDocument()
+    expect(screen.getByText('Payment failed')).toBeInTheDocument()
+    expect(screen.getByText(/didn't go through. No charge was made/i)).toBeInTheDocument()
+    expect(screen.queryByText(/retry/i)).not.toBeInTheDocument()
+  })
+
+  it('shows an honest refunded presentation for a REFUNDED payment', () => {
+    useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: 'REFUNDED' }) })
+    renderPage()
+
+    expect(screen.queryByText('Order confirmed')).not.toBeInTheDocument()
+    expect(screen.getByText('Payment refunded')).toBeInTheDocument()
+    expect(screen.getByText(/has been refunded/i)).toBeInTheDocument()
   })
 
   it('shows the real success state once paymentState is genuinely PAID', () => {
@@ -75,6 +95,13 @@ describe('OrderConfirmationPage', () => {
     expect(screen.getByText('₹5000')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View Order' })).toHaveAttribute('href', '/orders/order123456')
     expect(screen.getByRole('link', { name: 'Continue Shopping' })).toHaveAttribute('href', '/explore')
+    expect(screen.getByText('Next: the seller confirms your order.')).toBeInTheDocument()
+  })
+
+  it('offers a real View Order link even for a FAILED payment — never a dead end', () => {
+    useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: 'FAILED' }) })
+    renderPage()
+    expect(screen.getByRole('link', { name: 'View Order' })).toHaveAttribute('href', '/orders/order123456')
   })
 
   it('shows an error state on failure', () => {

@@ -22,7 +22,7 @@ vi.mock('@/features/cart', () => ({
 }))
 
 vi.mock('@/features/checkout', () => ({
-  ShippingAddressForm: () => <div>Shipping address form</div>,
+  AddressPicker: () => <div>Shipping address form</div>,
   DeliverySection: () => <div>Shipping options aren't connected yet.</div>,
   PaymentSection: () => <div>Payment integration is not connected yet.</div>,
 }))

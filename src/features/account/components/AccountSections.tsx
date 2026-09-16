@@ -17,13 +17,10 @@ interface FutureSection {
 // ARTVAULT_PROJECT_STATE.md → Module 02 planning decisions, applied here).
 // 'seller' is absent as of Module 04 (real SellerSectionCard below);
 // 'orders'/'wishlist' are absent as of UI-02 (real OrdersSectionCard /
-// WishlistSectionCard below) — 'addresses' stays here: no `addresses`
-// Firestore collection exists anywhere in this codebase (Checkout's own
-// shipping-address form is deliberately session-only, never persisted —
-// see features/checkout/schemas.ts), so there is genuinely nothing for an
-// "Addresses" page to manage yet.
+// WishlistSectionCard below); 'addresses' is absent as of UI-06 (real
+// AddressesSectionCard below, backed by the real `addresses/{uid}/entries`
+// Firestore collection).
 const FUTURE_SECTIONS: FutureSection[] = [
-  { id: 'addresses', label: 'Addresses', icon: MapPin },
   { id: 'payment-methods', label: 'Payment methods', icon: CreditCard },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'security', label: 'Security', icon: ShieldCheck },
@@ -110,6 +107,17 @@ function OrdersSectionCard() {
   )
 }
 
+/** UI-06 — a real entry point into the Address Book, available to every signed-in role. */
+function AddressesSectionCard() {
+  return (
+    <Link to="/account/addresses" className={TILE_CLASSES}>
+      <MapPin aria-hidden="true" className="h-5 w-5 text-accent-gold" />
+      <span className="text-sm font-medium text-text-primary">Addresses</span>
+      <span className="text-xs text-text-muted">Manage your saved addresses</span>
+    </Link>
+  )
+}
+
 /** UI-02 — Wishlist is available to every signed-in role, same as its own nav entry (navItems.ts). */
 function WishlistSectionCard() {
   return (
@@ -143,6 +151,7 @@ export function AccountSections() {
         <SellerSectionCard />
         <OrdersSectionCard />
         <WishlistSectionCard />
+        <AddressesSectionCard />
         {FUTURE_SECTIONS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}

@@ -1,6 +1,28 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-15 — UI-05 (AI Assistant, AI Artwork Analysis, AR
+_Last updated: 2026-09-16 — project-state reconciliation only. UI-06
+(ArtVault UI improvements) is **COMPLETE, OWNER APPROVED, COMMITTED, and
+PUSHED to `origin/main`**, in commit `75f5a8f`. The current branch is `main`,
+tracking `origin/main`; both local refs point to `20d5da9` (merge remote
+initial commit), which includes UI-06. GitHub remote `origin` is
+`https://github.com/Balamurugan28468/ArtVaultweb.git`. The working tree was
+clean at the start of this reconciliation task. Push/approval status is
+owner-confirmed; local Git refs corroborate commit inclusion. No fetch,
+commit, or push was performed during this reconciliation._
+
+UI-06 adds persisted account addresses and checkout address selection,
+an explicitly unavailable payment-method presentation, and order
+confirmation driven by the stored payment state. See its closeout below.
+**UI-07 has not started; no scope is defined or authorized here.**
+
+Historical module/UI narratives and their test totals are retained below
+as records of their respective checkpoints, not fresh verification of the
+current tree. Later closeouts supersede earlier pending/deferred status
+statements. No test suites, typecheck, lint, or build were run for this
+documentation-only reconciliation; verification is limited to the diff
+and Git status.
+
+_Previously, at the UI-05 closeout on 2026-09-15: UI-05 (AI Assistant, AI Artwork Analysis, AR
 Experience & Recommendations) is **COMPLETE and OWNER APPROVED**,
 committed in its own closeout commit. A read-only UI/UX foundation for
 four related experiences — `/ai`, `/artworks/:artworkId/analysis`,
@@ -22,8 +44,8 @@ recur this pass). Firestore rules: **317/317** across 11 files (up from
 `tsc -b` clean, `oxlint` clean (0 errors, pre-existing warnings only in
 unrelated files), production build clean. See "UI-05 — AI Assistant, AI
 Artwork Analysis, AR Experience & Recommendations" below for the full
-write-up. Next UI: **UI-06** (not started — scope is an owner decision;
-not yet defined anywhere in this file).
+write-up. UI-06 was the next, unscoped UI at that checkpoint; it is now
+complete as recorded above._
 
 _Previously: UI-04 (Auctions Experience) is **COMPLETE, OWNER APPROVED,
 and COMMITTED**. A full read-only Auctions UI/UX foundation: landing page
@@ -68,11 +90,14 @@ Marketplace UI" below for the full write-up. The two paragraphs
 immediately below this one, describing Module 13 Phases 1-2, are
 historical context from an earlier point in that module's own development
 and are superseded by "Module 13 — Admin Control Center" further down,
-which documents Phases 1-4 as complete. Module 13 gives ArtVault its first
-deployed, HTTP-reachable
-Cloud Functions — `approveSellerApplication`, `rejectSellerApplication`,
-`moderateArtwork` — every other function in `functions/src/` remains a
-local, human-run, Admin-SDK-only operator script. A single centralized
+which documents Phases 1-4 as complete. Module 13 introduced callable
+admin Cloud Functions — `approveSellerApplication`, `rejectSellerApplication`,
+and `moderateArtwork` — exported by Firebase and loaded locally by the
+Functions emulator, not deployed to production. UI-03 later added the
+`suspendArtwork` admin callable. The existing `onUserCreate` remains an
+Auth-triggered Cloud Function; the trusted operator scripts are separate,
+local, human-run Admin SDK entry points, not callable or Auth-triggered
+functions. A single centralized
 `requireAdminCaller` authorization boundary reads only the Firebase
 Auth-verified `request.auth.token.role` claim (never `request.data`, never
 any Firestore-mirrored field) and admits only `ADMIN`/`SUPER_ADMIN`. Seller
@@ -163,7 +188,7 @@ fabricated reviews/ratings/stock urgency/delivery estimates anywhere on the
 page, per explicit owner instruction. **Implementation, automated tests
 (554/554), typecheck, lint, and build all clean, with real-browser visual
 and keyboard/focus verification across 1920/1440/1280/1024/768/430/390/360
-— complete and awaiting owner review; not yet committed**; see "Module 11 —
+— complete, owner-approved, and committed (`c0128f4`)**; see "Module 11 —
 Artwork Detail Page" below for the full write-up. Module 10 (Product UI/UX
 Foundation — desktop shell width, Newsreader display typography,
 width-driven ResponsiveGrid, measured WCAG AA contrast remediation, and a
@@ -259,17 +284,20 @@ and committed (`77cee05`); Module 01 remains complete and committed._
 
 ## Project version
 
-`0.0.0` (unreleased, foundation stage — no deployed environment exists yet).
+`0.0.0` (unreleased, local-emulator development only — no production
+hosting or deployment).
 
 ## Current module
 
-**Module 13 — Admin Control Center (Seller Application Review & Artwork
-Moderation): Phase 1 (trusted callable-function foundation) and Phase 2
-(security hardening) both implemented, fully tested (146/146 Functions,
-601/601 frontend, 192/192 Firestore rules), typechecked, linted, and built
-clean — owner review of Phase 2 pending, nothing committed. Phase 3 (the
-Admin Control Center UI itself) has not been started.** ArtVault's first
-deployed, client-reachable Cloud Functions —
+**Latest completed phase: UI-06 — ArtVault UI improvements. COMPLETE,
+OWNER APPROVED, COMMITTED (`75f5a8f`), and PUSHED to `origin/main`.**
+Module 13 (Phases 1–4) and UI-01 through UI-05 remain complete and
+committed. UI-07 discovery and implementation have not started; its scope
+requires a separate owner decision after this reconciliation is approved.
+
+Module 13 — Admin Control Center (Seller Application Review & Artwork
+Moderation) introduced ArtVault's first client-reachable callable Cloud
+Functions, exercised locally through the emulator —
 `approveSellerApplication`/`rejectSellerApplication`/`moderateArtwork` —
 gated by one centralized `requireAdminCaller` boundary that trusts only the
 Firebase Auth-verified `request.auth.token.role` claim (ADMIN/SUPER_ADMIN),
@@ -281,7 +309,10 @@ the same trusted, already-tested `promoteSellerByUid`/
 `rejectSellerApplicationByUid`/`decideArtworkByArtworkId` Admin-SDK
 business logic Modules 04/07 already established — the callables are thin,
 reviewed authorization/validation wrappers, not a reimplementation.
-`firestore.rules` required **zero** changes. See "Module 13 — Admin Control
+At the historical Phase 2 checkpoint, verification recorded 146/146
+Functions, 601/601 frontend, and 192/192 Firestore rules tests, plus clean
+typecheck/lint/build; Phases 1–2 required **zero** `firestore.rules`
+changes. These are historical results, not current totals. See "Module 13 — Admin Control
 Center" below for the full write-up, including the App Check and rate-
 limiting production-readiness decisions explicitly deferred (not silently
 skipped) for this phase.
@@ -315,9 +346,8 @@ Profiles: `d917e4f`), Module 05 (Artwork Media/Image Upload & Emulator
 Lifecycle Hardening: `3265194`), and Module 04 (Seller Foundation &
 Artwork Draft Management: `d483994`, `1f8ca5a`, `1f0deb7`; Emulator
 Persistence & Seller-Authorization Reconciliation: `877f3ba`) remain
-complete, verified, and committed. See "Completed modules" for the
-checkpoint entries once Module 10's, Module 11's, and Module 12's own
-checkpoints are added.
+complete, verified, and committed. See their module write-ups and
+"Completed modules" for checkpoint details.
 
 ## Authentication methods — current scope
 
@@ -362,9 +392,10 @@ verification (Phase 3, real `firebase/auth` + `firebase/firestore` +
 accounts, real owner data confirmed untouched) — complete; see "Phase 3"
 below for the full write-up, including a genuine (and disclosed, not
 hidden) intermittent Firestore-emulator rules-evaluation artifact found and
-characterized during that verification. **Nothing in Module 13 is
-committed yet — owner review of Phase 3 is pending. Do not start Phase 4
-(or any Module 14) until Phase 3 is explicitly approved.**
+characterized during that verification. **Phases 1–4 are complete,
+owner-approved, and committed with UI-01 (`cfd6081`).** The verification
+totals above and phase-level progress notes below are historical records
+from Module 13; the earlier pending-review/uncommitted status is superseded.
 
 ### Objective and scope
 
@@ -373,12 +404,15 @@ artwork-moderation *business logic* (`promoteSeller.ts`, `publishArtwork.ts`
 — Modules 04/07), but the only way to actually invoke either was a human
 running a local Admin-SDK CLI script by hand. Module 13 builds the
 server-side foundation a real `/admin` UI (Phase 3) will call from the
-browser: deployed, client-reachable Cloud Functions wrapping that same
+browser: Firebase-exported, locally emulator-loaded callable Cloud Functions wrapping that same
 trusted logic behind a real authorization boundary. This makes the
 authorization check the single most security-critical piece of code this
-project has ever shipped — every other privileged write in this codebase
-is reached only by a human with direct Admin SDK credentials, never by an
-arbitrary authenticated browser session.
+project had built at that checkpoint. Previously, seller approval and
+artwork moderation required a human running trusted local Admin SDK
+operator scripts; the existing Auth-triggered `onUserCreate` separately
+handled account provisioning. The new callable admin endpoints require
+explicit authorization of the authenticated browser caller. None of these
+Cloud Functions has been production-deployed.
 
 ### Phase 1 — Trusted callable-function foundation
 
@@ -724,7 +758,7 @@ rules-evaluation artifact under this machine's own well-documented severe
 RAM pressure**, investigated rather than assumed away, in the same spirit
 as Module 12 Phase 4's own concurrency-artifact writeup:
 1. The Functions emulator itself intermittently failed to finish
-   discovering the deployed functions within its default 10-second budget
+   discovering the locally exported functions within its default 10-second budget
    ("Cannot determine backend specification. Timeout after 10000"),
    consistent with this project's own previously-documented RAM exhaustion
    (as low as 0.55GB free during Module 10; 1.46GB free of 7.67GB observed
@@ -1059,7 +1093,7 @@ no behavior change); `package.json` (`checkpoint:emulators` script);
 this file. No `firestore.rules`, Cloud Function, or any other Module 13
 application file was touched by this work.
 
-### Files changed (Phases 1–4, uncommitted)
+### Files changed (Phases 1–4, historical pre-commit inventory)
 
 `firestore.rules` (`isAdmin()`, the two new admin read grants);
 `firestore-tests/sellers.rules.test.ts` +
@@ -1113,6 +1147,31 @@ Wishlist, Likes, Marketplace, artist profiles, authentication, artwork
 upload/Storage handling, and every DRAFT/SUBMITTED artwork-update rule
 path (all unchanged, not just untested) — verified unchanged by the full,
 unmodified regression suite passing alongside the new tests.
+
+## UI-06 — ArtVault UI improvements (COMPLETE, OWNER APPROVED, COMMITTED, PUSHED)
+
+**Status: COMPLETE / OWNER APPROVED / COMMITTED / PUSHED to `origin/main`.**
+Closeout commit: `75f5a8f` (`feat(ui-06): complete approved ArtVault UI improvements`).
+This closeout reconciles the existing commit and code; it adds no implementation.
+
+- **Address Book:** protected `/account/addresses` route and account link;
+  real add/edit/delete/default-address actions backed by
+  `addresses/{uid}/entries/{addressId}`. Owner-only Firestore rules validate
+  the address fields and timestamps. Checkout can select a saved address
+  or save a new one through the address picker.
+- **Payment presentation:** Card, UPI, and Cash on Delivery remain native
+  disabled options with explanations. No payment provider or trusted
+  order-creation backend exists; UI-06 does not enable payments or orders.
+- **Order confirmation:** reads the existing order and presents its actual
+  `PENDING`, `PAID`, `FAILED`, or `REFUNDED` payment state. It does not create
+  orders, process payments, or simulate retry behavior.
+- **Existing coverage:** the commit adds address feature/component and
+  Firestore rules tests and updates checkout, routing, account, and order
+  confirmation tests. No UI-06 passing-total claim is inferred from test
+  files or approval; no suites were rerun for this documentation task.
+
+All prior functionality and security boundaries remain part of the current
+baseline. UI-07 is not started, and this closeout defines no future scope.
 
 ## UI-05 — AI Assistant, AI Artwork Analysis, AR Experience & Recommendations (COMPLETE, OWNER APPROVED, COMMITTED)
 
@@ -1258,8 +1317,9 @@ only. The owner performed the real desktop and 350×515 mobile manual
 verification and gave the final approval recorded at the top of this
 file.
 
-**Next UI: UI-06** (not started — scope is an owner decision, not yet
-defined anywhere in this file).
+**Historical next UI at the UI-05 closeout: UI-06.** It is now complete,
+owner-approved, committed as `75f5a8f`, and pushed to `origin/main`; see its
+closeout above and the current "Next action" below.
 
 ## UI-04 — Auctions Experience (COMPLETE, OWNER APPROVED, COMMITTED)
 
@@ -1434,7 +1494,7 @@ intentionally omits Wishlist/Like/Share (matching the reference's own
 result screen); the underlying capability is untouched and still present
 on the upcoming/live states and the artwork's own page.
 
-**Next UI: UI-05** (not started — scope is an owner decision).
+**HISTORICAL STATUS AT THAT TIME:** **Next UI: UI-05** (not started — scope is an owner decision).
 
 ## UI-03 — Seller Studio, Artwork Management & Admin Moderation Override (COMPLETE, OWNER APPROVED)
 
@@ -1609,7 +1669,7 @@ the real defect fixes above), and automated tests. The owner performed
 the real manual retest and gave the final approval recorded at the top of
 this file.
 
-**Next UI: UI-04** (not started — scope is an owner decision).
+**HISTORICAL STATUS AT THAT TIME:** **Next UI: UI-04** (not started — scope is an owner decision).
 
 ## UI-02 — Cart, Checkout, Orders & Account Experience (COMPLETE, OWNER APPROVED)
 
@@ -1715,7 +1775,7 @@ round was verified via code inspection and automated tests only. The
 owner performed the real-browser visual verification (desktop and 350px
 mobile) and gave the final approval recorded at the top of this file.
 
-**Next UI: UI-03** (not started — scope is an owner decision).
+**HISTORICAL STATUS AT THAT TIME:** **Next UI: UI-03** (not started — scope is an owner decision).
 
 ## UI-01 — Complete Responsive Marketplace UI (COMPLETE, OWNER APPROVED)
 
@@ -1842,7 +1902,9 @@ inspection, and automated tests only. The owner performed the real-browser
 visual verification and gave the final approval recorded at the top of
 this file.
 
-**Next module: UI-02** (not started — see "Next action" below).
+**HISTORICAL STATUS AT THAT TIME:** **Next module: UI-02** (not started — see "Next action" below).
+That original cross-reference described the next action at the UI-01
+checkpoint; the current "Next action" section supersedes it.
 
 ## Module 12 — Artwork Likes (COMPLETE, VERIFIED, COMMITTED)
 
@@ -2072,12 +2134,13 @@ Seller Studio, the publish/moderation pipeline, and every seller/owner
 artwork-update rule path — verified unchanged by the full, unmodified
 regression suite passing alongside the new tests.
 
-## Module 11 — Artwork Detail Page (COMPLETE, VERIFIED — awaiting owner review, not committed)
+## Module 11 — Artwork Detail Page (COMPLETE, VERIFIED, OWNER APPROVED, COMMITTED — `c0128f4`)
 
 **Status:** implementation, automated tests (554/554), typecheck, lint, and
 production build all clean. Real-browser (Playwright/Chromium) visual and
 keyboard/focus verification across 1920/1440/1280/1024/768/430/390/360.
-**Not committed — awaiting owner review.**
+**Complete, owner-approved, and committed as `c0128f4`.** Verification
+results above are the historical Module 11 results, not a fresh run.
 
 **Why this module exists:** the Module 11 scope-discovery report identified
 that a real visitor discovering a specific artwork could never actually
@@ -2265,7 +2328,8 @@ both implemented. 519/519 unit/component tests passing, `tsc --noEmit`
 clean, `oxlint` clean (only pre-existing warnings, none new), production
 build clean, real-browser (Playwright, Chromium) verification across
 1920/1440/1280/1024/768/430/390/360 on Home/Explore/Artist/Wishlist/
-Sign-in. **Not committed — awaiting owner review.**
+Sign-in. **Complete, owner-approved, and committed as `fffe2a0`.** These
+are historical Module 10 verification results, not a fresh run.
 
 **Why this module exists:** an explicit owner audit judged the product as
 built through Module 09 to read as a generic Firebase-demo/Tailwind-
@@ -4095,7 +4159,7 @@ and any "not yet built" affordance, not only this one:
   need now; component APIs may be shaped for later extension, but nothing
   is built solely because a future module *might* want it.
 
-## Module 02 mobile correction pass (pending final owner review)
+## Module 02 mobile correction pass (HISTORICAL STATUS AT THAT TIME: pending final owner review)
 
 Desktop Home/Sign In/Sign Up were approved as-is; this pass is mobile-only,
 following the owner's manual inspection down to ~302×531:
@@ -4151,7 +4215,7 @@ following the owner's manual inspection down to ~302×531:
   `<=`/`>=` instead of `<`/`>`. Both confirmed via direct screenshot
   inspection before being called false positives, not assumed.
 
-## Module 02 small-viewport correction pass (pending final owner review)
+## Module 02 small-viewport correction pass (HISTORICAL STATUS AT THAT TIME: pending final owner review)
 
 Despite the "65/65" result above, the owner's own manual inspection in
 Chrome DevTools at ~302×531 found real clipping on Home, Sign In, and Sign
@@ -4441,7 +4505,7 @@ module outright, with no further owner-visible blockers reported:
   all explicitly out of scope for this module (see "Deferred functionality").
 - The theoretical backward-compatibility gap for any Firestore `users/{uid}`
   document that predates this module's schema is documented in
-  `docs/DATABASE.md` — moot today since nothing has ever been deployed.
+  `docs/DATABASE.md` — moot at that checkpoint since nothing had been production-deployed.
 - One advisory-only lint warning (`react/set-state-in-effect` on
   `useUserProfile.ts`) — the same shape React's own data-fetching-effect
   docs use; not restructured further for a cosmetic lint preference.
@@ -4730,7 +4794,7 @@ updatedAt                           — set by the client on every edit via serv
 field above (previously only `uid`/`email`/`displayName`/`role`/
 `createdAt`/`updatedAt`) so every account created from this point on has the
 full shape. See `docs/DATABASE.md` for the full schema and the documented
-(theoretical — nothing is deployed) backward-compatibility note for any
+(theoretical — nothing was production-deployed at that checkpoint) backward-compatibility note for any
 pre-Module-03 document.
 
 ### Writable vs. protected fields
@@ -4879,7 +4943,7 @@ files for each (`.test.ts`/`.test.tsx`) and `src/shared/ui/Avatar.test.tsx`.
 ### Known limitations
 
 - No document created before this module's `onUserCreate` change is known
-  to exist in any persisted environment (nothing has ever been deployed),
+  to exist in any persisted environment (nothing had been production-deployed),
   so the stricter Module 03 update rule's backward-compatibility gap
   (documented in `docs/DATABASE.md`) is theoretical, not a live migration
   need.
@@ -5072,6 +5136,8 @@ untouched.
 
 ## Completed modules
 
+Checkpoint test totals in this section are historical, not current-run totals.
+
 - **Module 00 — Foundation:** feature-first folder structure, routing
   shell, Tailwind design foundation, environment schema, Firebase client
   skeleton (emulator-only), deny-by-default Firestore/Storage rules,
@@ -5257,30 +5323,32 @@ untouched.
   tests. Review result: **PASS — owner approved**. Checkpoint commit: this
   closeout's own commit (see `git log`).
 
-## Pending modules (not started, order not yet committed)
+- **Module 11 / Module 12:** Artwork Detail (`c0128f4`) and Artwork Likes
+  are complete, owner-approved, and committed; see their detailed closeouts.
+- **UI-02 through UI-06:** Cart/Checkout/Orders/Account (`5b9167f`), seller
+  lifecycle/admin moderation (`b424f65`), Auctions UI (`0ede615`), AI/AR/
+  Recommendations UI (`f59c9b1`), and UI-06 improvements (`75f5a8f`) are
+  complete, owner-approved, and committed. UI-06 is pushed to `origin/main`.
+  These UI closeouts do not imply the deferred payment, bidding, AI, or AR
+  backends are implemented.
 
-Follows/Sharing, Cart, Checkout/Payments, Orders, Reviews,
-Notifications, AI (analysis / assistant / recommendations), Auctions, AR
-Engine, Audit Logs, Analytics, hardened Security Rules, Production
-Deployment. (Admin Control Center — seller-application review UI and
-in-app artwork moderation — is Module 13, complete and committed; likes
-specifically are Module 12, complete and committed. Customer
-Account & Profile Foundation is Module 03, complete and committed; Seller
-Foundation & Artwork Draft Management is Module 04, complete and committed;
-Artwork Media/Image Upload is Module 05, complete and committed; Artist
-Profiles is Module 06, complete and committed; Artwork Moderation &
-Publishing is Module 07, complete and committed; Marketplace (public
-browsing/search/filtering) is Module 08, complete and committed; Wishlist
-is Module 09, complete and verified, pending owner review — see above. A
-tag-based filter and free-text/fuzzy search specifically remain deferred
-from Module 08 — see its write-up. Likes and Follows specifically remain
-deferred from Module 09, not merely bundled elsewhere — see its write-up
-for why they're a meaningfully different kind of change, not just a
-same-shaped feature. Followers/following specifically remain deferred from
-Module 06 to whichever later module actually builds the Follows feature. A
-dedicated Inventory feature beyond the single `inventoryCount` field
-remains deferred, not started. Avatar *upload* specifically also remains
-deferred to a future module.)
+## Pending capabilities (no future module scope or order assigned)
+
+The remaining work includes real payments and trusted order creation with
+inventory enforcement; shipping-rate integration; trusted bid placement,
+bid-history projection, and auction finalization; an AI provider/gateway,
+analysis generation, and conversation persistence; the AR viewer/asset
+pipeline; Follows and the unavailable follow/like-based recommendation
+paths; Reviews, Notifications, Analytics, and production deployment.
+Tag-based filtering/free-text search, a dedicated Inventory feature beyond
+`inventoryCount`, and avatar upload also remain deferred.
+
+Cart, Wishlist, Likes, artwork sharing, saved addresses, checkout/order
+read UI, auction/AI/AR UI, and admin moderation logs (`adminLogs`) already
+exist. Firestore/Storage security rules are implemented and tested at
+historical checkpoints; production hardening still includes the documented
+App Check/rate-limiting decisions. This list records existing deferrals;
+it does not select or authorize UI-07 scope.
 
 ## Architecture decisions made so far
 
@@ -5298,8 +5366,9 @@ deferred to a future module.)
   Firebase project. Local dev needs no Firebase account at all.
 - Role-based access uses Firebase Auth **custom claims**
   (`CUSTOMER | SELLER | ADMIN | SUPER_ADMIN`) as the sole security
-  authority, assigned only by `functions/src/index.ts`'s `onUserCreate`
-  trigger; a mirrored Firestore field is for convenience reads only and is
+  authority, assigned only through trusted Admin SDK paths (the
+  `onUserCreate` trigger, seller approval, and operator tooling); a mirrored
+  Firestore field is for convenience reads only and is
   never trusted by a rule or function. `ADMIN`/`SUPER_ADMIN` have no
   self-service or in-app path — only `functions/src/setAdminClaim.ts`, a
   local operator script, can grant them.
@@ -5332,9 +5401,11 @@ deferred to a future module.)
 
 ## Database version
 
-`users/{uid}` is implemented (Module 01, extended in Module 03). Every other
-collection remains a draft — not created in a live project. See
-`docs/DATABASE.md`.
+The implemented schema extends through UI-06, including saved addresses.
+The repository remains configured for local emulator development; no
+production deployment is recorded. Current collection boundaries are
+summarized below; historical schemas/designs remain in `docs/DATABASE.md`
+and the module/UI write-ups.
 
 ## Firestore collections
 
@@ -5342,19 +5413,24 @@ collection remains a draft — not created in a live project. See
   `photoURL`/`phoneNumber`/`bio`/`profileCompleted` and a field-level update
   rule); `sellers/{uid}` and `artworks/{artworkId}` (Module 04);
   `artists/{artistId}` (Module 06, ArtVault's first publicly-readable
-  collection) — see `docs/DATABASE.md` for each one's schema and rule.
-- **Draft (not yet created):** `carts/{uid}/items`, `orders`,
-  `orders/{orderId}/items`, `wishlists/{uid}/items`, `likes/{artworkId}/by`,
-  `follows` (bidirectional), `reviews`, `notifications`, `auctions`,
-  `auctions/{auctionId}/bids`, `auditLogs`.
+  collection); `wishlists/{uid}/items/{artworkId}` (Module 09),
+  `likes/{artworkId}/by/{uid}` plus the artwork counter (Module 12),
+  `carts/{uid}/items/{artworkId}` (UI-02), `adminLogs/{logId}` (trusted
+  moderation writes, admin reads), and `addresses/{uid}/entries/{addressId}`
+  (UI-06). See the module/UI write-ups and `firestore.rules` for boundaries.
+- **Read models implemented, client writes denied:** `orders/{orderId}`
+  and its items, `auctions/{auctionId}`, and `artworkAnalyses/{artworkId}`.
+  Their trusted creation/payment/bidding/analysis backends remain deferred.
+  Auction bids deny both client reads and writes.
+- **Deferred:** Follows, Reviews, Notifications, and any broader audit-log
+  capability beyond the existing `adminLogs` collection.
 
 ## Indexes
 
-None defined yet (`firestore.indexes.json` is an empty skeleton). Every
-implemented query so far (`sellers`/`artworks` by `sellerId`, `artists` by
-document id) is either a single-field equality or a direct document read,
-needing no composite index; Module 06's public artist-page query pattern is
-likewise a single document read (`artists/{artistId}`), not a query at all.
+`firestore.indexes.json` defines six composite indexes: five for artworks
+(status with creation date, price, category plus creation date, category
+plus price, or like count) and one for orders (buyer plus creation date).
+This records repository configuration, not a claim of production deployment.
 
 ## Cloud Functions
 
@@ -5363,6 +5439,13 @@ likewise a single document read (`artists/{artistId}`), not a query at all.
   `users/{uid}` profile document. Runtime: Node 22.
 - `setAdminClaim` (`functions/src/setAdminClaim.ts`) — NOT a deployed
   function; a local operator script for granting `ADMIN`/`SUPER_ADMIN`.
+- `approveSellerApplication`, `rejectSellerApplication`, `moderateArtwork`,
+  and `suspendArtwork` — exported callable Functions using verified
+  ADMIN/SUPER_ADMIN token claims and trusted Admin SDK writes. Local
+  emulator integration exists; no production deployment is recorded.
+- Other operator scripts handle seller promotion, artwork decisions,
+  profile/role repair, like-count backfill, and emulator-state verification.
+  They are not additional client-callable endpoints.
 
 ## AI providers
 
@@ -5376,9 +5459,11 @@ designed but not built. See `docs/AR_ARCHITECTURE.md`.
 
 ## External services
 
-None enabled. No Firebase billing plan (Blaze) enabled. No payment,
-search, or AI provider account created. Cloud Functions and Firestore
-rules for Module 01 run only against the Local Emulator Suite.
+GitHub remote `origin` is configured as
+`https://github.com/Balamurugan28468/ArtVaultweb.git`; `main` tracks
+`origin/main`, and UI-06 is pushed there. No Firebase billing plan (Blaze),
+payment, search, or AI provider activation is recorded. Firebase development
+and the recorded integration checks use the Local Emulator Suite.
 
 ## Environment variables
 
@@ -5392,13 +5477,17 @@ placeholders for the emulator); unchanged since Module 00:
 
 ## Known bugs
 
-None in code that ran. See "Security issues" below for a genuine
-environment limitation (not a code bug) affecting what could be verified
-this module.
+No new runtime defect assessment was performed in this documentation task.
+Existing module/UI limitations and historical environment issues are
+recorded in their write-ups; this is not a fresh clean-bill-of-health claim.
 
 ## Security issues
 
-None open in ArtVault's own code. One item:
+Current documented pre-production requirements include App Check setup/
+enforcement and the distributed rate-limiting decision recorded in Module
+13. This reconciliation does not constitute a new security audit.
+
+Historical Module 01 verification notes (retained):
 
 - **CSP "blocks eval" warning** (carried over from Module 00): confirmed
   not caused by ArtVault — see previous entry, unchanged, still tracked in
@@ -5525,6 +5614,15 @@ re-ran clean after these changes (see Tests/Build below).
 
 ## Tests
 
+**Historical results:** the totals below are from the Module 03-era
+checkpoint, not the current repository. Later module/UI closeouts retain
+their own results (including UI-05's 1168/1168 frontend and 317/317 rules
+tests). No new totals are claimed for UI-06 or this documentation-only
+reconciliation, and no test suites, typecheck, lint, or build were run here.
+Current test commands are recorded in the root and Functions package files;
+rules tests use the isolated disposable emulator runners, never the
+persistent development emulator.
+
 - **Root (`npm run test -- --run`):** 24 files, 90 tests, all passing (up
   from 16/42 — Module 03 added `schemas.test.ts`, `profileRepository.test.ts`,
   `useUserProfile.test.tsx`, `AccountHeader.test.tsx`,
@@ -5561,15 +5659,25 @@ re-ran clean after these changes (see Tests/Build below).
 
 ## Deployment
 
-Not deployed to any real environment (unchanged — still ₹0, still no
-Blaze). The Local Emulator Suite itself **was** exercised for real this
-module — see "Live emulator verification" above.
+Local-emulator development only: ArtVault has not been production-hosted
+or deployed. Firebase-exported Auth-triggered and callable Functions are
+loaded by the local Functions emulator; this is not a production deployment.
+Still ₹0, with no Blaze plan enabled. Historical emulator verification is
+recorded in the module/UI write-ups, including "Live emulator verification"
+above.
 
 ## Costs
 
 ₹0. No billing plan enabled, no paid resource created.
 
 ## Technical debt
+
+The entries below are retained historical observations from earlier
+modules, not a current audit. Later module/UI closeouts supersede resolved
+items (including navigation availability, contrast remediation, profile
+reconciliation, and emulator lifecycle hardening). Historical bundle sizes,
+dependency-audit findings, and machine-specific conditions were not
+re-measured during this documentation task.
 
 - **Route-level code-splitting is implemented (Module 02)** — sign-in/up/
   account are genuinely separate chunks now — **but it did not shrink the
@@ -5656,16 +5764,14 @@ module — see "Live emulator verification" above.
 
 ## Next action
 
-UI-05 (AI Assistant, AI Artwork Analysis, AR Experience & Recommendations)
-is complete, owner-approved, and committed in its own closeout commit, on
-top of UI-04 (Auctions Experience), UI-03 (Seller Studio, Artwork
-Management & Admin Moderation Override), UI-02 (Cart, Checkout, Orders &
-Account Experience), UI-01 (Complete Responsive Marketplace UI), and
-Module 13 (Admin Control Center, Phases 1-4), all already committed
-previously. Not pushed (no remote configured). **UI-06 — NOT STARTED.**
-No UI-06 scope is defined anywhere in this file — next UI selection and
-scope for UI-06 is an owner decision, to be made when the owner is ready,
-not guessed at here. Intentionally deferred by UI-05 (real backend work,
+**Await owner approval of this project-state reconciliation. Do not commit
+or push it without explicit approval. Do not start UI-07 discovery or
+implementation.** UI-06 is complete, owner-approved, committed as
+`75f5a8f`, and pushed to `origin/main`; Module 13 (Phases 1–4) and UI-01
+through UI-05 remain complete and committed. No UI-07 scope is defined or
+authorized by this document.
+
+Intentionally deferred by UI-05 (real backend work,
 not yet scoped to any module): a trusted AI gateway Cloud Function (no
 provider/key/gateway exists — see docs/AI_ARCHITECTURE.md), AI artwork
 analysis generation, a real AR viewer/asset pipeline (see
@@ -5678,7 +5784,8 @@ bid-history/live-bidding data (including the still-undecided
 public-vs-private bid projection), and auction finalization (winner/
 final-bid recording). Intentionally deferred by UI-02: a payment provider
 integration, real order creation/inventory enforcement,
-delivery/shipping-rate integration, and a persisted `addresses` collection
-for Checkout. Owner still needs to supply the real ArtVault logo asset to
+delivery/shipping-rate integration. Persisted addresses and checkout
+address selection, originally deferred by UI-02, are now implemented by
+UI-06. Owner still needs to supply the real ArtVault logo asset to
 the repository when convenient (not a blocker — a documented temporary
 placeholder covers development meanwhile; see `public/brand/README.md`).

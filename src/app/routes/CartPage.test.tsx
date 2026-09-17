@@ -148,7 +148,7 @@ describe('CartPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('notes how many cart items are no longer available, without hiding the rest', () => {
+  it('notes how many cart items are unavailable or could not be loaded, without hiding the rest', () => {
     useCart.mockReturnValue({ mode: 'account', status: 'ready', setQuantity: vi.fn(), removeItem: vi.fn() })
     const artwork = buildArtwork()
     useCartLines.mockReturnValue({
@@ -159,7 +159,7 @@ describe('CartPage', () => {
     })
     renderPage()
 
-    expect(screen.getByText(/2 cart items are no longer available/)).toBeInTheDocument()
+    expect(screen.getByText(/2 cart items are unavailable or could not be loaded/)).toBeInTheDocument()
   })
 
   it('shows an error state on failure, distinct from the empty state', () => {
@@ -177,4 +177,13 @@ describe('CartPage', () => {
     renderPage()
     expect(screen.getByRole('heading', { name: 'Cart' })).toBeInTheDocument()
   })
+})
+
+it('keeps the unavailable-item warning when every cart item is unreadable', () => {
+  useCart.mockReturnValue({ mode: 'guest', status: 'ready', setQuantity: vi.fn(), removeItem: vi.fn() })
+  useCartLines.mockReturnValue({ lines: [], unavailableCount: 2, subtotal: 0, isLoading: false })
+  renderPage()
+  expect(screen.getByText('No available cart items')).toBeInTheDocument()
+  expect(screen.getByText(/2 cart items are unavailable or could not be loaded/)).toBeInTheDocument()
+  expect(screen.queryByText('Your cart is empty')).not.toBeInTheDocument()
 })

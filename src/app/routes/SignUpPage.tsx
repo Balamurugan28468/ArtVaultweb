@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { BrandLogo } from '@/app/branding/BrandLogo'
 import { SignUpForm } from '@/features/auth'
+import { getRedirectPath } from '@/features/auth/returnTo'
 import { Card } from '@/shared/ui'
 
 export function SignUpPage() {
   const navigate = useNavigate()
+  const redirectTo = getRedirectPath(useLocation().state)
   const { status } = useAuth()
   const [submitted, setSubmitted] = useState(false)
 
@@ -20,9 +22,9 @@ export function SignUpPage() {
   // /sign-in, even though sign-up had genuinely succeeded.
   useEffect(() => {
     if (submitted && status === 'authenticated') {
-      navigate('/account')
+      navigate(redirectTo, { replace: true })
     }
-  }, [submitted, status, navigate])
+  }, [submitted, status, navigate, redirectTo])
 
   const handleSuccess = () => {
     setSubmitted(true)
@@ -42,7 +44,7 @@ export function SignUpPage() {
         </div>
         <p className="mt-4 text-sm text-text-secondary">
           Already have an account?{' '}
-          <Link to="/sign-in" className="font-medium text-brand-primary-on-dark">
+          <Link to="/sign-in" state={{ from: redirectTo }} className="font-medium text-brand-primary-on-dark">
             Sign in
           </Link>
         </p>

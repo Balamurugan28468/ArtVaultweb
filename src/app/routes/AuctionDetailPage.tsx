@@ -242,7 +242,7 @@ export function AuctionDetailPage() {
                 )}
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="info" size="sm" onClick={() => setArModalOpen(true)}>
-                    <Box aria-hidden="true" className="h-4 w-4" /> View in AR
+                    <Box aria-hidden="true" className="h-4 w-4" /> About AR preview
                   </Button>
                   <Button type="button" variant="primary" size="sm" onClick={() => setAiModalOpen(true)}>
                     <Sparkles aria-hidden="true" className="h-4 w-4" /> AI Analysis
@@ -402,10 +402,9 @@ export function AuctionDetailPage() {
           </Card>
         )}
 
-        <Modal open={arModalOpen} onClose={() => setArModalOpen(false)} title="View in AR">
+        <Modal open={arModalOpen} onClose={() => setArModalOpen(false)} title="About AR preview">
           <p className="text-sm text-text-secondary">
-            Augmented reality preview isn't connected yet. Once available, you'll be able to place this artwork
-            in your own space using your phone's camera, at its true size, before you bid.
+            AR preview is unavailable. Camera placement and true-scale viewing are not available yet.
           </p>
         </Modal>
         <Modal open={aiModalOpen} onClose={() => setAiModalOpen(false)} title="Ask ArtVault AI">

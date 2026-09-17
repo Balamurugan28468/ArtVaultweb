@@ -68,7 +68,7 @@ export function OrdersPage() {
         {state.status === 'loaded' && orders.length === 0 && (
           <EmptyState
             title="No orders yet"
-            description="When you place an order, it will show up here."
+            description="You have no recorded orders. Order placement is not available yet."
             action={
               <Link to="/explore" className="inline-flex">
                 <Button type="button">Explore Artworks</Button>

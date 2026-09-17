@@ -77,9 +77,9 @@ export function AuctionCard({
         <AuctionCountdown auction={auction} />
         <div className="mt-1 flex gap-1.5">
           <span
-            role="button"
-            aria-disabled="true"
-            title="View in AR — coming soon"
+            role="img"
+            aria-label="AR preview unavailable"
+            title="AR preview unavailable"
             className="inline-flex h-6 items-center gap-1 rounded-full bg-blue-600/15 px-2 text-[10px] font-medium text-blue-400 opacity-80"
           >
             <Box aria-hidden="true" className="h-3 w-3" /> AR

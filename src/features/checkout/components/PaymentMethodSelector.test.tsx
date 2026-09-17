@@ -21,7 +21,7 @@ describe('PaymentMethodSelector', () => {
   it('gives Card and UPI the same honest "connect a payment processor" copy', () => {
     render(<PaymentMethodSelector />)
     expect(
-      screen.getAllByText('Online payment will be available when secure payment processing is connected.'),
+      screen.getAllByText('Unavailable. Requires order placement and secure payment processing.'),
     ).toHaveLength(2)
   })
 

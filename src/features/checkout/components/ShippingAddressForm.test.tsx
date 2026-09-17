@@ -36,6 +36,12 @@ describe('ShippingAddressForm', () => {
 
   it('states plainly that the address is not saved for future orders — never invents persistence', () => {
     render(<ShippingAddressForm onChange={vi.fn()} />)
-    expect(screen.getByText(/saving addresses for future orders isn't connected yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/temporary address stays in this checkout session/i)).toBeInTheDocument()
   })
+})
+
+it.each([{ postalCode: '!!!' }, { phone: 'invalid' }, { fullName: 'x'.repeat(81) }])('uses the complete existing schema for readiness: %j', (invalid) => {
+  const onChange = vi.fn()
+  render(<ShippingAddressForm onChange={onChange} initialValues={{ fullName: 'Alice Rivera', addressLine1: '1 Main St', addressLine2: '', city: 'Pune', state: 'Maharashtra', postalCode: '411001', country: 'India', phone: '', ...invalid }} />)
+  expect(onChange).toHaveBeenLastCalledWith(expect.anything(), false)
 })

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -29,12 +29,13 @@ describe('AddToCartButton', () => {
     expect(button).toBeDisabled()
   })
 
-  it('shows "Add to Cart" when not yet in the cart, and calls addItem(artworkId, 1) on click', () => {
+  it('shows "Add to Cart" when not yet in the cart, and calls addItem(artworkId, 1) on click', async () => {
+    addItem.mockResolvedValueOnce(true)
     getQuantity.mockReturnValue(0)
     renderButton('a1', 5)
     fireEvent.click(screen.getByRole('button', { name: 'Add to Cart' }))
     expect(addItem).toHaveBeenCalledWith('a1', 1)
-    expect(success).toHaveBeenCalled()
+    await waitFor(() => expect(success).toHaveBeenCalled())
   })
 
   it('shows an honest "In cart (n)" link to /cart once the artwork is already in the cart, rather than a button that keeps re-adding', () => {
@@ -44,4 +45,19 @@ describe('AddToCartButton', () => {
     expect(link).toHaveAttribute('href', '/cart')
     expect(screen.queryByRole('button', { name: 'Add to Cart' })).not.toBeInTheDocument()
   })
+})
+
+it('waits for the mutation result and never announces success on failure', async () => {
+  success.mockClear()
+  getQuantity.mockReturnValue(0)
+  let finish!: (ok: boolean) => void
+  addItem.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve }))
+  renderButton()
+  const button = screen.getByRole('button', { name: 'Add to Cart' })
+  fireEvent.click(button)
+  expect(button).toBeDisabled()
+  expect(success).not.toHaveBeenCalled()
+  await act(async () => finish(false))
+  expect(success).not.toHaveBeenCalled()
+  expect(button).toBeEnabled()
 })

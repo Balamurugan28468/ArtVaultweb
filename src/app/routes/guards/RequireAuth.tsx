@@ -10,7 +10,7 @@ export function RequireAuth() {
   }
 
   if (status === 'unauthenticated') {
-    return <Navigate to="/sign-in" state={{ from: location.pathname }} replace />
+    return <Navigate to="/sign-in" state={{ from: location.pathname + location.search + location.hash }} replace />
   }
 
   return <Outlet />

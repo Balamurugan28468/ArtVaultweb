@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import type { Artwork } from '@/features/artwork'
@@ -95,15 +95,16 @@ describe('CartItemRow', () => {
     expect(screen.getByText(/Only 2 left — reduce quantity/)).toBeInTheDocument()
   })
 
-  it('"Save for later" saves to the wishlist (if not already saved) and removes the cart line', () => {
+  it('"Save for later" saves to the wishlist (if not already saved) and removes the cart line', async () => {
+    toggle.mockResolvedValueOnce(true)
     isSaved.mockReturnValue(false)
     const { onRemove } = renderRow()
     fireEvent.click(screen.getByRole('button', { name: 'Save for later' }))
     expect(toggle).toHaveBeenCalledWith('a1')
-    expect(onRemove).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(onRemove).toHaveBeenCalledTimes(1))
   })
 
-  it('"Save for later" never un-saves an already-wishlisted artwork — only removes the cart line', () => {
+  it('"Save for later" never un-saves an already-wishlisted artwork — only removes the cart line', async () => {
     isSaved.mockReturnValue(true)
     const { onRemove } = renderRow()
     toggle.mockClear()
@@ -111,4 +112,20 @@ describe('CartItemRow', () => {
     expect(toggle).not.toHaveBeenCalled()
     expect(onRemove).toHaveBeenCalledTimes(1)
   })
+})
+
+it('retains the cart item when saving to the wishlist fails', async () => {
+  isSaved.mockReturnValue(false)
+  let finish!: (ok: boolean) => void
+  toggle.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve }))
+  const { onRemove } = renderRow()
+  fireEvent.click(screen.getByRole('button', { name: 'Save for later' }))
+  expect(onRemove).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Remove from cart' })).toBeDisabled()
+  await act(async () => finish(false))
+  expect(onRemove).not.toHaveBeenCalled()
+})
+it('caps the stepper at the existing cart limit even when more stock exists', () => {
+  renderRow({ inventoryCount: 200 }, 99)
+  expect(screen.getByRole('button', { name: 'Increase quantity' })).toBeDisabled()
 })

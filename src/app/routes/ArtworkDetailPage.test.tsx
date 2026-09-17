@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Timestamp } from 'firebase/firestore'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
@@ -41,11 +41,11 @@ vi.mock('@/features/likes', () => ({ LikeButton: (props: { artworkId: string; li
 // UI-02 — real Add to Cart control + the cart context it reads from.
 // Mocked here the same way WishlistButton/LikeButton already are: this
 // file's concern is ArtworkDetailPage's own wiring (does it pass the right
-// artworkId/inventoryCount, does Buy Now call addItem and navigate), not
+// artworkId/inventoryCount, does Add & review cart call addItem and navigate), not
 // AddToCartButton's or CartProvider's own internal behavior (covered by
 // their own dedicated tests).
-const addItem = vi.fn()
-const useCart = vi.fn(() => ({ addItem, getQuantity: () => 0 }))
+const addItem = vi.fn().mockResolvedValue(true)
+const useCart = vi.fn(() => ({ addItem, getQuantity: (): number => 0 }))
 const AddToCartButton = vi.fn((props: { artworkId: string; inventoryCount: number }) => (
   <button>{props.inventoryCount > 0 ? 'Add to Cart' : 'Sold out'}</button>
 ))
@@ -61,6 +61,7 @@ function renderPage(artworkId = 'a1') {
     <MemoryRouter initialEntries={[`/artworks/${artworkId}`]}>
       <Routes>
         <Route path="/artworks/:artworkId" element={<ArtworkDetailPage />} />
+        <Route path="/cart" element={<p>Cart destination</p>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -175,10 +176,10 @@ describe('ArtworkDetailPage', () => {
 
   // UI-02 — Add to Cart is now real (AddToCartButton, tested on its own);
   // this page's own job is just wiring the right artworkId/inventoryCount
-  // into it, and making Buy Now add the item and take the shopper to
+  // into it, and making Add & review cart add the item and take the shopper to
   // /cart. Checkout itself still can't complete a real purchase (no
   // payment integration), which is covered on CheckoutPage's own tests.
-  describe('commerce area (UI-02 — real Add to Cart / Buy Now)', () => {
+  describe('commerce area (UI-02 — real Add to Cart / Add & review cart)', () => {
     it('passes the real artworkId and inventoryCount to AddToCartButton', () => {
       usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork({ inventoryCount: 7 }) })
       renderPage()
@@ -186,20 +187,21 @@ describe('ArtworkDetailPage', () => {
       expect(AddToCartButton).toHaveBeenCalledWith(expect.objectContaining({ artworkId: 'a1', inventoryCount: 7 }))
     })
 
-    it('Buy Now adds the artwork to the cart and navigates to /cart', () => {
+    it('Add & review cart adds the artwork to the cart and navigates to /cart', async () => {
       usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork({ inventoryCount: 3 }) })
       renderPage()
 
-      fireEvent.click(screen.getByRole('button', { name: 'Buy Now' }))
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add & review cart' })) })
 
       expect(addItem).toHaveBeenCalledWith('a1', 1)
+      expect(screen.getByText('Cart destination')).toBeInTheDocument()
     })
 
-    it('disables Buy Now and labels it "Sold out" once inventory reaches 0 — never a completable purchase for an out-of-stock artwork', () => {
+    it('disables Add & review cart and labels it "Sold out" once inventory reaches 0 — never a completable purchase for an out-of-stock artwork', () => {
       usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork({ inventoryCount: 0 }) })
       renderPage()
 
-      const buyNow = screen.getByRole('button', { name: 'Buy Now' })
+      const buyNow = screen.getByRole('button', { name: 'Add & review cart' })
       expect(buyNow).toBeDisabled()
     })
 
@@ -207,16 +209,16 @@ describe('ArtworkDetailPage', () => {
       usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
       renderPage()
 
-      expect(screen.getByText(/payment isn't connected yet/i)).toBeInTheDocument()
+      expect(screen.getByText(/Order placement and payment processing are unavailable/i)).toBeInTheDocument()
     })
   })
 
   describe('AR + AI entry points (UI-01, navigate to their own real pages since UI-05)', () => {
-    it('links "View in AR" to the artwork\'s own dedicated AR page — never a live AR session or fabricated placement inline', () => {
+    it('links "About AR preview" to the artwork\'s own dedicated AR page — never a live AR session or fabricated placement inline', () => {
       usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
       renderPage()
 
-      expect(screen.getByRole('link', { name: /view in ar/i })).toHaveAttribute('href', '/artworks/a1/ar')
+      expect(screen.getByRole('link', { name: /About AR preview/i })).toHaveAttribute('href', '/artworks/a1/ar')
     })
 
     it('links "Analyze with AI" to the artwork\'s own dedicated AI Analysis page — never a fabricated score or result inline', () => {
@@ -339,4 +341,25 @@ describe('ArtworkDetailPage', () => {
       expect(screen.queryByText(/^More in/)).not.toBeInTheDocument()
     })
   })
+})
+
+it('does not navigate to cart or imply success when adding fails', async () => {
+  usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
+  let finish!: (ok: boolean) => void
+  addItem.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve }))
+  renderPage()
+  fireEvent.click(screen.getByRole('button', { name: 'Add & review cart' }))
+  expect(screen.getByRole('button', { name: 'Add & review cart' })).toBeDisabled()
+  await act(async () => finish(false))
+  expect(screen.queryByText('Cart destination')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Add & review cart' })).toBeEnabled()
+})
+it('reviews an existing cart item without incrementing its quantity', async () => {
+  addItem.mockClear()
+  useCart.mockReturnValueOnce({ addItem, getQuantity: () => 2 })
+  usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
+  renderPage()
+  fireEvent.click(screen.getByRole('button', { name: 'Review cart' }))
+  await waitFor(() => expect(screen.getByText('Cart destination')).toBeInTheDocument())
+  expect(addItem).not.toHaveBeenCalled()
 })

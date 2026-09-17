@@ -55,7 +55,8 @@ export function ArtworkDetailPage() {
   const query = usePublicArtwork(artworkId)
   const artwork = query.status === 'success' ? query.data : undefined
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
-  const { addItem } = useCart()
+  const { addItem, getQuantity, isPending } = useCart()
+  const [cartPending, setCartPending] = useState(false)
   const navigate = useNavigate()
 
   const sellerId = artwork?.sellerId
@@ -174,17 +175,17 @@ export function ArtworkDetailPage() {
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/20 text-blue-400 sm:h-9 sm:w-9">
                     <Box aria-hidden="true" className="h-4 w-4" />
                   </span>
-                  <p className="text-sm font-medium text-text-primary">View in Your Space</p>
-                  <p className="hidden text-xs text-text-secondary sm:block">See how this artwork looks in your room using augmented reality.</p>
+                  <p className="text-sm font-medium text-text-primary">AR preview unavailable</p>
+                  <p className="hidden text-xs text-text-secondary sm:block">Camera placement and true-scale AR are not available yet.</p>
                   <Link to={`/artworks/${artwork.id}/ar`} className={buttonClassName('info', 'sm', 'mt-1 self-start')}>
-                    View in AR
+                    About AR preview
                   </Link>
                 </div>
               </div>
 
               {/* Commerce area — deliberately separated from the actions
                   above. Add to Cart is now real (UI-02): AddToCartButton
-                  writes a genuine cart line (see CartProvider), and Buy Now
+                  writes a genuine cart line (see CartProvider), and Add & review cart
                   adds the item then takes the shopper straight to /cart.
                   Checkout itself still can't complete a real purchase (no
                   payment integration exists yet — see CheckoutPage's own
@@ -197,19 +198,21 @@ export function ArtworkDetailPage() {
                     type="button"
                     variant="gold"
                     size="md"
-                    disabled={artwork.inventoryCount <= 0}
-                    aria-disabled={artwork.inventoryCount <= 0}
+                    disabled={cartPending || isPending?.(artwork.id) || artwork.inventoryCount <= 0}
+                    aria-disabled={cartPending || isPending?.(artwork.id) || artwork.inventoryCount <= 0}
                     title={artwork.inventoryCount <= 0 ? 'Sold out' : undefined}
-                    onClick={() => {
-                      void addItem(artwork.id, 1)
-                      navigate('/cart')
+                    onClick={async () => {
+                      setCartPending(true)
+                      try {
+                        if (getQuantity(artwork.id) > 0 || await addItem(artwork.id, 1)) navigate('/cart')
+                      } finally { setCartPending(false) }
                     }}
                   >
-                    Buy Now
+                    {getQuantity(artwork.id) > 0 ? 'Review cart' : 'Add & review cart'}
                   </Button>
                 </div>
                 <p className="text-xs text-text-muted">
-                  Checkout collects shipping details, but payment isn't connected yet — an order can't be placed until it is.
+                  Checkout collects shipping details. Order placement and payment processing are unavailable.
                 </p>
               </div>
             </div>

@@ -188,3 +188,11 @@ describe('WishlistProvider — account mode', () => {
     expect(result.current.mode).toBe('guest')
   })
 })
+
+it('returns false when a save fails so Cart cannot remove the item', async () => {
+  useAuth.mockReturnValue({ status: 'authenticated', user: { uid: 'alice' } })
+  addWishlistItem.mockRejectedValueOnce({ code: 'network', message: 'Offline' })
+  const { result } = renderHook(() => useWishlist(), { wrapper: WishlistProvider })
+  await act(async () => { expect(await result.current.toggle('a1')).toBe(false) })
+  expect(result.current.isSaved('a1')).toBe(false)
+})

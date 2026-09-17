@@ -5,13 +5,8 @@ import { BrandLogo } from '@/app/branding/BrandLogo'
 import { SignInForm } from '@/features/auth'
 import { Card } from '@/shared/ui'
 
-export function getRedirectPath(state: unknown): string {
-  if (typeof state === 'object' && state !== null && 'from' in state) {
-    const { from } = state as { from: unknown }
-    if (typeof from === 'string') return from
-  }
-  return '/account'
-}
+import { getRedirectPath } from '@/features/auth/returnTo'
+export { getRedirectPath } from '@/features/auth/returnTo'
 
 export function SignInPage() {
   const navigate = useNavigate()
@@ -46,7 +41,7 @@ export function SignInPage() {
         </div>
         <p className="mt-4 text-sm text-text-secondary">
           No account?{' '}
-          <Link to="/sign-up" className="font-medium text-brand-primary-on-dark">
+          <Link to="/sign-up" state={{ from: redirectTo }} className="font-medium text-brand-primary-on-dark">
             Sign up
           </Link>
         </p>

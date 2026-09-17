@@ -148,3 +148,7 @@ describe('toOrderError', () => {
     expect(toOrderError(new Error('boom'))).toEqual({ code: 'unknown', message: 'Something went wrong. Please try again.' })
   })
 })
+
+it.each([undefined, null, '', 'UNKNOWN', 'paid', 42])('does not fabricate a payment state from %j', (paymentState) => {
+  expect(mapToOrder('a1', { buyerId: 'buyer', status: 'CREATED', paymentState })?.paymentState).toBeNull()
+})

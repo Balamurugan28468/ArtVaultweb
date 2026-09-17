@@ -9,13 +9,13 @@ describe('useNavItems', () => {
   it('shows only guest-available items while loading (no premature role-gated links)', () => {
     useAuth.mockReturnValue({ status: 'loading', role: null })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'auction', 'wishlist'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'auction', 'wishlist', 'cart'])
   })
 
   it('shows only guest-available items when signed out (Wishlist, Module 09, and Auctions, UI-04, are available to guests too)', () => {
     useAuth.mockReturnValue({ status: 'unauthenticated', role: null })
     const { result } = renderHook(() => useNavItems())
-    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'auction', 'wishlist'])
+    expect(result.current.map((item) => item.id)).toEqual(['home', 'marketplace', 'auction', 'wishlist', 'cart'])
   })
 
   it('adds Cart, Orders, and Account for an authenticated CUSTOMER (Cart/Orders are genuinely available, UI-02)', () => {
@@ -84,7 +84,7 @@ describe('useMoreMenuItems', () => {
   it('shows Auctions, Notifications, and Help for a guest', () => {
     useAuth.mockReturnValue({ status: 'unauthenticated', role: null })
     const { result } = renderHook(() => useMoreMenuItems())
-    expect(result.current.map((item) => item.id)).toEqual(['auction', 'notifications', 'help'])
+    expect(result.current.map((item) => item.id)).toEqual(['auction', 'notifications', 'cart', 'help'])
   })
 
   it('shows Auctions, Notifications, Cart, Orders, and Help for a CUSTOMER — never Seller Studio or Admin', () => {

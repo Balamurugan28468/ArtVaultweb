@@ -43,7 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
   // ADMIN/SUPER_ADMIN have no commerce identity of their own to shop or
   // order with (same reasoning AccountSections' SellerSectionCard already
   // applies to "Become a seller").
-  { id: 'cart', label: 'Cart', href: '/cart', icon: ShoppingCart, status: 'available', audiences: ['CUSTOMER', 'SELLER'] },
+  { id: 'cart', label: 'Cart', href: '/cart', icon: ShoppingCart, status: 'available', audiences: ['guest', 'CUSTOMER', 'SELLER'] },
   { id: 'orders', label: 'Orders', href: '/orders', icon: Package, status: 'available', audiences: ['CUSTOMER', 'SELLER'] },
   { id: 'account', label: 'Account', href: '/account', icon: User, status: 'available', audiences: ['CUSTOMER', 'SELLER', 'ADMIN', 'SUPER_ADMIN'] },
   { id: 'seller-studio', label: 'Seller Studio', href: '/seller-studio', icon: LayoutDashboard, status: 'available', audiences: ['SELLER'] },

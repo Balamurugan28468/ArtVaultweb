@@ -29,7 +29,7 @@ export function useNavItems(): NavItem[] {
 // as real links; `comingSoon` ones (Notifications/Help) render honestly
 // disabled — same convention as everywhere else, never a dead link.
 const MORE_MENU_IDS: Record<NavAudience, string[]> = {
-  guest: ['auction', 'notifications', 'help'],
+  guest: ['auction', 'notifications', 'cart', 'help'],
   // UI-02: Orders joins Cart here, both now genuinely `available`.
   CUSTOMER: ['auction', 'notifications', 'cart', 'orders', 'help'],
   SELLER: ['auction', 'notifications', 'cart', 'orders', 'seller-studio', 'help'],

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useAuth } from '@/app/providers/AuthProvider'
-import { Modal, useToast } from '@/shared/ui'
+import { Button, Modal, useToast } from '@/shared/ui'
 import { addAddress, toAddressError, updateAddress } from '../api/addressRepository'
 import type { Address, AddressInput } from '../types'
 import { AddressForm } from './AddressForm'
@@ -18,6 +18,7 @@ export function AddressFormModal({
   onClose,
   address,
   existingIds,
+  onSaved,
 }: {
   open: boolean
   onClose: () => void
@@ -25,38 +26,55 @@ export function AddressFormModal({
   address?: Address
   /** Every other saved address's id — never includes `address.id` itself. */
   existingIds: string[]
+  onSaved?: (id: string) => void
 }) {
   const { user } = useAuth()
   const toast = useToast()
   const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)
+  const formId = useId()
+  const close = () => { if (!pendingRef.current) onClose() }
 
   async function handleSubmit(input: AddressInput) {
-    if (!user) return
+    if (!user || pendingRef.current) return
+    pendingRef.current = true
     setPending(true)
     try {
       if (address) {
         await updateAddress(user.uid, address.id, input, existingIds)
         toast.success('Address updated.')
+        onSaved?.(address.id)
       } else {
-        await addAddress(user.uid, input, existingIds)
+        const id = await addAddress(user.uid, input, existingIds)
+        onSaved?.(id)
         toast.success('Address added.')
       }
       onClose()
     } catch (error) {
       toast.error(toAddressError(error).message)
     } finally {
+      pendingRef.current = false
       setPending(false)
     }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={address ? 'Edit Address' : 'Add Address'}>
+    <Modal open={open} onClose={close} title={address ? 'Edit Address' : 'Add Address'}
+      footer={<div className="flex flex-wrap justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={close} disabled={pending}>Cancel</Button>
+        <Button type="submit" form={formId} variant="gold" disabled={pending}>
+          {pending ? 'Saving…' : address ? 'Save Changes' : 'Add Address'}
+        </Button>
+      </div>}
+    >
       <AddressForm
+        formId={formId}
+        externalActions
         initialAddress={address}
         submitLabel={address ? 'Save Changes' : 'Add Address'}
         pending={pending}
         onSubmit={(input) => void handleSubmit(input)}
-        onCancel={onClose}
+        onCancel={close}
       />
     </Modal>
   )

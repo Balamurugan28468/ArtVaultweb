@@ -86,7 +86,7 @@ export function subscribeAddresses(
  * address is ever the default at a time, never a client-side-only
  * assumption that could drift from what's actually stored.
  */
-export async function addAddress(uid: string, input: AddressInput, existingIds: string[]): Promise<void> {
+export async function addAddress(uid: string, input: AddressInput, existingIds: string[]): Promise<string> {
   try {
     const batch = writeBatch(db)
     const ref = doc(addressesCollection(uid))
@@ -95,6 +95,7 @@ export async function addAddress(uid: string, input: AddressInput, existingIds: 
       for (const id of existingIds) batch.update(addressDocRef(uid, id), { isDefault: false, updatedAt: serverTimestamp() })
     }
     await batch.commit()
+    return ref.id
   } catch (error) {
     throw toAddressError(error)
   }

@@ -10,15 +10,15 @@ describe('CartSummary', () => {
     expect(screen.getAllByText('₹3000').length).toBe(2)
   })
 
-  it('never fabricates shipping or tax values — shows the honest "Calculated at checkout" placeholder for both', () => {
+  it('never fabricates shipping or tax values — shows the honest "Unavailable" placeholder for both', () => {
     render(<CartSummary subtotal={100000} itemCount={1} />)
-    const placeholders = screen.getAllByText('Calculated at checkout')
+    const placeholders = screen.getAllByText('Unavailable')
     expect(placeholders).toHaveLength(2)
   })
 
   it('states that the total excludes shipping and taxes, rather than implying it is the final charge', () => {
     render(<CartSummary subtotal={100000} itemCount={1} />)
-    expect(screen.getByText(/Excludes shipping and taxes/)).toBeInTheDocument()
+    expect(screen.getByText(/not a final payable total/)).toBeInTheDocument()
   })
 
   it('pluralizes the item count correctly', () => {

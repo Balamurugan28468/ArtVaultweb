@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Address } from '../types'
 import { AddressFormModal } from './AddressFormModal'
@@ -101,4 +101,21 @@ describe('AddressFormModal', () => {
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('You do not have permission to do that.'))
     expect(onClose).not.toHaveBeenCalled()
   })
+})
+
+it('keeps the modal open during saving and reports the saved address ID', async () => {
+  let finish!: () => void
+  updateAddress.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve }))
+  const onClose = vi.fn()
+  const onSaved = vi.fn()
+  render(<AddressFormModal open onClose={onClose} onSaved={onSaved} address={EXISTING} existingIds={[]} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: /Saving/ })).toBeDisabled())
+  fireEvent.keyDown(document, { key: 'Escape' })
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  expect(onClose).not.toHaveBeenCalled()
+  expect(onSaved).not.toHaveBeenCalled()
+  await act(async () => finish())
+  expect(onSaved).toHaveBeenCalledWith('a1')
+  expect(onClose).toHaveBeenCalledOnce()
 })

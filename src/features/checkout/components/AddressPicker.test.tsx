@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import type { Address } from '@/features/address'
 import { AddressPicker } from './AddressPicker'
@@ -6,7 +7,7 @@ import { AddressPicker } from './AddressPicker'
 const useAddresses = vi.fn()
 vi.mock('@/features/address', () => ({
   useAddresses: () => useAddresses(),
-  AddressFormModal: ({ open }: { open: boolean }) => (open ? <p>Add Address Modal</p> : null),
+  AddressFormModal: ({ open, onSaved, onClose }: { open: boolean; onSaved?: (id: string) => void; onClose: () => void }) => (open ? <div><p>Add Address Modal</p><button onClick={() => { onSaved?.('new'); onClose() }}>Complete save</button></div> : null),
 }))
 
 function buildAddress(overrides: Partial<Address> = {}): Address {
@@ -34,7 +35,7 @@ describe('AddressPicker', () => {
     render(<AddressPicker onChange={onChange} />)
 
     expect(screen.getByLabelText('Full name')).toBeInTheDocument()
-    expect(screen.getByText(/saving addresses for future orders isn't connected yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/temporary address stays in this checkout session/i)).toBeInTheDocument()
   })
 
   it('falls back to the plain form when the address list fails to load — never blocks checkout', () => {
@@ -98,4 +99,41 @@ describe('AddressPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add new address' }))
     expect(screen.getByText('Add Address Modal')).toBeInTheDocument()
   })
+})
+
+it('marks invalid saved addresses incomplete and offers the real address book', () => {
+  useAddresses.mockReturnValue({ status: 'loaded', addresses: [buildAddress({ postalCode: '!!!' })] })
+  const onChange = vi.fn()
+  render(<MemoryRouter><AddressPicker onChange={onChange} /></MemoryRouter>)
+  expect(onChange).toHaveBeenLastCalledWith(expect.anything(), false)
+  expect(screen.getByRole('link', { name: /Edit it/ })).toHaveAttribute('href', '/account/addresses')
+})
+it('lets a first-time buyer open the existing save-address flow', () => {
+  useAddresses.mockReturnValue({ status: 'loaded', addresses: [] })
+  render(<AddressPicker onChange={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add new address' }))
+  expect(screen.getByText('Add Address Modal')).toBeInTheDocument()
+})
+it('retains the temporary draft when switching to saved addresses and back', () => {
+  useAddresses.mockReturnValue({ status: 'loaded', addresses: [buildAddress()] })
+  render(<AddressPicker onChange={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Use a different address for this order' }))
+  fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Temporary Name' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Use a saved address instead' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Use a different address for this order' }))
+  expect(screen.getByLabelText('Full name')).toHaveValue('Temporary Name')
+})
+
+it('waits for the newly saved address to arrive before reporting completion', () => {
+  useAddresses.mockReturnValue({ status: 'loaded', addresses: [] })
+  const onChange = vi.fn()
+  const { rerender } = render(<AddressPicker onChange={onChange} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add new address' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Complete save' }))
+  expect(onChange).toHaveBeenLastCalledWith(expect.anything(), false)
+  expect(screen.getByRole('status')).toHaveTextContent('Loading the saved address')
+  useAddresses.mockReturnValue({ status: 'loaded', addresses: [buildAddress({ id: 'old', isDefault: true }), buildAddress({ id: 'new', fullName: 'New Recipient' })] })
+  rerender(<AddressPicker onChange={onChange} />)
+  expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ fullName: 'New Recipient' }), true)
+  expect(screen.getByRole('radio', { name: /New Recipient/ })).toBeChecked()
 })

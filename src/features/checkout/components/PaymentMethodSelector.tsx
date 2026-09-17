@@ -24,13 +24,13 @@ const PAYMENT_OPTIONS: PaymentOption[] = [
     id: 'card',
     label: 'Credit / Debit Card',
     icon: CreditCard,
-    reason: 'Online payment will be available when secure payment processing is connected.',
+    reason: 'Unavailable. Requires order placement and secure payment processing.',
   },
   {
     id: 'upi',
     label: 'UPI',
     icon: Smartphone,
-    reason: 'Online payment will be available when secure payment processing is connected.',
+    reason: 'Unavailable. Requires order placement and secure payment processing.',
   },
   {
     id: 'cod',
@@ -49,7 +49,7 @@ const PAYMENT_OPTIONS: PaymentOption[] = [
  */
 export function PaymentMethodSelector() {
   return (
-    <div role="radiogroup" aria-label="Payment method" className="flex flex-col gap-2">
+    <div role="radiogroup" aria-label="Payment method — unavailable" className="flex flex-col gap-2">
       {PAYMENT_OPTIONS.map(({ id, label, icon: Icon, reason }) => (
         <label
           key={id}

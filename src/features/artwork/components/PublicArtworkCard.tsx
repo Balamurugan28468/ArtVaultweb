@@ -84,9 +84,9 @@ export function PublicArtworkCard({
             distinct at a glance, never interchangeable. */}
         <div className="absolute top-2 left-2 flex gap-1">
           <span
-            role="button"
-            aria-disabled="true"
-            title="View in AR — coming soon"
+            role="img"
+            aria-label="AR preview unavailable"
+            title="AR preview unavailable"
             className="inline-flex h-6 w-6 cursor-not-allowed items-center justify-center rounded-full bg-blue-600/90 text-white backdrop-blur-sm sm:h-7 sm:w-7"
           >
             <Box aria-hidden="true" className="h-3 w-3 sm:h-3.5 sm:w-3.5" />

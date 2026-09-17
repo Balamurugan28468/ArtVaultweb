@@ -17,7 +17,8 @@ interface WishlistContextValue {
   mode: WishlistMode
   status: 'loading' | 'ready' | 'error'
   isSaved: (artworkId: string) => boolean
-  toggle: (artworkId: string) => Promise<void>
+  isPending: (artworkId: string) => boolean
+  toggle: (artworkId: string) => Promise<boolean>
 }
 
 const WishlistContext = createContext<WishlistContextValue | undefined>(undefined)
@@ -44,6 +45,8 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
   const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set(getGuestWishlistIds()))
   const [mode, setMode] = useState<WishlistMode>('guest')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('ready')
+  const pendingIds = useRef(new Set<string>())
+  const [pending, setPending] = useState(new Set<string>())
   const mergedForUid = useRef<string | null>(null)
 
   useEffect(() => {
@@ -96,8 +99,9 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     return unsubscribe
   }, [authStatus, user])
 
-  const toggle = useCallback(
+  const performToggle = useCallback(
     async (artworkId: string) => {
+      if (mode === 'account' && !user) return false
       const wasSaved = savedIds.has(artworkId)
 
       setSavedIds((prev) => {
@@ -117,10 +121,10 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
             markGuestSaveToastShown()
           }
         }
-        return
+        return true
       }
 
-      if (!user) return
+      if (!user) return false
       try {
         if (wasSaved) await removeWishlistItem(user.uid, artworkId)
         else await addWishlistItem(user.uid, artworkId)
@@ -132,14 +136,26 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
           return next
         })
         toast.error(isWishlistError(error) ? error.message : 'Something went wrong. Please try again.')
+        return false
       }
+      return true
     },
     [savedIds, mode, user, toast],
   )
 
+  const toggle = useCallback(async (id: string) => {
+    if (pendingIds.current.has(id)) return false
+    pendingIds.current.add(id)
+    setPending(new Set(pendingIds.current))
+    try { return await performToggle(id) } finally {
+      pendingIds.current.delete(id)
+      setPending(new Set(pendingIds.current))
+    }
+  }, [performToggle])
+
   const value = useMemo<WishlistContextValue>(
-    () => ({ savedIds, mode, status, isSaved: (id) => savedIds.has(id), toggle }),
-    [savedIds, mode, status, toggle],
+    () => ({ savedIds, mode, status, isSaved: (id) => savedIds.has(id), isPending: (id) => pending.has(id), toggle }),
+    [savedIds, mode, status, pending, toggle],
   )
 
   return <WishlistContext.Provider value={value}>{children}</WishlistContext.Provider>

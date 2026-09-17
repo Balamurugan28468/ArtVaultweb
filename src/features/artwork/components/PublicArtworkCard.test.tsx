@@ -114,9 +114,9 @@ describe('PublicArtworkCard', () => {
   // indicators on every artwork card (real actions live on Artwork Detail).
   it('shows compact, honestly-disabled View in AR and AI Artwork Analysis indicators — never a working action here', () => {
     renderCard({ artwork: buildArtwork() })
-    const arBadge = screen.getByTitle('View in AR — coming soon')
+    const arBadge = screen.getByTitle('AR preview unavailable')
     const aiBadge = screen.getByTitle('AI Artwork Analysis — coming soon')
-    expect(arBadge).toHaveAttribute('aria-disabled', 'true')
+    expect(arBadge).toHaveAttribute('role', 'img')
     expect(aiBadge).toHaveAttribute('aria-disabled', 'true')
   })
 

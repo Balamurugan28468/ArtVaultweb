@@ -70,3 +70,9 @@ describe('NavDrawer — mobile auth controls (regression coverage)', () => {
     expect(screen.getByRole('link', { name: /Admin Control Center/ })).toHaveAttribute('href', '/admin')
   })
 })
+
+it('lets a guest discover the public Cart from mobile navigation', () => {
+  useAuth.mockReturnValue({ status: 'unauthenticated', role: null })
+  renderDrawer()
+  expect(screen.getByRole('link', { name: /^Cart/ })).toHaveAttribute('href', '/cart')
+})

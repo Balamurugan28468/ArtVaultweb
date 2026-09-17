@@ -56,7 +56,7 @@ const ACCENT_CLASSES: Record<'gold' | 'ai' | 'ar', string> = {
 const PLATFORM_BENEFITS: PlatformBenefit[] = [
   { icon: Store, title: 'Direct from independent artists', description: "Every listing is a real artist's own work, reviewed before it goes live." },
   { icon: Sparkles, title: 'AI-powered art insights', description: 'Ask ArtVault AI about a piece, or get an AI analysis of its style and medium.', comingSoon: true, accent: 'ai' },
-  { icon: Box, title: 'View artwork in your space', description: 'Preview a piece at true scale in your own room using augmented reality.', comingSoon: true, accent: 'ar' },
+  { icon: Box, title: 'AR preview unavailable', description: 'Camera placement and true-scale viewing are not available yet.', comingSoon: true, accent: 'ar' },
   // UI-04: Auctions is now a real page — no longer `comingSoon`.
   { icon: Gavel, title: 'Curated auctions', description: 'Bid on hand-picked artwork in a live weekly auction.' },
   { icon: ShieldCheck, title: 'Secure by design', description: 'Firebase-backed accounts with role-based access for buyers, sellers, and admins.' },

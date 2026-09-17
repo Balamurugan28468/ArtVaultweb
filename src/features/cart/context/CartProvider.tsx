@@ -7,7 +7,7 @@ import {
   removeGuestCartItem,
   setGuestCartItemQuantity,
 } from '../api/guestCartStorage'
-import { createCartItem, removeCartItem, subscribeCartQuantities, updateCartItemQuantity } from '../api/cartRepository'
+import { clampCartQuantity, createCartItem, removeCartItem, subscribeCartQuantities, updateCartItemQuantity } from '../api/cartRepository'
 import { isCartError, type CartMode } from '../types'
 
 interface CartContextValue {
@@ -16,10 +16,11 @@ interface CartContextValue {
   mode: CartMode
   status: 'loading' | 'ready' | 'error'
   itemCount: number
+  isPending: (artworkId: string) => boolean
   getQuantity: (artworkId: string) => number
-  addItem: (artworkId: string, quantity?: number) => Promise<void>
-  setQuantity: (artworkId: string, quantity: number) => Promise<void>
-  removeItem: (artworkId: string) => Promise<void>
+  addItem: (artworkId: string, quantity?: number) => Promise<boolean>
+  setQuantity: (artworkId: string, quantity: number) => Promise<boolean>
+  removeItem: (artworkId: string) => Promise<boolean>
 }
 
 const CartContext = createContext<CartContextValue | undefined>(undefined)
@@ -46,6 +47,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [quantities, setQuantities] = useState<Map<string, number>>(() => getGuestCartQuantities())
   const [mode, setMode] = useState<CartMode>('guest')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('ready')
+  const pendingIds = useRef(new Set<string>())
+  const [pending, setPending] = useState(new Set<string>())
+  const runMutation = useCallback(async (id: string, action: () => Promise<boolean>) => {
+    if (pendingIds.current.has(id)) return false
+    pendingIds.current.add(id)
+    setPending(new Set(pendingIds.current))
+    try { return await action() } finally {
+      pendingIds.current.delete(id)
+      setPending(new Set(pendingIds.current))
+    }
+  }, [])
   const mergedForUid = useRef<string | null>(null)
 
   useEffect(() => {
@@ -96,10 +108,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return unsubscribe
   }, [authStatus, user])
 
-  const addItem = useCallback(
+  const performAdd = useCallback(
     async (artworkId: string, quantity = 1) => {
+      if (mode === 'account' && !user) return false
       const previousQuantity = quantities.get(artworkId)
-      const nextQuantity = (previousQuantity ?? 0) + quantity
+      const nextQuantity = clampCartQuantity((previousQuantity ?? 0) + quantity)
 
       setQuantities((prev) => {
         const next = new Map(prev)
@@ -109,10 +122,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       if (mode === 'guest') {
         setGuestCartItemQuantity(artworkId, nextQuantity)
-        return
+        return true
       }
 
-      if (!user) return
+      if (!user) return false
       try {
         if (previousQuantity === undefined) await createCartItem(user.uid, artworkId, nextQuantity)
         else await updateCartItemQuantity(user.uid, artworkId, nextQuantity)
@@ -124,15 +137,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
           return next
         })
         toast.error(isCartError(error) ? error.message : 'Something went wrong. Please try again.')
+        return false
       }
+      return true
     },
     [quantities, mode, user, toast],
   )
 
-  const setQuantity = useCallback(
+  const performSet = useCallback(
     async (artworkId: string, quantity: number) => {
+      quantity = clampCartQuantity(quantity)
       const previousQuantity = quantities.get(artworkId)
-      if (previousQuantity === undefined) return
+      if (previousQuantity === undefined) return false
 
       setQuantities((prev) => {
         const next = new Map(prev)
@@ -142,10 +158,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       if (mode === 'guest') {
         setGuestCartItemQuantity(artworkId, quantity)
-        return
+        return true
       }
 
-      if (!user) return
+      if (!user) return false
       try {
         await updateCartItemQuantity(user.uid, artworkId, quantity)
       } catch (error) {
@@ -155,15 +171,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
           return next
         })
         toast.error(isCartError(error) ? error.message : 'Something went wrong. Please try again.')
+        return false
       }
+      return true
     },
     [quantities, mode, user, toast],
   )
 
-  const removeItem = useCallback(
+  const performRemove = useCallback(
     async (artworkId: string) => {
       const previousQuantity = quantities.get(artworkId)
-      if (previousQuantity === undefined) return
+      if (previousQuantity === undefined) return false
 
       setQuantities((prev) => {
         const next = new Map(prev)
@@ -173,10 +191,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       if (mode === 'guest') {
         removeGuestCartItem(artworkId)
-        return
+        return true
       }
 
-      if (!user) return
+      if (!user) return false
       try {
         await removeCartItem(user.uid, artworkId)
       } catch (error) {
@@ -186,10 +204,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
           return next
         })
         toast.error(isCartError(error) ? error.message : 'Something went wrong. Please try again.')
+        return false
       }
+      return true
     },
     [quantities, mode, user, toast],
   )
+
+  const addItem = useCallback((id: string, quantity = 1) => runMutation(id, () => performAdd(id, quantity)), [runMutation, performAdd])
+  const setQuantity = useCallback((id: string, quantity: number) => runMutation(id, () => performSet(id, quantity)), [runMutation, performSet])
+  const removeItem = useCallback((id: string) => runMutation(id, () => performRemove(id)), [runMutation, performRemove])
 
   const itemCount = useMemo(
     () => Array.from(quantities.values()).reduce((sum, quantity) => sum + quantity, 0),
@@ -202,12 +226,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
       mode,
       status,
       itemCount,
+      isPending: (id) => pending.has(id),
       getQuantity: (artworkId) => quantities.get(artworkId) ?? 0,
       addItem,
       setQuantity,
       removeItem,
     }),
-    [quantities, mode, status, itemCount, addItem, setQuantity, removeItem],
+    [quantities, mode, status, pending, itemCount, addItem, setQuantity, removeItem],
   )
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>

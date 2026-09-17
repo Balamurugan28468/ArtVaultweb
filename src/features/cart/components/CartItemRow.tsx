@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { CART_MAX_QUANTITY } from '../types'
 import { Heart, ImageOff, Minus, Plus, Trash2 } from 'lucide-react'
 import { Link } from 'react-router'
 import { useWishlist } from '@/features/wishlist'
@@ -28,20 +30,26 @@ export function CartItemRow({
 }: {
   line: CartLine
   artistDisplayName?: string | null
-  onQuantityChange: (quantity: number) => void
-  onRemove: () => void
+  onQuantityChange: (quantity: number) => Promise<boolean> | void
+  onRemove: () => Promise<boolean> | void
 }) {
   const { artwork, quantity, lineTotal } = line
-  const { isSaved, toggle: toggleWishlist } = useWishlist()
+  const { isSaved, isPending: isWishlistPending, toggle: toggleWishlist } = useWishlist()
   const cover = artwork.images[0]
   const outOfStock = artwork.inventoryCount <= 0
   const overStock = !outOfStock && quantity > artwork.inventoryCount
-  const atMax = quantity >= artwork.inventoryCount
-
-  const handleMoveToWishlist = () => {
-    if (!isSaved(artwork.id)) void toggleWishlist(artwork.id)
-    onRemove()
+  const atMax = quantity >= Math.min(artwork.inventoryCount, CART_MAX_QUANTITY)
+  const [pending, setPending] = useState(false)
+  const run = async (action: () => Promise<unknown> | void) => {
+    setPending(true)
+    try { await action() } finally { setPending(false) }
   }
+
+  const handleMoveToWishlist = () => run(async () => {
+    if (isWishlistPending?.(artwork.id)) return
+    if (!isSaved(artwork.id) && !(await toggleWishlist(artwork.id))) return
+    await onRemove()
+  })
 
   return (
     <Card className="flex flex-col gap-3 p-3 sm:flex-row sm:items-start sm:gap-4 sm:p-4">
@@ -69,7 +77,8 @@ export function CartItemRow({
           <IconButton
             icon={<Trash2 className="h-4 w-4" />}
             label="Remove from cart"
-            onClick={onRemove}
+            disabled={pending}
+            onClick={() => void run(onRemove)}
             className="shrink-0 hover:text-danger"
           />
         </div>
@@ -94,7 +103,7 @@ export function CartItemRow({
         </div>
 
         <div className="mt-auto flex flex-wrap items-end justify-between gap-3 pt-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div
               role="group"
               aria-label={`Quantity for ${artwork.title}`}
@@ -103,8 +112,8 @@ export function CartItemRow({
               <button
                 type="button"
                 aria-label="Decrease quantity"
-                disabled={quantity <= 1}
-                onClick={() => onQuantityChange(quantity - 1)}
+                disabled={pending || quantity <= 1}
+                onClick={() => void run(() => onQuantityChange(quantity - 1))}
                 className="flex h-11 w-11 items-center justify-center text-text-secondary disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Minus className="h-4 w-4" />
@@ -115,8 +124,8 @@ export function CartItemRow({
               <button
                 type="button"
                 aria-label="Increase quantity"
-                disabled={outOfStock || atMax}
-                onClick={() => onQuantityChange(quantity + 1)}
+                disabled={pending || outOfStock || atMax}
+                onClick={() => void run(() => onQuantityChange(quantity + 1))}
                 className="flex h-11 w-11 items-center justify-center text-text-secondary disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Plus className="h-4 w-4" />
@@ -125,6 +134,7 @@ export function CartItemRow({
 
             <button
               type="button"
+              disabled={pending || isWishlistPending?.(artwork.id)}
               onClick={handleMoveToWishlist}
               className="inline-flex h-11 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary hover:text-brand-primary-on-dark"
             >

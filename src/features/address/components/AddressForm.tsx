@@ -36,12 +36,16 @@ export function AddressForm({
   pending,
   onSubmit,
   onCancel,
+  formId,
+  externalActions = false,
 }: {
   initialAddress?: Address
   submitLabel: string
   pending: boolean
   onSubmit: (input: AddressInput) => void
   onCancel: () => void
+  formId?: string
+  externalActions?: boolean
 }) {
   const {
     register,
@@ -59,45 +63,46 @@ export function AddressForm({
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form id={formId} onSubmit={submit} className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Full name" id="addr-full-name" error={errors.fullName?.message}>
-          <Input id="addr-full-name" autoComplete="name" aria-invalid={!!errors.fullName} {...register('fullName')} />
+          <Input disabled={pending} id="addr-full-name" autoComplete="name" aria-describedby="addr-full-name-error" aria-invalid={!!errors.fullName} {...register('fullName')} />
         </Field>
         <Field label="Phone" id="addr-phone" error={errors.phone?.message} optional>
-          <Input id="addr-phone" type="tel" autoComplete="tel" aria-invalid={!!errors.phone} {...register('phone')} />
+          <Input disabled={pending} id="addr-phone" type="tel" autoComplete="tel" aria-describedby="addr-phone-error" aria-invalid={!!errors.phone} {...register('phone')} />
         </Field>
       </div>
 
       <Field label="Address line 1" id="addr-line1" error={errors.addressLine1?.message}>
-        <Input id="addr-line1" autoComplete="address-line1" aria-invalid={!!errors.addressLine1} {...register('addressLine1')} />
+        <Input disabled={pending} id="addr-line1" autoComplete="address-line1" aria-describedby="addr-line1-error" aria-invalid={!!errors.addressLine1} {...register('addressLine1')} />
       </Field>
 
       <Field label="Address line 2" id="addr-line2" error={errors.addressLine2?.message} optional>
-        <Input id="addr-line2" autoComplete="address-line2" aria-invalid={!!errors.addressLine2} {...register('addressLine2')} />
+        <Input disabled={pending} id="addr-line2" autoComplete="address-line2" aria-describedby="addr-line2-error" aria-invalid={!!errors.addressLine2} {...register('addressLine2')} />
       </Field>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="City" id="addr-city" error={errors.city?.message}>
-          <Input id="addr-city" autoComplete="address-level2" aria-invalid={!!errors.city} {...register('city')} />
+          <Input disabled={pending} id="addr-city" autoComplete="address-level2" aria-describedby="addr-city-error" aria-invalid={!!errors.city} {...register('city')} />
         </Field>
         <Field label="State / Province" id="addr-state" error={errors.state?.message}>
-          <Input id="addr-state" autoComplete="address-level1" aria-invalid={!!errors.state} {...register('state')} />
+          <Input disabled={pending} id="addr-state" autoComplete="address-level1" aria-describedby="addr-state-error" aria-invalid={!!errors.state} {...register('state')} />
         </Field>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Postal code" id="addr-postal" error={errors.postalCode?.message}>
-          <Input id="addr-postal" autoComplete="postal-code" aria-invalid={!!errors.postalCode} {...register('postalCode')} />
+          <Input disabled={pending} id="addr-postal" autoComplete="postal-code" aria-describedby="addr-postal-error" aria-invalid={!!errors.postalCode} {...register('postalCode')} />
         </Field>
         <Field label="Country" id="addr-country" error={errors.country?.message}>
-          <Input id="addr-country" autoComplete="country-name" aria-invalid={!!errors.country} {...register('country')} />
+          <Input disabled={pending} id="addr-country" autoComplete="country-name" aria-describedby="addr-country-error" aria-invalid={!!errors.country} {...register('country')} />
         </Field>
       </div>
 
       <label className="flex items-center gap-2 text-sm text-text-secondary">
         <input
           type="checkbox"
+          disabled={pending}
           checked={isDefault}
           onChange={(event) => setIsDefault(event.target.checked)}
           className="h-4 w-4 rounded border-border-strong"
@@ -105,14 +110,14 @@ export function AddressForm({
         Set as default address
       </label>
 
-      <div className="flex justify-end gap-2">
+      {!externalActions && <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onCancel} disabled={pending}>
           Cancel
         </Button>
         <Button type="submit" variant="gold" disabled={pending}>
           {pending ? 'Saving…' : submitLabel}
         </Button>
-      </div>
+      </div>}
     </form>
   )
 }
@@ -136,7 +141,7 @@ function Field({
         {label} {optional && <span className="font-normal text-text-muted">(optional)</span>}
       </label>
       {children}
-      {error && <span className="text-sm font-normal text-danger">{error}</span>}
+      {error && <span id={`${id}-error`} className="text-sm font-normal text-danger">{error}</span>}
     </div>
   )
 }

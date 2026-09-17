@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 const { collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, writeBatch } = vi.hoisted(() => ({
   collection: vi.fn((...args: unknown[]) => ({ path: args.slice(1).join('/') })),
   deleteDoc: vi.fn(),
-  doc: vi.fn((...args: unknown[]) => ({ path: args.slice(1).join('/') })),
+  doc: vi.fn((...args: unknown[]) => ({ path: args.slice(1).join('/'), id: 'new-address' })),
   onSnapshot: vi.fn(),
   orderBy: vi.fn(() => 'ORDER_BY'),
   query: vi.fn((ref) => ref),
@@ -207,4 +207,11 @@ describe('toAddressError', () => {
   it('falls back to unknown for an unrecognized error', () => {
     expect(toAddressError(new Error('boom'))).toEqual({ code: 'unknown', message: 'Something went wrong. Please try again.' })
   })
+})
+
+it('returns the new address ID only after the existing batch succeeds', async () => {
+  const batch = fakeBatch()
+  writeBatch.mockReturnValueOnce(batch)
+  expect(await addAddress('alice', INPUT, [])).toBe('new-address')
+  expect(batch.commit).toHaveBeenCalledOnce()
 })

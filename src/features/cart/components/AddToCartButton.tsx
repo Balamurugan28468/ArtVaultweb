@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { Link } from 'react-router'
 import { Button, buttonClassName, useToast, type ButtonSize } from '@/shared/ui'
@@ -29,8 +30,9 @@ export function AddToCartButton({
   size?: ButtonSize
   className?: string
 }) {
-  const { getQuantity, addItem } = useCart()
+  const { getQuantity, addItem, isPending } = useCart()
   const toast = useToast()
+  const [pending, setPending] = useState(false)
   const quantityInCart = getQuantity(artworkId)
   const soldOut = inventoryCount <= 0
 
@@ -42,7 +44,9 @@ export function AddToCartButton({
     )
   }
 
-  if (quantityInCart > 0) {
+  const busy = pending || isPending?.(artworkId)
+
+  if (quantityInCart > 0 && !busy) {
     return (
       <Link
         to="/cart"
@@ -61,9 +65,15 @@ export function AddToCartButton({
       variant="secondary"
       size={size}
       className={className}
-      onClick={() => {
-        void addItem(artworkId, 1)
-        toast.success('Added to cart.')
+      disabled={busy}
+      aria-busy={busy}
+      onClick={async () => {
+        setPending(true)
+        try {
+          if (await addItem(artworkId, 1)) toast.success('Added to cart.')
+        } finally {
+          setPending(false)
+        }
       }}
     >
       Add to Cart

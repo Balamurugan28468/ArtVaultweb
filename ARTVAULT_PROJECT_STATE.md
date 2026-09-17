@@ -1,6 +1,12 @@
 # ArtVault — Project State
 
-_Last updated: 2026-09-16 — project-state reconciliation only. UI-06
+_Current UI-07 implementation checkpoint (2026-09-17): the owner approved
+buyer-journey continuity and honest AR/order/payment readiness. Implementation
+is complete; verification results are recorded below. Owner manual review PASSED,
+and the owner approved the UI-07 commit and push. Pre-closeout baseline: `74598be`, on `main`
+tracking `origin/main`; the working tree was clean when implementation began._
+
+_Historical checkpoint: 2026-09-16 — project-state reconciliation only. UI-06
 (ArtVault UI improvements) is **COMPLETE, OWNER APPROVED, COMMITTED, and
 PUSHED to `origin/main`**, in commit `75f5a8f`. The current branch is `main`,
 tracking `origin/main`; both local refs point to `20d5da9` (merge remote
@@ -13,7 +19,7 @@ commit, or push was performed during this reconciliation._
 UI-06 adds persisted account addresses and checkout address selection,
 an explicitly unavailable payment-method presentation, and order
 confirmation driven by the stored payment state. See its closeout below.
-**UI-07 has not started; no scope is defined or authorized here.**
+**Historical status at reconciliation: UI-07 had not started and was unscoped.**
 
 Historical module/UI narratives and their test totals are retained below
 as records of their respective checkpoints, not fresh verification of the
@@ -292,8 +298,10 @@ hosting or deployment).
 **Latest completed phase: UI-06 — ArtVault UI improvements. COMPLETE,
 OWNER APPROVED, COMMITTED (`75f5a8f`), and PUSHED to `origin/main`.**
 Module 13 (Phases 1–4) and UI-01 through UI-05 remain complete and
-committed. UI-07 discovery and implementation have not started; its scope
-requires a separate owner decision after this reconciliation is approved.
+committed. UI-07 scope and implementation were subsequently owner-authorized.
+UI-07 is COMPLETE and OWNER APPROVED: owner manual review passed after final
+verification. The owner authorized its closeout commit and push to origin/main.
+UI-08 has not started.
 
 Module 13 — Admin Control Center (Seller Application Review & Artwork
 Moderation) introduced ArtVault's first client-reachable callable Cloud
@@ -1148,6 +1156,119 @@ upload/Storage handling, and every DRAFT/SUBMITTED artwork-update rule
 path (all unchanged, not just untested) — verified unchanged by the full,
 unmodified regression suite passing alongside the new tests.
 
+## UI-07 — Buyer journey continuity and honest capability readiness
+
+**COMPLETE / OWNER APPROVED. Final verification passed; owner manual review
+PASSED. Owner authorized the UI-07 closeout commit and push to origin/main.**
+
+Owner priorities: real AR, real ordering lifecycle, real payment processing,
+product/inventory integrity, then secondary features. This UI phase prepares
+those priorities without implementing their backend/provider capabilities.
+
+- Login/Register preserve safe internal return destinations, including Checkout
+  query strings/fragments. Guest Cart is discoverable in mobile navigation.
+- Cart/wishlist mutations return explicit outcomes. Cart success/navigation
+  waits for completion; Save for later waits for wishlist success. Pending
+  operations guard duplicate interactions. Quantity controls respect the
+  existing cart maximum and displayed inventory, without reserving stock.
+- Checkout validates saved and temporary addresses with the existing schema.
+  First-address saving uses the existing authenticated batch-write path; a
+  newly saved address becomes complete only after the listener returns it.
+  Temporary drafts survive address-mode switching. Load errors remain visible.
+  Address modal actions use the existing fixed footer; saving blocks dismissal.
+- Checkout distinguishes unavailable order placement from unavailable payment
+  processing. Displayed artwork subtotals are not presented as payable totals.
+- Order views remain read-only. Unknown payment data is unavailable rather than
+  assumed pending. Payment and order status are presented separately, without
+  charge, shipping, automatic-update, or seller-next-step guarantees. Terminal
+  timeline timestamps match the displayed status.
+- AR pages/entry points state that camera placement and true-scale viewing are
+  unavailable. Inert preview modes/transforms/sample-room controls were removed;
+  real image, artist, artwork, and social actions remain. Home/auction/card AR
+  changes are limited to existing wording and informational semantics.
+- Touched buyer links avoid nested buttons; address errors identify their inputs;
+  narrow-screen actions wrap. No global accessibility refactor was undertaken.
+
+Historical implementation verification on 2026-09-16/17 (superseded by the final verification below):
+
+- Targeted checks preceded the full run. The final focused address, wishlist,
+  artwork, payment, and navigation check passed **65/65** across six files.
+- The full frontend run executed **1275 tests across 149 files: 1268 passed,
+  seven failed**. Two Cart/Artwork Detail assertions were corrected afterward;
+  those two files then passed **36/36**. The five full-run router failures were
+  lazy-route wait timeouts; the unchanged router file subsequently passed
+  **16/16** alone in a fresh fork. The full suite was not repeated, so these
+  reruns are not a claim of a single clean 1275-test run.
+- Typecheck passed. Lint passed with warnings. Production build passed with
+  Vite's large-chunk warning. No backend/rules/Functions suites were rerun.
+- Browser checks at 302px, 320px, 350×515, 390px, 768px, 1024px, and 1440px
+  found no horizontal overflow on Login, Register, empty guest Cart, the
+  Checkout sign-in redirect, and the standalone shipping-address form
+  (35 checks). The 350×515 Login screenshot was also visually inspected.
+- Browser coverage did not include authenticated checkout/address modals,
+  populated cart/order views, or the AR page: no authenticated browser session
+  or published artwork was available. These require owner manual review;
+  component tests do not establish their browser/device rendering.
+- Existing guest-cart partial-merge and artwork-read limitations below remain.
+  All changes are unstaged; no commit, push, or UI-08 work occurred.
+
+Final owner-requested verification on 2026-09-17:
+
+- **Full frontend: 1275/1275 passed across 149/149 files**, with zero failed,
+  skipped, or pending tests. One forked worker, file parallelism disabled,
+  768 MB Node heap, 30-second test/hook limits; duration 985.32 seconds.
+  No application or test edits were needed for this final run. The unchanged
+  router tests passed within it. No tests were weakened, removed, or skipped
+  during this verification.
+- The UI-07 subset within that same full run passed **238/238 tests across
+  all 26 changed test files**; this is not a separate targeted-run claim.
+- Typecheck, lint, and production build were rerun sequentially and passed.
+  Lint retains React warnings; Vite retains its large-chunk warning.
+- All **59 changed files** were reviewed: 32 application/source files,
+  26 test files, and this state document. None is solely a formatting or
+  line-ending change; all belong to the approved scope or its verification.
+- Browser: mobile More → Cart worked; protected Checkout retained its query
+  and fragment through the Sign in redirect and switch to Sign up. Actual
+  successful authentication/registration and return could not be exercised:
+  the local emulator services were unreachable. No emulators were started.
+- Responsive checks at 302px, 320px, 350×515, 390px, 768px, 1024px, and 1440px
+  found no horizontal overflow on Login, Register, empty guest Cart, the
+  Checkout sign-in redirect, and isolated shipping-form/AR components
+  (**42 checks**). AR used an in-memory query fixture with no artwork image
+  or backend writes; it is component rendering coverage, not a live-data
+  end-to-end check. Its unavailable wording and absence of fake controls
+  passed at every width. All three isolated payment controls were disabled.
+- The 350×515 Cart and AR-fixture screenshots were visually inspected.
+  Populated cart, authenticated checkout, persisted first-address creation,
+  saved-address switching, and live order pages still require owner browser
+  verification. Their relevant component/repository tests passed, including
+  failed mutation feedback, save-before-remove, address switching/validation,
+  disabled order placement, stored payment states, and timeline selection.
+- A temporary frontend server and isolated headless browser were stopped
+  after verification. No Firebase configuration, rules, Functions, emulator
+  persistence, or package files were changed. Only this document was updated
+  during final verification; source/tests match the clean full-suite run.
+- At that verification checkpoint, owner manual approval was pending and no
+  staging, commit, push, or UI-08 work had occurred.
+
+Owner closeout: manual review subsequently PASSED. The owner explicitly approved
+committing and pushing the reviewed UI-07 changes with this document. The
+browser coverage limitations above describe the automated verification session;
+owner manual review is now complete. UI-08 still requires a separate instruction.
+
+No Firestore rules, Firebase configuration, Functions, package files, emulator
+persistence, authentication architecture, or seller/admin behavior changed.
+No order creation, payment processing, fake confirmation, or AR simulation was
+added. No marketplace list-view, AI, follows, notifications, recommendation,
+auction-expansion, or UI-08 work was undertaken.
+
+Deferred: real AR engine/assets/dimensional accuracy/device validation; trusted
+ordering/pricing/reservations/idempotency/fulfillment; payment provider/webhooks/
+reconciliation/refunds; authoritative inventory enforcement. The existing
+partial guest-cart merge retry/concurrency limitation remains outside this
+phase; no merge algorithm was redesigned. Existing cart artwork reads also
+still collapse unavailable/read-failed artwork into an excluded line.
+
 ## UI-06 — ArtVault UI improvements (COMPLETE, OWNER APPROVED, COMMITTED, PUSHED)
 
 **Status: COMPLETE / OWNER APPROVED / COMMITTED / PUSHED to `origin/main`.**
@@ -1170,8 +1291,9 @@ This closeout reconciles the existing commit and code; it adds no implementation
   confirmation tests. No UI-06 passing-total claim is inferred from test
   files or approval; no suites were rerun for this documentation task.
 
-All prior functionality and security boundaries remain part of the current
-baseline. UI-07 is not started, and this closeout defines no future scope.
+All prior functionality and security boundaries remained part of the baseline.
+**Historical status at the UI-06 closeout:** UI-07 was not started, and that
+closeout defined no future scope.
 
 ## UI-05 — AI Assistant, AI Artwork Analysis, AR Experience & Recommendations (COMPLETE, OWNER APPROVED, COMMITTED)
 
@@ -5764,12 +5886,12 @@ re-measured during this documentation task.
 
 ## Next action
 
-**Await owner approval of this project-state reconciliation. Do not commit
-or push it without explicit approval. Do not start UI-07 discovery or
-implementation.** UI-06 is complete, owner-approved, committed as
-`75f5a8f`, and pushed to `origin/main`; Module 13 (Phases 1–4) and UI-01
-through UI-05 remain complete and committed. No UI-07 scope is defined or
-authorized by this document.
+**UI-07 owner manual review PASSED; commit and push are explicitly authorized.
+Stop after the approved UI-07 closeout. Do not start UI-08 or another module
+until separately instructed by the owner.**
+UI-06 remains complete, owner-approved, committed as `75f5a8f`, and pushed;
+the project-state reconciliation was committed and pushed as `74598be`.
+Earlier module/UI closeouts remain historical records.
 
 Intentionally deferred by UI-05 (real backend work,
 not yet scoped to any module): a trusted AI gateway Cloud Function (no

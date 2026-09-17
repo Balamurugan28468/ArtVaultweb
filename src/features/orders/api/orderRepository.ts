@@ -88,7 +88,7 @@ export function mapToOrder(id: string, data: Record<string, unknown>): Order | n
     id,
     buyerId: data.buyerId,
     status: data.status,
-    paymentState: typeof data.paymentState === 'string' ? (data.paymentState as Order['paymentState']) : 'PENDING',
+    paymentState: typeof data.paymentState === 'string' && ['PENDING', 'PAID', 'FAILED', 'REFUNDED'].includes(data.paymentState) ? (data.paymentState as Order['paymentState']) : null,
     subtotal: typeof data.subtotal === 'number' ? data.subtotal : 0,
     shippingCost: typeof data.shippingCost === 'number' ? data.shippingCost : null,
     total: typeof data.total === 'number' ? data.total : 0,

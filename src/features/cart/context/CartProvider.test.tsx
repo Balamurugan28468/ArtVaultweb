@@ -11,7 +11,8 @@ const subscribeCartQuantities = vi.fn()
 const createCartItem = vi.fn()
 const updateCartItemQuantity = vi.fn()
 const removeCartItem = vi.fn()
-vi.mock('../api/cartRepository', () => ({
+vi.mock('../api/cartRepository', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../api/cartRepository')>(),
   subscribeCartQuantities: (...args: unknown[]) => subscribeCartQuantities(...args),
   createCartItem: (...args: unknown[]) => createCartItem(...args),
   updateCartItemQuantity: (...args: unknown[]) => updateCartItemQuantity(...args),
@@ -216,4 +217,30 @@ describe('CartProvider — account mode', () => {
     rerender()
     expect(result.current.mode).toBe('guest')
   })
+})
+
+it('reports failure, rolls back, and blocks another mutation of the pending item', async () => {
+  useAuth.mockReturnValue({ status: 'authenticated', user: { uid: 'alice' } })
+  let fail!: (error: unknown) => void
+  createCartItem.mockImplementationOnce(() => new Promise((_, reject) => { fail = reject }))
+  const { result } = renderHook(() => useCart(), { wrapper: CartProvider })
+  let operation!: Promise<boolean>
+  act(() => { operation = result.current.addItem('a1') })
+  expect(result.current.isPending('a1')).toBe(true)
+  await act(async () => { expect(await result.current.setQuantity('a1', 5)).toBe(false) })
+  expect(updateCartItemQuantity).not.toHaveBeenCalled()
+  await act(async () => {
+    fail({ code: 'network', message: 'Offline' })
+    expect(await operation).toBe(false)
+  })
+  expect(result.current.getQuantity('a1')).toBe(0)
+  expect(result.current.isPending('a1')).toBe(false)
+  expect(toast.error).toHaveBeenCalledWith('Offline')
+})
+it('returns success and clamps the optimistic guest quantity to the stored limit', async () => {
+  useAuth.mockReturnValue({ status: 'unauthenticated', user: null })
+  const { result } = renderHook(() => useCart(), { wrapper: CartProvider })
+  await act(async () => { expect(await result.current.addItem('a1', 120)).toBe(true) })
+  expect(result.current.getQuantity('a1')).toBe(99)
+  expect(guestStore.current.get('a1')).toBe(99)
 })

@@ -59,40 +59,21 @@ describe('ArtworkArPage', () => {
     expect(screen.getByText('Artwork not found')).toBeInTheDocument()
   })
 
-  it('renders the real artwork title and honest AR instructions', () => {
+  it('shows the artwork image and explicitly unavailable AR capabilities', () => {
     usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
     renderPage()
-
     expect(screen.getByText('Starry Reflections')).toBeInTheDocument()
-    expect(screen.getByText('Point your camera')).toBeInTheDocument()
-    expect(screen.getByText('Place the artwork')).toBeInTheDocument()
-    expect(screen.getByText('See it in your space')).toBeInTheDocument()
+    expect(screen.getByText('Artwork image preview')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('not available yet')
+    expect(screen.queryByText('Point your camera')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Start AR|Sample Room|Rotate|Resize|Reset/ })).not.toBeInTheDocument()
   })
 
-  it('shows Start AR Preview and Try a Sample Room as disabled, with an honest not-connected explanation — never a fake camera feed', () => {
+  it('links to the real artist profile in both navigation layouts', () => {
     usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
     renderPage()
-
-    expect(screen.getByRole('button', { name: /Start AR Preview/ })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Try a Sample Room' })).toBeDisabled()
-    expect(screen.getByText(/AR preview isn't connected yet/)).toBeInTheDocument()
-  })
-
-  it('shows Rotate/Resize/Reset as honestly disabled, never a working transform on a fake preview', () => {
-    usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
-    renderPage()
-
-    expect(screen.getByRole('button', { name: /Rotate/ })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /Resize/ })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled()
-  })
-
-  it('switches between AR View and Room Preview tabs', () => {
-    usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
-    renderPage()
-
-    expect(screen.getByRole('tab', { name: /AR View/ })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'Room Preview' })).toHaveAttribute('aria-selected', 'false')
+    for (const link of screen.getAllByRole('link', { name: 'Artist Info' })) expect(link).toHaveAttribute('href', '/artists/s1')
   })
 
   it('links "AI Analysis" to the artwork\'s own dedicated analysis page (present in both the mobile rail and the desktop list)', () => {

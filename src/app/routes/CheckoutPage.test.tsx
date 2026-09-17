@@ -11,8 +11,10 @@ const useUserProfile = vi.fn()
 vi.mock('@/features/account', () => ({ useUserProfile: () => useUserProfile() }))
 
 const useCartLines = vi.fn()
+const useCart = vi.fn(() => ({ status: 'ready' }))
 vi.mock('@/features/cart', () => ({
   useCartLines: () => useCartLines(),
+  useCart: () => useCart(),
   CartSummary: ({ subtotal, action }: { subtotal: number; action: ReactNode }) => (
     <div>
       <span>Subtotal: {subtotal}</span>
@@ -24,7 +26,7 @@ vi.mock('@/features/cart', () => ({
 vi.mock('@/features/checkout', () => ({
   AddressPicker: () => <div>Shipping address form</div>,
   DeliverySection: () => <div>Shipping options aren't connected yet.</div>,
-  PaymentSection: () => <div>Payment integration is not connected yet.</div>,
+  PaymentSection: () => <div>Order placement and payment processing are unavailable.</div>,
 }))
 
 vi.mock('@/features/marketplace', () => ({ useArtistDisplayNames: () => ({}) }))
@@ -107,7 +109,7 @@ describe('CheckoutPage', () => {
 
     const placeOrder = screen.getByRole('button', { name: 'Place Order' })
     expect(placeOrder).toBeDisabled()
-    expect(screen.getAllByText(/Payment integration is not connected yet/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Order placement and payment processing are unavailable/).length).toBeGreaterThan(0)
   })
 
   it('shows the honest, non-functional Delivery and Payment sections — never a fake shipping method or payment form', () => {
@@ -121,6 +123,17 @@ describe('CheckoutPage', () => {
     renderPage()
 
     expect(screen.getByText("Shipping options aren't connected yet.")).toBeInTheDocument()
-    expect(screen.getAllByText(/Payment integration is not connected yet/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Order placement and payment processing are unavailable/).length).toBeGreaterThan(0)
   })
+})
+
+it('does not present a failed cart read as an empty or ready checkout', () => {
+  useAuth.mockReturnValue({ user: { email: 'alice@example.com' } })
+  useUserProfile.mockReturnValue({ status: 'loading' })
+  useCart.mockReturnValueOnce({ status: 'error' })
+  useCartLines.mockReturnValue({ lines: [], subtotal: 0, isLoading: false, unavailableCount: 0 })
+  renderPage()
+  expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load your cart")
+  expect(screen.queryByText('Your cart is empty')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Place Order' })).not.toBeInTheDocument()
 })

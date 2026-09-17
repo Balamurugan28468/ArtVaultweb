@@ -15,22 +15,16 @@ const EMPTY_VALUES: ShippingAddressFormValues = {
   phone: '',
 }
 
-/**
- * Collects a shipping address for this order only — see schemas.ts's own
- * comment on why this deliberately never persists to Firestore (no
- * `addresses` collection exists yet). `onChange` fires on every keystroke
- * with the raw current values *and* whether they currently satisfy the
- * schema, so CheckoutPage's Review section can show the address once it's
- * genuinely complete without this component needing to know anything
- * about how Review renders it.
- */
+/** Temporary checkout draft. Saved addresses use the existing address-book flow. */
 export function ShippingAddressForm({
   defaultFullName,
   defaultPhone,
+  initialValues,
   onChange,
 }: {
   defaultFullName?: string
   defaultPhone?: string
+  initialValues?: ShippingAddressFormValues
   onChange: (values: ShippingAddressFormValues, isComplete: boolean) => void
 }) {
   const {
@@ -39,7 +33,7 @@ export function ShippingAddressForm({
     formState: { errors },
   } = useForm<ShippingAddressFormValues>({
     resolver: zodResolver(shippingAddressSchema),
-    defaultValues: { ...EMPTY_VALUES, fullName: defaultFullName ?? '', phone: defaultPhone ?? '' },
+    defaultValues: { ...EMPTY_VALUES, fullName: defaultFullName ?? '', phone: defaultPhone ?? '', ...initialValues },
     mode: 'onTouched',
   })
 
@@ -47,14 +41,8 @@ export function ShippingAddressForm({
 
   useEffect(() => {
     const merged = { ...EMPTY_VALUES, ...values }
-    const isComplete =
-      merged.fullName.trim().length >= 2 &&
-      merged.addressLine1.trim().length >= 3 &&
-      merged.city.trim().length >= 2 &&
-      merged.state.trim().length >= 2 &&
-      merged.postalCode.trim().length >= 3 &&
-      merged.country.trim().length >= 2
-    onChange(merged, isComplete)
+    const result = shippingAddressSchema.safeParse(merged)
+    onChange(result.success ? result.data : merged, result.success)
     // `onChange` is expected to be a stable callback (see CheckoutPage) —
     // only re-running this when the form's own values actually change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -66,41 +54,41 @@ export function ShippingAddressForm({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Full name" id="ship-full-name" error={errors.fullName?.message}>
-          <Input id="ship-full-name" autoComplete="name" aria-invalid={!!errors.fullName} {...register('fullName')} />
+          <Input id="ship-full-name" autoComplete="name" aria-describedby="ship-full-name-error" aria-invalid={!!errors.fullName} {...register('fullName')} />
         </Field>
         <Field label="Phone" id="ship-phone" error={errors.phone?.message} optional>
-          <Input id="ship-phone" type="tel" autoComplete="tel" aria-invalid={!!errors.phone} {...register('phone')} />
+          <Input id="ship-phone" type="tel" autoComplete="tel" aria-describedby="ship-phone-error" aria-invalid={!!errors.phone} {...register('phone')} />
         </Field>
       </div>
 
       <Field label="Address line 1" id="ship-line1" error={errors.addressLine1?.message}>
-        <Input id="ship-line1" autoComplete="address-line1" aria-invalid={!!errors.addressLine1} {...register('addressLine1')} />
+        <Input id="ship-line1" autoComplete="address-line1" aria-describedby="ship-line1-error" aria-invalid={!!errors.addressLine1} {...register('addressLine1')} />
       </Field>
 
       <Field label="Address line 2" id="ship-line2" error={errors.addressLine2?.message} optional>
-        <Input id="ship-line2" autoComplete="address-line2" aria-invalid={!!errors.addressLine2} {...register('addressLine2')} />
+        <Input id="ship-line2" autoComplete="address-line2" aria-describedby="ship-line2-error" aria-invalid={!!errors.addressLine2} {...register('addressLine2')} />
       </Field>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="City" id="ship-city" error={errors.city?.message}>
-          <Input id="ship-city" autoComplete="address-level2" aria-invalid={!!errors.city} {...register('city')} />
+          <Input id="ship-city" autoComplete="address-level2" aria-describedby="ship-city-error" aria-invalid={!!errors.city} {...register('city')} />
         </Field>
         <Field label="State / Province" id="ship-state" error={errors.state?.message}>
-          <Input id="ship-state" autoComplete="address-level1" aria-invalid={!!errors.state} {...register('state')} />
+          <Input id="ship-state" autoComplete="address-level1" aria-describedby="ship-state-error" aria-invalid={!!errors.state} {...register('state')} />
         </Field>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Postal code" id="ship-postal" error={errors.postalCode?.message}>
-          <Input id="ship-postal" autoComplete="postal-code" aria-invalid={!!errors.postalCode} {...register('postalCode')} />
+          <Input id="ship-postal" autoComplete="postal-code" aria-describedby="ship-postal-error" aria-invalid={!!errors.postalCode} {...register('postalCode')} />
         </Field>
         <Field label="Country" id="ship-country" error={errors.country?.message}>
-          <Input id="ship-country" autoComplete="country-name" aria-invalid={!!errors.country} {...register('country')} />
+          <Input id="ship-country" autoComplete="country-name" aria-describedby="ship-country-error" aria-invalid={!!errors.country} {...register('country')} />
         </Field>
       </div>
 
       <p className="text-xs text-text-muted">
-        This address is used for this order only — saving addresses for future orders isn't connected yet.
+        This temporary address stays in this checkout session. Use Add new address to save an address to your account.
       </p>
     </Card>
   )
@@ -125,7 +113,7 @@ function Field({
         {label} {optional && <span className="font-normal text-text-muted">(optional)</span>}
       </label>
       {children}
-      {error && <span className="text-sm font-normal text-danger">{error}</span>}
+      {error && <span id={`${id}-error`} className="text-sm font-normal text-danger">{error}</span>}
     </div>
   )
 }

@@ -36,3 +36,13 @@ describe('RequireAuth', () => {
     expect(screen.getByText('Protected content')).toBeInTheDocument()
   })
 })
+
+it('retains the protected destination including search and hash', () => {
+  useAuth.mockReturnValue({ status: 'unauthenticated' })
+  const router = createMemoryRouter([
+    { path: '/sign-in', element: <p>Sign in page</p> },
+    { element: <RequireAuth />, children: [{ path: '/checkout', element: <p>Checkout</p> }] },
+  ], { initialEntries: ['/checkout?step=address#shipping'] })
+  render(<RouterProvider router={router} />)
+  expect(router.state.location.state).toEqual({ from: '/checkout?step=address#shipping' })
+})

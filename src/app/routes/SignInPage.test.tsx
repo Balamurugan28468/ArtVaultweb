@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SignInPage } from './SignInPage'
 
@@ -70,4 +70,14 @@ describe('SignInPage', () => {
 
     expect(navigate).not.toHaveBeenCalled()
   })
+})
+
+it('preserves the checkout destination when switching to registration', () => {
+  useAuth.mockReturnValue({ status: 'unauthenticated' })
+  function Destination() { return <p>{useLocation().state.from}</p> }
+  render(<MemoryRouter initialEntries={[{ pathname: '/sign-in', state: { from: '/checkout?step=address#shipping' } }]}>
+    <Routes><Route path="/sign-in" element={<SignInPage />} /><Route path="/sign-up" element={<Destination />} /></Routes>
+  </MemoryRouter>)
+  fireEvent.click(screen.getByRole('link', { name: 'Sign up' }))
+  expect(screen.getByText('/checkout?step=address#shipping')).toBeInTheDocument()
 })

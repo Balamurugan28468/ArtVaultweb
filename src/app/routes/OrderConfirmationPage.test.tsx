@@ -54,7 +54,7 @@ describe('OrderConfirmationPage', () => {
     useOrder.mockReturnValue({ status: 'missing' })
     renderPage()
     expect(screen.getByText('Order not found')).toBeInTheDocument()
-    expect(screen.queryByText('Order confirmed')).not.toBeInTheDocument()
+    expect(screen.queryByText('Payment recorded as paid')).not.toBeInTheDocument()
   })
 
   // The core rule this page exists to enforce: never render success unless
@@ -63,18 +63,18 @@ describe('OrderConfirmationPage', () => {
     useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: 'PENDING' }) })
     renderPage()
 
-    expect(screen.queryByText('Order confirmed')).not.toBeInTheDocument()
+    expect(screen.queryByText('Payment recorded as paid')).not.toBeInTheDocument()
     expect(screen.getByText('Awaiting payment confirmation')).toBeInTheDocument()
-    expect(screen.getByText(/hasn't completed yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/stored payment status is pending/i)).toBeInTheDocument()
   })
 
   it('shows an honest failure presentation for a FAILED payment — no invented retry behavior', () => {
     useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: 'FAILED' }) })
     renderPage()
 
-    expect(screen.queryByText('Order confirmed')).not.toBeInTheDocument()
+    expect(screen.queryByText('Payment recorded as paid')).not.toBeInTheDocument()
     expect(screen.getByText('Payment failed')).toBeInTheDocument()
-    expect(screen.getByText(/didn't go through. No charge was made/i)).toBeInTheDocument()
+    expect(screen.getByText(/does not establish whether a charge occurred/i)).toBeInTheDocument()
     expect(screen.queryByText(/retry/i)).not.toBeInTheDocument()
   })
 
@@ -82,7 +82,7 @@ describe('OrderConfirmationPage', () => {
     useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: 'REFUNDED' }) })
     renderPage()
 
-    expect(screen.queryByText('Order confirmed')).not.toBeInTheDocument()
+    expect(screen.queryByText('Payment recorded as paid')).not.toBeInTheDocument()
     expect(screen.getByText('Payment refunded')).toBeInTheDocument()
     expect(screen.getByText(/has been refunded/i)).toBeInTheDocument()
   })
@@ -91,11 +91,11 @@ describe('OrderConfirmationPage', () => {
     useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: 'PAID', total: 500000 }) })
     renderPage()
 
-    expect(screen.getByText('Order confirmed')).toBeInTheDocument()
+    expect(screen.getByText('Payment recorded as paid')).toBeInTheDocument()
     expect(screen.getByText('₹5000')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View Order' })).toHaveAttribute('href', '/orders/order123456')
     expect(screen.getByRole('link', { name: 'Continue Shopping' })).toHaveAttribute('href', '/explore')
-    expect(screen.getByText('Next: the seller confirms your order.')).toBeInTheDocument()
+    expect(screen.queryByText(/Next: the seller confirms/)).not.toBeInTheDocument()
   })
 
   it('offers a real View Order link even for a FAILED payment — never a dead end', () => {
@@ -109,4 +109,17 @@ describe('OrderConfirmationPage', () => {
     renderPage()
     expect(screen.getByText("Couldn't load this order")).toBeInTheDocument()
   })
+})
+
+it('does not invent a pending payment for missing stored data', () => {
+  useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: null }) })
+  renderPage()
+  expect(screen.getByText('Payment status unavailable')).toBeInTheDocument()
+  expect(screen.queryByText('Awaiting payment confirmation')).not.toBeInTheDocument()
+})
+it.each(['CANCELLED', 'DELIVERED', 'REFUNDED'] as const)('does not infer a seller next step from paid payment on a %s order', (status) => {
+  useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ paymentState: 'PAID', status }) })
+  renderPage()
+  expect(screen.queryByText(/seller confirms|placed successfully|Shipping to/)).not.toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'View Order' })).toHaveAttribute('href', '/orders/order123456')
 })

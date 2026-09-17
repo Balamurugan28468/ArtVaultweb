@@ -65,7 +65,7 @@ describe('AuctionCard', () => {
 
   it('shows AR/AI as honestly disabled, never a working link — same convention as PublicArtworkCard', () => {
     renderCard()
-    expect(screen.getByTitle('View in AR — coming soon')).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByTitle('AR preview unavailable')).toHaveAttribute('role', 'img')
     expect(screen.getByTitle('AI Artwork Analysis — coming soon')).toHaveAttribute('aria-disabled', 'true')
   })
 })

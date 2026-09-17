@@ -1,12 +1,12 @@
 import { ImageOff } from 'lucide-react'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useUserProfile } from '@/features/account'
-import { CartSummary, useCartLines } from '@/features/cart'
+import { CartSummary, useCart, useCartLines } from '@/features/cart'
 import { AddressPicker, DeliverySection, PaymentSection, type ShippingAddressFormValues } from '@/features/checkout'
 import { useArtistDisplayNames } from '@/features/marketplace'
-import { Button, Card, Container, EmptyState, PageHeader, Skeleton } from '@/shared/ui'
+import { Button, Card, Container, EmptyState, PageHeader, Skeleton, buttonClassName } from '@/shared/ui'
 
 /**
  * Protected by RequireAuth (see router.tsx) — a real shipping address and
@@ -22,24 +22,32 @@ import { Button, Card, Container, EmptyState, PageHeader, Skeleton } from '@/sha
 export function CheckoutPage() {
   const { user } = useAuth()
   const profileState = useUserProfile()
-  const { lines, subtotal, isLoading } = useCartLines()
+  const { status: cartStatus } = useCart()
+  const { lines, subtotal, isLoading, unavailableCount } = useCartLines()
   const artistNames = useArtistDisplayNames(lines.map((line) => line.artwork.sellerId))
 
   const profile = profileState.status === 'loaded' ? profileState.profile : null
   const [shippingAddress, setShippingAddress] = useState<ShippingAddressFormValues | null>(null)
   const [addressComplete, setAddressComplete] = useState(false)
 
-  if (!isLoading && lines.length === 0) {
+  const handleAddress = useCallback((values: ShippingAddressFormValues, complete: boolean) => {
+    setShippingAddress(values)
+    setAddressComplete(complete)
+  }, [])
+
+  if (cartStatus === 'error') return <Container><PageHeader title="Checkout" /><p role="alert">Couldn't load your cart. Return to <Link to="/cart" className="underline">Cart</Link> to review it.</p></Container>
+
+  if (!isLoading && cartStatus !== 'loading' && lines.length === 0) {
     return (
       <Container>
         <section className="flex flex-col gap-6">
           <PageHeader title="Checkout" />
           <EmptyState
-            title="Your cart is empty"
-            description="Add something to your cart before checking out."
+            title={unavailableCount > 0 ? 'No available cart items' : 'Your cart is empty'}
+            description={unavailableCount > 0 ? 'Your cart items could not be loaded or are unavailable. Review your cart before continuing.' : 'Add something to your cart before checking out.'}
             action={
-              <Link to="/explore" className="inline-flex">
-                <Button type="button">Explore Artworks</Button>
+              <Link to="/explore" className={buttonClassName('primary', 'md')}>
+                Explore Artworks
               </Link>
             }
           />
@@ -51,9 +59,11 @@ export function CheckoutPage() {
   return (
     <Container>
       <section className="flex flex-col gap-6">
-        <PageHeader title="Checkout" description="Review your order before placing it." />
+        <PageHeader title="Checkout" description="Review your cart and shipping address. Order placement and payment processing are unavailable." />
 
-        {isLoading ? (
+        {unavailableCount > 0 && <p role="status" className="text-sm text-text-secondary">Some cart items could not be loaded or are unavailable and are excluded from this review. <Link to="/cart" className="underline">Review Cart</Link></p>}
+
+        {isLoading || cartStatus === 'loading' ? (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
             <Skeleton className="h-96 w-full" />
             <Skeleton className="h-56 w-full" />
@@ -67,7 +77,7 @@ export function CheckoutPage() {
                 <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
                   <div>
                     <dt className="text-text-muted">Email</dt>
-                    <dd className="text-text-primary">{user?.email ?? '—'}</dd>
+                    <dd className="break-all text-text-primary">{user?.email ?? '—'}</dd>
                   </div>
                   <div>
                     <dt className="text-text-muted">Phone</dt>
@@ -80,10 +90,7 @@ export function CheckoutPage() {
               <AddressPicker
                 defaultFullName={profile?.displayName ?? ''}
                 defaultPhone={profile?.phoneNumber ?? ''}
-                onChange={(values, isComplete) => {
-                  setShippingAddress(values)
-                  setAddressComplete(isComplete)
-                }}
+                onChange={handleAddress}
               />
 
               {/* C. Delivery */}
@@ -146,13 +153,13 @@ export function CheckoutPage() {
                       className="w-full"
                       disabled
                       aria-disabled="true"
-                      title="Payment integration is not connected yet."
+                      title="Order placement and payment processing are unavailable."
                     >
                       Place Order
                     </Button>
                     <p className="text-center text-xs text-text-muted">
-                      Payment integration is not connected yet — orders can't be placed until it is.
-                      {!addressComplete && ' Finish your shipping address above first.'}
+                      Order placement and payment processing are unavailable. Completing an address does not place an order.
+                      {!addressComplete && ' Your shipping address is incomplete.'}
                     </p>
                   </div>
                 }

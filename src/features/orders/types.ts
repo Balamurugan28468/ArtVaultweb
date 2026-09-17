@@ -48,7 +48,7 @@ export const ORDER_TERMINAL_STATUSES: OrderStatus[] = ['CANCELLED', 'REFUND_REQU
 export type PaymentState = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED'
 
 /**
- * Canonical shape of an orders/{orderId} Firestore document (see
+ * Read-only client view of an orders/{orderId} Firestore document (see
  * docs/DATABASE.md, firestore.rules). Read-only from every client today —
  * written only by a future trusted server operation, never by this app's
  * own code. `shippingAddress` and per-item price/title are snapshots taken
@@ -60,7 +60,8 @@ export interface Order {
   id: string
   buyerId: string
   status: OrderStatus
-  paymentState: PaymentState
+  /** Null means missing/unrecognized stored data, never an assumed pending state. */
+  paymentState: PaymentState | null
   subtotal: number
   shippingCost: number | null
   total: number

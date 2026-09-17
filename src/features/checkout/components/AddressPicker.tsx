@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AddressFormModal, useAddresses, type Address } from '@/features/address'
+import { Link } from 'react-router'
 import { Badge, Button, Card, Skeleton } from '@/shared/ui'
-import type { ShippingAddressFormValues } from '../schemas'
+import { shippingAddressSchema, type ShippingAddressFormValues } from '../schemas'
 import { ShippingAddressForm } from './ShippingAddressForm'
 
 function toFormValues(address: Address): ShippingAddressFormValues {
@@ -17,19 +18,7 @@ function toFormValues(address: Address): ShippingAddressFormValues {
   }
 }
 
-/**
- * Checkout's Shipping Address step — a thin decision layer over the
- * *existing* `ShippingAddressForm`, never a second checkout data model.
- * When the signed-in user has saved addresses, this shows a picker (select
- * one, see Default, add a new one, or fall back to a one-off address for
- * this order only); selecting a saved address simply calls the same
- * `onChange(values, isComplete)` contract `ShippingAddressForm` already
- * uses, populating CheckoutPage's existing shipping-address state. When
- * there are no saved addresses (or they fail to load), this renders
- * `ShippingAddressForm` completely unchanged — the pre-UI-06 fallback stays
- * intact, so a user who never visits the Address Book can still check out
- * exactly as before.
- */
+/** Select a validated saved address or retain a temporary checkout draft. */
 export function AddressPicker({
   defaultFullName,
   defaultPhone,
@@ -43,11 +32,24 @@ export function AddressPicker({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [useOneOffAddress, setUseOneOffAddress] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [awaitingId, setAwaitingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<ShippingAddressFormValues>()
+  const handleDraft = useCallback((values: ShippingAddressFormValues, complete: boolean) => {
+    setDraft(values)
+    onChange(values, complete)
+  }, [onChange])
 
   const addresses = state.status === 'loaded' ? state.addresses : []
 
   useEffect(() => {
     if (state.status !== 'loaded' || state.addresses.length === 0) return
+    if (awaitingId) {
+      if (state.addresses.some((address) => address.id === awaitingId)) {
+        setSelectedId(awaitingId)
+        setAwaitingId(null)
+      }
+      return
+    }
     if (selectedId && state.addresses.some((address) => address.id === selectedId)) return
     const preferred = state.addresses.find((address) => address.isDefault) ?? state.addresses[0]
     setSelectedId(preferred.id)
@@ -55,17 +57,20 @@ export function AddressPicker({
     // default is a one-time-per-list decision, not something that should
     // re-fire on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state])
+  }, [state, awaitingId])
 
   const selectedAddress = addresses.find((address) => address.id === selectedId) ?? null
 
   useEffect(() => {
-    if (useOneOffAddress || !selectedAddress) return
-    onChange(toFormValues(selectedAddress), true)
-    // `onChange` is expected to be a stable callback (see CheckoutPage,
-    // mirroring ShippingAddressForm's own identical assumption).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAddress, useOneOffAddress])
+    if (useOneOffAddress || (state.status !== 'loading' && !awaitingId && !selectedAddress)) return
+    const values = selectedAddress ? toFormValues(selectedAddress) : { fullName: '', addressLine1: '', addressLine2: '', city: '', state: '', postalCode: '', country: '', phone: '' }
+    const result = shippingAddressSchema.safeParse(values)
+    onChange(result.success ? result.data : values, !awaitingId && state.status === 'loaded' && result.success)
+  }, [selectedAddress, useOneOffAddress, awaitingId, state.status, onChange])
+
+  const addModal = <AddressFormModal open={addModalOpen} onClose={() => setAddModalOpen(false)}
+    existingIds={addresses.map((address) => address.id)}
+    onSaved={(id) => { setAwaitingId(id); setUseOneOffAddress(false) }} />
 
   if (state.status === 'loading') {
     return (
@@ -76,12 +81,15 @@ export function AddressPicker({
     )
   }
 
-  const showFallbackForm = state.status === 'error' || addresses.length === 0 || useOneOffAddress
+  const showFallbackForm = state.status === 'error' || (!awaitingId && addresses.length === 0) || useOneOffAddress
 
   if (showFallbackForm) {
     return (
       <div className="flex flex-col gap-2">
-        <ShippingAddressForm defaultFullName={defaultFullName} defaultPhone={defaultPhone} onChange={onChange} />
+        {state.status === 'error' && <p role="alert" className="text-sm text-danger">Saved addresses could not be loaded. You can enter a temporary address below.</p>}
+        <ShippingAddressForm defaultFullName={defaultFullName} defaultPhone={defaultPhone} initialValues={draft} onChange={handleDraft} />
+        {state.status === 'loaded' && <Button type="button" variant="secondary" className="h-auto min-h-9 max-w-full self-start py-2" onClick={() => setAddModalOpen(true)}>Add new address</Button>}
+        {addModal}
         {state.status === 'loaded' && addresses.length > 0 && (
           <Button type="button" variant="secondary" size="sm" className="self-start" onClick={() => setUseOneOffAddress(false)}>
             Use a saved address instead
@@ -93,13 +101,16 @@ export function AddressPicker({
 
   return (
     <Card className="flex flex-col gap-3 p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display text-lg font-medium text-text-primary">Shipping Address</h2>
         <Button type="button" variant="secondary" size="sm" onClick={() => setAddModalOpen(true)}>
           Add new address
         </Button>
       </div>
 
+      {awaitingId && <p role="status" className="text-sm text-text-muted">Loading the saved address…</p>}
+      {selectedAddress && !shippingAddressSchema.safeParse(toFormValues(selectedAddress)).success &&
+        <p role="alert" className="text-sm text-danger">This saved address is incomplete or invalid. <Link to="/account/addresses" className="underline">Edit it in your address book</Link> or use a different address.</p>}
       <div role="radiogroup" aria-label="Saved addresses" className="flex flex-col gap-2">
         {addresses.map((address) => (
           <label
@@ -113,9 +124,9 @@ export function AddressPicker({
               name="saved-address"
               className="mt-1 h-4 w-4 shrink-0"
               checked={selectedId === address.id}
-              onChange={() => setSelectedId(address.id)}
+              onChange={() => { setAwaitingId(null); setSelectedId(address.id) }}
             />
-            <div className="min-w-0 flex-1 text-sm">
+            <div className="min-w-0 flex-1 break-words text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="font-medium text-text-primary">{address.fullName}</p>
                 {address.isDefault && <Badge tone="gold">Default</Badge>}
@@ -134,7 +145,7 @@ export function AddressPicker({
         Use a different address for this order
       </Button>
 
-      <AddressFormModal open={addModalOpen} onClose={() => setAddModalOpen(false)} existingIds={addresses.map((a) => a.id)} />
+      {addModal}
     </Card>
   )
 }

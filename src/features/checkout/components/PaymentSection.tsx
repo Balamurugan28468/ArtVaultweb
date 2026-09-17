@@ -18,8 +18,7 @@ export function PaymentSection() {
     <Card className="flex flex-col gap-3 p-4 sm:p-5">
       <h2 className="font-display text-lg font-medium text-text-primary">Payment</h2>
       <p className="text-sm text-text-secondary">
-        Choose how you'd like to pay. ArtVault doesn't yet support taking real payment for an order — no charge or
-        order can be made until this is connected.
+        Payment methods are unavailable. ArtVault does not yet support order placement or payment processing.
       </p>
       <PaymentMethodSelector />
     </Card>

@@ -63,7 +63,7 @@ describe('SignUpPage', () => {
       </MemoryRouter>,
     )
 
-    expect(navigate).toHaveBeenCalledWith('/account')
+    expect(navigate).toHaveBeenCalledWith('/account', { replace: true })
   })
 
   it('does not navigate merely because AuthProvider is already authenticated without a submission', () => {
@@ -72,4 +72,11 @@ describe('SignUpPage', () => {
 
     expect(navigate).not.toHaveBeenCalled()
   })
+})
+
+it('returns to checkout after registration without losing its query or fragment', () => {
+  useAuth.mockReturnValue({ status: 'authenticated' })
+  render(<MemoryRouter initialEntries={[{ pathname: '/sign-up', state: { from: '/checkout?step=address#shipping' } }]}><SignUpPage /></MemoryRouter>)
+  fireEvent.click(screen.getByText('trigger sign-up success'))
+  expect(navigate).toHaveBeenCalledWith('/checkout?step=address#shipping', { replace: true })
 })

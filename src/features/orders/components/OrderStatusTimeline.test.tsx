@@ -77,3 +77,13 @@ describe('OrderStatusTimeline', () => {
     expect(screen.getByText('Order placed')).toBeInTheDocument()
   })
 })
+
+it('uses the current terminal status timestamp rather than another terminal event', () => {
+  const requested = Timestamp.fromDate(new Date('2026-01-02T12:00:00Z'))
+  const refunded = Timestamp.fromDate(new Date('2026-02-03T12:00:00Z'))
+  render(<OrderStatusTimeline order={buildOrder({ status: 'REFUNDED', statusHistory: [
+    { status: 'REFUND_REQUESTED', at: requested }, { status: 'REFUNDED', at: refunded },
+  ] })} />)
+  const date = refunded.toDate().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  expect(screen.getByText(date)).toBeInTheDocument()
+})

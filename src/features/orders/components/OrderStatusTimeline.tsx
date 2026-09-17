@@ -23,7 +23,7 @@ export function OrderStatusTimeline({ order }: { order: Order }) {
 
   const progressSteps = ORDER_PROGRESS_STATUSES.filter((status) => reachedStatuses.has(status))
   const terminalEvent = order.statusHistory.find((event) =>
-    (['CANCELLED', 'REFUND_REQUESTED', 'REFUNDED', 'DELIVERY_FAILED'] as OrderStatus[]).includes(event.status),
+    event.status === order.status,
   )
   const isTerminal = (['CANCELLED', 'REFUND_REQUESTED', 'REFUNDED', 'DELIVERY_FAILED'] as OrderStatus[]).includes(
     order.status,

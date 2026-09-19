@@ -85,6 +85,9 @@ function customerContext(uid: string) {
 }
 
 describe('artworks/{artworkId} rules — create', () => {
+  it('never accepts a client-created reservation counter', async () => {
+    await assertFails(addDoc(collection(sellerContext('alice'), 'artworks'), validArtwork({ reservedCount: 0 })))
+  })
   it('blocks a CUSTOMER (no SELLER claim) from creating an artwork', async () => {
     const aliceDb = customerContext('alice')
     await assertFails(addDoc(collection(aliceDb, 'artworks'), validArtwork()))
@@ -223,7 +226,6 @@ describe('artworks/{artworkId} rules — update while DRAFT', () => {
         price: 200000,
         category: 'sculpture',
         tags: ['updated'],
-        inventoryCount: 5,
         updatedAt: serverTimestamp(),
       }),
     )
@@ -440,14 +442,14 @@ describe('artworks/{artworkId} rules — PUBLISHED safe-field edit (Module 13 Ph
     })
   })
 
-  it('allows the owner to change price/inventoryCount/tags while remaining PUBLISHED', async () => {
+  it('allows the owner to change price/tags while remaining PUBLISHED; stock uses the trusted callable', async () => {
     const aliceDb = sellerContext('alice')
     await assertSucceeds(
-      updateDoc(doc(aliceDb, 'artworks', artworkId), { price: 175000, inventoryCount: 4, tags: ['updated'], updatedAt: serverTimestamp() }),
+      updateDoc(doc(aliceDb, 'artworks', artworkId), { price: 175000, tags: ['updated'], updatedAt: serverTimestamp() }),
     )
   })
 
-  it('allows changing just one of the three safe fields', async () => {
+  it('allows changing just one of the safe metadata fields', async () => {
     const aliceDb = sellerContext('alice')
     await assertSucceeds(updateDoc(doc(aliceDb, 'artworks', artworkId), { price: 180000, updatedAt: serverTimestamp() }))
   })

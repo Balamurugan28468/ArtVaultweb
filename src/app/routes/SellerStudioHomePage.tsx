@@ -2,6 +2,7 @@ import { FileClock, ImageOff, Package, Plus, ShoppingBag, Wallet } from 'lucide-
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 import type { Artwork } from '@/features/artwork'
+import { availableInventory } from '@/features/inventory/stock'
 import { ConfirmRemoveFromSaleModal, useArtworkLifecycleActions, useSellerArtworks } from '@/features/artwork'
 import { SellerStudioShell, useSellerStatus } from '@/features/seller-studio'
 import { Badge, type BadgeTone, Button, Card, EmptyState, ErrorState, Skeleton, useToast } from '@/shared/ui'
@@ -74,7 +75,7 @@ function InventoryOverviewRow({ artwork }: { artwork: Artwork }) {
       <Link to={`/seller-studio/artworks/${artwork.id}/edit`} className="flex min-w-0 flex-1 items-center gap-2 hover:underline">
         <span className="truncate text-text-primary">{artwork.title}</span>
         <Badge tone="warning" size="sm">
-          {artwork.inventoryCount} left
+          {availableInventory(artwork)} left
         </Badge>
       </Link>
       {canRemoveFromSale && (
@@ -116,8 +117,8 @@ export function SellerStudioHomePage() {
     const { artworks } = artworksState
     const byStatus = (status: Artwork['status']) => artworks.filter((a) => a.status === status).length
     const publishedArtworks = artworks.filter((a) => a.status === 'PUBLISHED')
-    const unitsInStock = publishedArtworks.reduce((sum, a) => sum + a.inventoryCount, 0)
-    const lowStock = publishedArtworks.filter((a) => a.inventoryCount <= LOW_STOCK_THRESHOLD)
+    const unitsInStock = publishedArtworks.reduce((sum, a) => sum + availableInventory(a), 0)
+    const lowStock = publishedArtworks.filter((a) => availableInventory(a) <= LOW_STOCK_THRESHOLD)
     return {
       total: artworks.length,
       drafts: byStatus('DRAFT'),

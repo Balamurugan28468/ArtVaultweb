@@ -1,0 +1,50 @@
+import { beforeEach, expect, it, vi } from 'vitest'
+const auth = vi.hoisted(() => ({ setSession: vi.fn(), exchangeCodeForSession: vi.fn(), getUser: vi.fn() }))
+vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth }) }))
+beforeEach(() => {
+  vi.resetModules(); vi.clearAllMocks(); sessionStorage.clear()
+  window.history.replaceState(null, '', '/auth/callback')
+  auth.setSession.mockResolvedValue({ error: null })
+  auth.exchangeCodeForSession.mockResolvedValue({ error: null })
+  auth.getUser.mockResolvedValue({ data: { user: { email: 'user@example.com' } }, error: null })
+})
+it('accepts an invitation once, removes credentials and preserves a safe destination', async () => {
+  window.history.replaceState(null, '', '/auth/callback?next=%2Fcheckout#access_token=test-access&refresh_token=test-refresh&type=invite')
+  const { completeSupabaseReturn } = await import('./supabaseCompletion')
+  const first = completeSupabaseReturn()
+  expect(completeSupabaseReturn()).toBe(first)
+  expect(window.location.hash).toBe(''); expect(window.location.search).toBe('')
+  await expect(first).resolves.toEqual({ email: 'user@example.com', destination: '/checkout' })
+  expect(auth.setSession).toHaveBeenCalledTimes(1)
+  expect(auth.getUser).toHaveBeenCalledTimes(1)
+})
+it('exchanges a PKCE code once', async () => {
+  window.history.replaceState(null, '', '/auth/callback?code=test-code')
+  const { completeSupabaseReturn } = await import('./supabaseCompletion')
+  await completeSupabaseReturn()
+  expect(auth.exchangeCodeForSession).toHaveBeenCalledExactlyOnceWith('test-code')
+  expect(auth.setSession).not.toHaveBeenCalled()
+})
+it('does not use an existing session after an expired invite error', async () => {
+  window.history.replaceState(null, '', '/auth/callback#error=access_denied&error_code=otp_expired')
+  await expect((await import('./supabaseCompletion')).completeSupabaseReturn()).rejects.toThrow('LINK_INVALID')
+  expect(auth.getUser).not.toHaveBeenCalled(); expect(window.location.hash).toBe('')
+})
+it('rejects an incomplete token pair', async () => {
+  window.history.replaceState(null, '', '/auth/callback#access_token=test-access')
+  await expect((await import('./supabaseCompletion')).completeSupabaseReturn()).rejects.toThrow()
+  expect(auth.setSession).not.toHaveBeenCalled()
+})
+it('requires server-verified identity, not just cached session data', async () => {
+  auth.getUser.mockResolvedValue({ data: { user: null }, error: new Error('invalid') })
+  await expect((await import('./supabaseCompletion')).completeSupabaseReturn()).rejects.toThrow()
+})
+it.each(['https://evil.example', '//evil.example', '/\\evil.example', '/auth/callback', '/sign-in'])('rejects unsafe or looping destination %s', async path => {
+  expect((await import('./supabaseCompletion')).safeDestination(path)).toBe('/account')
+})
+it('routes Dashboard Site URL invitation returns to callback without discarding the fragment', async () => {
+  window.history.replaceState(null, '', '/#access_token=test&refresh_token=test')
+  ;(await import('./supabaseCompletion')).routeSupabaseReturn()
+  expect(window.location.pathname).toBe('/auth/callback')
+  expect(window.location.hash).toContain('access_token=')
+})

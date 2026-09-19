@@ -1,5 +1,6 @@
 import { Box, Sparkles } from 'lucide-react'
 import { useState } from 'react'
+import { availableInventory } from '@/features/inventory/stock'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useArtistProfile } from '@/features/artist-profile'
 import { ArtworkGallery, ArtworkIdField, PublicArtworkCard, toArtworkError, usePublicArtwork } from '@/features/artwork'
@@ -193,14 +194,14 @@ export function ArtworkDetailPage() {
                   purchase completed. */}
               <div className="flex flex-col gap-2 border-t border-border pt-3 sm:pt-4">
                 <div className="flex flex-wrap gap-2">
-                  <AddToCartButton artworkId={artwork.id} inventoryCount={artwork.inventoryCount} size="md" />
+                  <AddToCartButton artworkId={artwork.id} inventoryCount={availableInventory(artwork)} size="md" />
                   <Button
                     type="button"
                     variant="gold"
                     size="md"
-                    disabled={cartPending || isPending?.(artwork.id) || artwork.inventoryCount <= 0}
-                    aria-disabled={cartPending || isPending?.(artwork.id) || artwork.inventoryCount <= 0}
-                    title={artwork.inventoryCount <= 0 ? 'Sold out' : undefined}
+                    disabled={cartPending || isPending?.(artwork.id) || availableInventory(artwork) <= 0}
+                    aria-disabled={cartPending || isPending?.(artwork.id) || availableInventory(artwork) <= 0}
+                    title={availableInventory(artwork) <= 0 ? 'Sold out' : undefined}
                     onClick={async () => {
                       setCartPending(true)
                       try {
@@ -270,7 +271,7 @@ export function ArtworkDetailPage() {
                 <div>
                   <dt className="text-xs text-text-muted">Availability</dt>
                   <dd className="text-sm text-text-primary">
-                    {artwork.inventoryCount > 0 ? `${artwork.inventoryCount} available` : 'Out of stock'}
+                    {availableInventory(artwork) > 0 ? `${availableInventory(artwork)} available` : 'Out of stock'}
                   </dd>
                 </div>
                 <div>

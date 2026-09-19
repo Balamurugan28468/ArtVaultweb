@@ -1,4 +1,5 @@
-import { lazy } from 'react'
+import { lazy, Suspense } from 'react'
+import { routeSupabaseReturn } from '@/features/auth/supabaseCompletion'
 import { createBrowserRouter, Navigate } from 'react-router'
 import { AppShell } from '@/app/layouts/AppShell'
 import { HomePage } from '@/app/routes/HomePage'
@@ -64,7 +65,10 @@ const RecommendationsPage = lazy(() =>
   import('@/app/routes/RecommendationsPage').then((m) => ({ default: m.RecommendationsPage })),
 )
 
+const SupabaseAuthPage = lazy(() => import('./SupabaseAuthPage').then(m => ({ default: m.SupabaseAuthPage })))
+routeSupabaseReturn()
 export const router = createBrowserRouter([
+  ...['/auth/callback', '/auth/recovery'].map(path => ({ path, element: <Suspense fallback={<p role="status">Loading account setup…</p>}><SupabaseAuthPage /></Suspense> })),
   {
     path: '/',
     element: <AppShell />,

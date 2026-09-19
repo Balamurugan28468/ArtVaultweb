@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { availableInventory } from '@/features/inventory/stock'
 import { CART_MAX_QUANTITY } from '../types'
 import { Heart, ImageOff, Minus, Plus, Trash2 } from 'lucide-react'
 import { Link } from 'react-router'
@@ -12,14 +13,14 @@ function categoryLabel(category: string): string {
 
 /**
  * One line item on the Cart page. Quantity controls only ever step within
- * `[1, artwork.inventoryCount]` — the artwork's own real stock count (UI-02
+ * `[1, availableInventory(artwork)]` — physical stock minus reservations (UI-02
  * scope explicitly limits quantity controls to cases the inventory model
  * actually supports, which this one does: Artwork already carries a real
  * `inventoryCount`, Module 04). A line whose stock has since dropped below
  * its saved quantity shows an honest "Only N left" warning rather than
  * silently clamping the cart's own stored quantity out from under the
- * shopper — the real clamp still happens (enforced server-side at a future
- * checkout, and client-side here on the stepper itself), but the
+ * shopper — checkout rejects excess quantity server-side, and the client
+ * stepper limits increases, but the
  * discrepancy stays visible.
  */
 export function CartItemRow({
@@ -34,11 +35,12 @@ export function CartItemRow({
   onRemove: () => Promise<boolean> | void
 }) {
   const { artwork, quantity, lineTotal } = line
+  const stock = availableInventory(artwork)
   const { isSaved, isPending: isWishlistPending, toggle: toggleWishlist } = useWishlist()
   const cover = artwork.images[0]
-  const outOfStock = artwork.inventoryCount <= 0
-  const overStock = !outOfStock && quantity > artwork.inventoryCount
-  const atMax = quantity >= Math.min(artwork.inventoryCount, CART_MAX_QUANTITY)
+  const outOfStock = stock <= 0
+  const overStock = !outOfStock && quantity > stock
+  const atMax = quantity >= Math.min(stock, CART_MAX_QUANTITY)
   const [pending, setPending] = useState(false)
   const run = async (action: () => Promise<unknown> | void) => {
     setPending(true)
@@ -93,11 +95,11 @@ export function CartItemRow({
             </Badge>
           ) : overStock ? (
             <Badge tone="warning" size="sm">
-              Only {artwork.inventoryCount} left — reduce quantity
+              Only {stock} left — reduce quantity
             </Badge>
-          ) : artwork.inventoryCount <= 5 ? (
+          ) : stock <= 5 ? (
             <Badge tone="warning" size="sm">
-              Only {artwork.inventoryCount} left
+              Only {stock} left
             </Badge>
           ) : null}
         </div>
@@ -144,8 +146,8 @@ export function CartItemRow({
           </div>
 
           <div className="text-right">
-            <p className="text-xs text-text-muted">₹{(artwork.price / 100).toFixed(0)} each</p>
-            <p className="font-display text-base font-medium text-accent-gold sm:text-lg">₹{(lineTotal / 100).toFixed(0)}</p>
+            <p className="text-xs text-text-muted">₹{artwork.price / 100} each</p>
+            <p className="font-display text-base font-medium text-accent-gold sm:text-lg">₹{lineTotal / 100}</p>
           </div>
         </div>
       </div>

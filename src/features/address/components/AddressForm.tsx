@@ -39,7 +39,7 @@ export function AddressForm({
   formId,
   externalActions = false,
 }: {
-  initialAddress?: Address
+  initialAddress?: Address | AddressInput
   submitLabel: string
   pending: boolean
   onSubmit: (input: AddressInput) => void

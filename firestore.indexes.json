@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "reservationStatus", "order": "ASCENDING" },
+        { "fieldPath": "reservationExpiresAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "artworks",
       "queryScope": "COLLECTION",
       "fields": [

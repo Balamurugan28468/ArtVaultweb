@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router'
 import { useOrder } from '@/features/orders'
 import { OrderStatusBadge } from '@/features/orders/components/OrderStatusBadge'
 import type { Order } from '@/features/orders/types'
+import { ReservationNotice } from '@/features/orders/components/ReservationNotice'
 import { Card, Container, EmptyState, ErrorState, PageHeader, Skeleton, buttonClassName } from '@/shared/ui'
 
 const PAYMENT_STATE_PRESENTATION: Record<
@@ -89,15 +90,16 @@ export function OrderConfirmationPage() {
                   <Icon aria-hidden="true" className="h-8 w-8" />
                 </span>
                 <div>
-                  <h2 className="font-display text-xl font-medium text-text-primary">{presentation.title}</h2>
+                  <h2 className="font-display text-xl font-medium text-text-primary">{order.pricingState === 'ITEMS_ONLY' && order.paymentState === 'PENDING' ? order.status === 'CANCELLED' ? 'Unpaid order cancelled' : 'Order created — payment pending' : presentation.title}</h2>
                   <p className="mt-1 text-sm text-text-secondary">
-                    {presentation.description}
+                    {order.pricingState === 'ITEMS_ONLY' && order.paymentState === 'PENDING' ? 'This is a stored unpaid order, not a successful payment.' : presentation.description}
                   </p>
                 </div>
 
                 <p className="text-sm text-text-secondary">Order #{order.id.slice(0, 8).toUpperCase()}</p>
                 <OrderStatusBadge status={order.status} />
-                <p className="font-display text-2xl font-medium text-accent-gold">₹{(order.total / 100).toFixed(0)}</p>
+                <p className="font-display text-2xl font-medium text-accent-gold">₹{order.total / 100}</p>
+                <ReservationNotice order={order} />
 
                 {order.shippingAddress && (
                   <div className="text-sm text-text-secondary">

@@ -9,12 +9,13 @@ import { WishlistProvider } from '@/features/wishlist'
 import { connectFirebaseEmulators } from '@/lib/firebase/config'
 import './index.css'
 
-connectFirebaseEmulators()
+const supabaseAuthRoute = ['/auth/callback', '/auth/recovery'].includes(window.location.pathname)
+if (!supabaseAuthRoute) connectFirebaseEmulators()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppProviders>
-      <AuthProvider>
+      {supabaseAuthRoute ? <RouterProvider router={router} /> : <AuthProvider>
         {/* Needs useAuth() (guest vs. account mode) — must sit inside
             AuthProvider. Wraps the router, not just one route, so its one
             shared wishlist listener/local-storage state survives
@@ -27,7 +28,7 @@ createRoot(document.getElementById('root')!).render(
             <RouterProvider router={router} />
           </CartProvider>
         </WishlistProvider>
-      </AuthProvider>
+      </AuthProvider>}
     </AppProviders>
   </StrictMode>,
 )

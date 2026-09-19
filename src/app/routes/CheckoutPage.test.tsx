@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import type { ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Artwork } from '@/features/artwork'
 
 const useAuth = vi.fn()
@@ -11,7 +11,16 @@ const useUserProfile = vi.fn()
 vi.mock('@/features/account', () => ({ useUserProfile: () => useUserProfile() }))
 
 const useCartLines = vi.fn()
-const useCart = vi.fn(() => ({ status: 'ready' }))
+const useCart = vi.fn(() => ({ status: 'ready', mode: 'account' }))
+const submit = vi.fn()
+const retry = vi.fn()
+const useCheckoutOrder = vi.fn()
+vi.mock('@/features/checkout/hooks/useCheckoutOrder', () => ({ useCheckoutOrder: () => useCheckoutOrder() }))
+beforeEach(() => {
+  submit.mockClear()
+  retry.mockClear()
+  useCheckoutOrder.mockReturnValue({ submit, retry, pending: false, unresolved: null, error: null })
+})
 vi.mock('@/features/cart', () => ({
   useCartLines: () => useCartLines(),
   useCart: () => useCart(),
@@ -24,9 +33,12 @@ vi.mock('@/features/cart', () => ({
 }))
 
 vi.mock('@/features/checkout', () => ({
-  AddressPicker: () => <div>Shipping address form</div>,
+  AddressPicker: ({ onChange, onSelectionChange }: { onChange: (values: unknown, valid: boolean) => void; onSelectionChange: (id: string | null) => void }) => <div>Shipping address form
+    <button onClick={() => { onChange({ fullName: 'Test Buyer' }, true); onSelectionChange('saved-address') }}>Select saved address</button>
+    <button onClick={() => { onChange({ fullName: 'Temporary Buyer' }, true); onSelectionChange(null) }}>Use temporary address</button>
+  </div>,
   DeliverySection: () => <div>Shipping options aren't connected yet.</div>,
-  PaymentSection: () => <div>Order placement and payment processing are unavailable.</div>,
+  PaymentSection: () => <div>Payment processing is unavailable.</div>,
 }))
 
 vi.mock('@/features/marketplace', () => ({ useArtistDisplayNames: () => ({}) }))
@@ -97,7 +109,7 @@ describe('CheckoutPage', () => {
     expect(screen.getByText('Subtotal: 300000')).toBeInTheDocument()
   })
 
-  it('keeps "Place Order" genuinely disabled, with an honest explanation — never a completable purchase', () => {
+  it('requires a saved address, submits only selected IDs, and does not enable payment', () => {
     useAuth.mockReturnValue({ user: { email: 'alice@example.com' } })
     useUserProfile.mockReturnValue({ status: 'loaded', profile: { phoneNumber: null, displayName: 'Alice' } })
     useCartLines.mockReturnValue({
@@ -107,9 +119,15 @@ describe('CheckoutPage', () => {
     })
     renderPage()
 
-    const placeOrder = screen.getByRole('button', { name: 'Place Order' })
+    const placeOrder = screen.getByRole('button', { name: 'Create unpaid order' })
     expect(placeOrder).toBeDisabled()
-    expect(screen.getAllByText(/Order placement and payment processing are unavailable/).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Select saved address' }))
+    expect(placeOrder).toBeEnabled()
+    fireEvent.click(placeOrder)
+    expect(submit).toHaveBeenCalledWith(['a1'], 'saved-address')
+    fireEvent.click(screen.getByRole('button', { name: 'Use temporary address' }))
+    expect(placeOrder).toBeDisabled()
+    expect(screen.getByText('Payment processing is unavailable.')).toBeInTheDocument()
   })
 
   it('shows the honest, non-functional Delivery and Payment sections — never a fake shipping method or payment form', () => {
@@ -123,17 +141,35 @@ describe('CheckoutPage', () => {
     renderPage()
 
     expect(screen.getByText("Shipping options aren't connected yet.")).toBeInTheDocument()
-    expect(screen.getAllByText(/Order placement and payment processing are unavailable/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Payment processing is unavailable.')).toBeInTheDocument()
   })
 })
 
 it('does not present a failed cart read as an empty or ready checkout', () => {
   useAuth.mockReturnValue({ user: { email: 'alice@example.com' } })
   useUserProfile.mockReturnValue({ status: 'loading' })
-  useCart.mockReturnValueOnce({ status: 'error' })
+  useCart.mockReturnValueOnce({ status: 'error', mode: 'account' })
   useCartLines.mockReturnValue({ lines: [], subtotal: 0, isLoading: false, unavailableCount: 0 })
   renderPage()
   expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load your cart")
   expect(screen.queryByText('Your cart is empty')).not.toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'Place Order' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Create unpaid order' })).not.toBeInTheDocument()
+})
+
+it('recovers an ambiguous request even when the successful transaction already emptied the cart', () => {
+  useCheckoutOrder.mockReturnValue({ submit, retry, pending: false, unresolved: {}, error: 'Result unknown' })
+  useCartLines.mockReturnValue({ lines: [], subtotal: 0, isLoading: false, unavailableCount: 0 })
+  renderPage()
+  expect(screen.queryByText('Your cart is empty')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Retry previous checkout' }))
+  expect(retry).toHaveBeenCalledOnce()
+  expect(screen.getByRole('alert')).toHaveTextContent('Result unknown')
+})
+
+it('blocks checkout when the remaining stock is reserved', () => {
+  useCartLines.mockReturnValue({ lines: [{ artwork: buildArtwork({ inventoryCount: 1, reservedCount: 1 }), quantity: 1, lineTotal: 150000 }], subtotal: 150000, isLoading: false, unavailableCount: 0 })
+  renderPage()
+  fireEvent.click(screen.getByRole('button', { name: 'Select saved address' }))
+  expect(screen.getByRole('button', { name: 'Create unpaid order' })).toBeDisabled()
+  expect(submit).not.toHaveBeenCalled()
 })

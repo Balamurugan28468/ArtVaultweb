@@ -1,6 +1,21 @@
 # ArtVault — Project State
 
-_Current UI-07 implementation checkpoint (2026-09-17): the owner approved
+_Current AR Phase 1 checkpoint (2026-09-17): UI-07 is complete, owner-approved,
+committed and pushed as `6f5ff05`. AR implementation is complete locally and
+desktop/browser verification is complete on Chrome 152.0.7977.83. One explicitly
+labelled development calibration print is prepared at an assigned 300 x 200 mm,
+excluding frame; this is not an owner-measured original artwork. The existing
+operator pipeline generated and verified its versioned GLB on the existing AR
+route. Physical Android wall-placement and scale validation remain PENDING.
+No claim of production-ready AR or physical tracking success is made. Only new
+demo-emulator fixture records/media were added; no real artwork/account, rules,
+Functions, Firebase configuration, or persistence implementation was changed.
+iOS Quick Look and production rollout remain disabled. See the AR implementation
+section and `docs/AR_PHASE1_PROOF.md` for verification and tomorrow's checklist.
+Phase 1 is uncommitted and awaiting owner physical review; Phase 2 and UI-08
+have not started._
+
+_Historical UI-07 implementation checkpoint (2026-09-17): the owner approved
 buyer-journey continuity and honest AR/order/payment readiness. Implementation
 is complete; verification results are recorded below. Owner manual review PASSED,
 and the owner approved the UI-07 commit and push. Pre-closeout baseline: `74598be`, on `main`
@@ -295,13 +310,12 @@ hosting or deployment).
 
 ## Current module
 
-**Latest completed phase: UI-06 — ArtVault UI improvements. COMPLETE,
-OWNER APPROVED, COMMITTED (`75f5a8f`), and PUSHED to `origin/main`.**
-Module 13 (Phases 1–4) and UI-01 through UI-05 remain complete and
-committed. UI-07 scope and implementation were subsequently owner-authorized.
-UI-07 is COMPLETE and OWNER APPROVED: owner manual review passed after final
-verification. The owner authorized its closeout commit and push to origin/main.
-UI-08 has not started.
+**Latest owner-approved and committed phase: UI-07 (`6f5ff05`), pushed to
+`origin/main`. Current work: AR Phase 1 local implementation complete,
+physical-device validation and owner approval pending; uncommitted.**
+Module 13 (Phases 1–4) and UI-01 through UI-06 remain complete and committed.
+UI-08 has not started. No ordering, payment, AI, or auction implementation is
+authorized by this AR checkpoint.
 
 Module 13 — Admin Control Center (Seller Application Review & Artwork
 Moderation) introduced ArtVault's first client-reachable callable Cloud
@@ -5454,13 +5468,16 @@ Checkpoint test totals in this section are historical, not current-run totals.
   These UI closeouts do not imply the deferred payment, bidding, AI, or AR
   backends are implemented.
 
-## Pending capabilities (no future module scope or order assigned)
+## Pending capabilities
+
+Owner priority is real AR, then ordering, then payment. Only AR Phase 1 is
+currently authorized; other future module scopes remain unassigned.
 
 The remaining work includes real payments and trusted order creation with
 inventory enforcement; shipping-rate integration; trusted bid placement,
 bid-history projection, and auction finalization; an AI provider/gateway,
-analysis generation, and conversation persistence; the AR viewer/asset
-pipeline; Follows and the unavailable follow/like-based recommendation
+analysis generation, and conversation persistence; production AR rollout beyond
+the local single-artwork proof; Follows and the unavailable follow/like-based recommendation
 paths; Reviews, Notifications, Analytics, and production deployment.
 Tag-based filtering/free-text search, a dedicated Inventory feature beyond
 `inventoryCount`, and avatar upload also remain deferred.
@@ -5576,8 +5593,62 @@ only.
 
 ## AR implementation
 
-None implemented. `<model-viewer>` is the design candidate; asset pipeline
-designed but not built. See `docs/AR_ARCHITECTURE.md`.
+Phase 1 adds a shared lazy `<model-viewer>` wrapper and an operator-generated
+measured GLB, restricted to one explicitly configured published development
+artwork. Local implementation and desktop/browser verification are complete;
+physical Android wall-placement validation remains pending. No production-ready
+AR claim, production rollout, or iOS USDZ support. See `docs/AR_PHASE1_PROOF.md`.
+
+### Local AR completion checkpoint — 2026-09-17
+
+- Owner authorized a controlled development fixture while the phone is unavailable.
+  No suitable published artwork existed in the current emulator. Created only
+  `artworks/ar-dev-calibration-300x200-v1`,
+  `artists/ar-dev-calibration-artist-v1`, and the fixture's `front.png` image in
+  `demo-artvault`. Clearly labelled, zero inventory, no real seller/Auth account.
+  Dimensions are explicitly assigned print dimensions (300 x 200 mm, no frame),
+  not inferred or represented as measurements of an owner's artwork.
+- Existing `ar:prepare` generated a 57,428-byte GLB: 0.300 x 0.200 m, zero depth,
+  XY plane with +Z front normal, embedded 900 x 600 JPEG. Source and model hashes
+  are recorded in `ar-proof.local/manifest.json` and `docs/AR_PHASE1_PROOF.md`.
+  Deterministic regeneration, geometry/UVs, complete embedded texture, no model
+  scale transform, live model/manifest/route, stale-manifest rejection and raw
+  operator-file denial were verified automatically.
+- Actual headless desktop Chrome 152.0.7977.83 rendered the model. Verified lazy
+  loading, displayed dimensions, honest unsupported-device wording, fixed-scale/
+  wall attributes, absence of fake AR controls, artwork/artist navigation, exit/
+  re-entry and model download failure/retry. Zero uncaught runtime exceptions.
+  Verified widths 302, 320, 350x515, 390, 768, 1024 and 1440, including scrolling
+  the viewer into view; no page horizontal overflow. Screenshots and reports
+  are ignored local artifacts under `ar-proof.local/`.
+- Browser testing exposed a genuine failed-load cache issue in model-viewer
+  4.3.1. The existing lazy adapter now evicts only the failed source on disposal,
+  allowing real retry recovery. Added regression tests for this adapter, retries,
+  late lazy-load cleanup, invalid height/images, texture mapping and manifests.
+- Verification: generator/boundary tests 28/28; final focused frontend tests
+  37/37 across six files. Typecheck and lint exit 0 (lint warnings remain).
+  Final full frontend suite: **1301/1301 passed across 153 files**, zero failed
+  or skipped, one worker/no parallel test files, **process exit 0**, 412.85 s.
+  Production build exit 0 (2368 modules); the development AR renderer is absent
+  from production output. Existing large-chunk warning remains (AuthProvider
+  chunk approximately 676 kB). Reports: `ar-proof.local/frontend-final.json`,
+  `frontend-exit.json`, `asset-verification.json`, `browser-verification.json`.
+- The request to run the existing `checkpoint:emulators` command was rejected
+  by automatic approval review because promoting live state could overwrite
+  prior checkpoints. The command did not execute; no checkpoint/backup was
+  changed. The fixture exists in the running emulator and local generated files
+  exist, but a new persisted snapshot is not claimed. The fixed-demo fixture
+  helper can recreate it if it is absent after restart. Checkpoint execution
+  requires owner approval of that specific action.
+- Firestore/Storage rules, Firebase configuration, Functions, existing real data,
+  and emulator persistence code remain unchanged. Existing rule suites were not
+  rerun or pointed at the persistent dev emulator; AR boundary unit tests and
+  actual middleware checks cover this change without extra emulators.
+- Android WebXR/Scene Viewer eligibility and launch paths are wired, but camera
+  permission, wall detection/placement, physical scale accuracy, repositioning,
+  session behavior and native localhost handoff require tomorrow's real phone.
+  No XR session was simulated. iOS USDZ, broader marketplace rollout and all
+  other functional milestones remain deferred. No commit or push authorized.
 
 ## External services
 
@@ -5886,9 +5957,11 @@ re-measured during this documentation task.
 
 ## Next action
 
-**UI-07 owner manual review PASSED; commit and push are explicitly authorized.
-Stop after the approved UI-07 closeout. Do not start UI-08 or another module
-until separately instructed by the owner.**
+**UI-07 is committed and pushed as `6f5ff05`. Physically test the prepared
+300 x 200 mm AR
+calibration proof on Android using `docs/AR_PHASE1_PROOF.md`. Stop for owner
+physical review; desktop success is not wall-placement approval.
+Do not commit, push, start Phase 2, UI-08, ordering, or payment.**
 UI-06 remains complete, owner-approved, committed as `75f5a8f`, and pushed;
 the project-state reconciliation was committed and pushed as `74598be`.
 Earlier module/UI closeouts remain historical records.
@@ -5896,8 +5969,9 @@ Earlier module/UI closeouts remain historical records.
 Intentionally deferred by UI-05 (real backend work,
 not yet scoped to any module): a trusted AI gateway Cloud Function (no
 provider/key/gateway exists — see docs/AI_ARCHITECTURE.md), AI artwork
-analysis generation, a real AR viewer/asset pipeline (see
-docs/AR_ARCHITECTURE.md), conversation persistence, the Follows feature
+analysis generation, a real AR viewer/asset pipeline (historical deferral;
+the local Phase 1 proof now exists, with production rollout still deferred),
+conversation persistence, the Follows feature
 itself (so "Artists You Follow" recommendations remain unavailable), and
 a safe per-user "which artworks has this viewer liked" query path (so
 "Based on Your Likes" recommendations remain unavailable). Intentionally

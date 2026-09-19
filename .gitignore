@@ -13,6 +13,10 @@ dist-ssr
 *.local
 functions/lib
 
+# Supabase CLI machine-local linkage/cache (not application configuration).
+supabase/.temp/
+supabase/.branches/
+
 # Firebase Emulator Suite local state/logs
 .firebase
 firebase-debug.log

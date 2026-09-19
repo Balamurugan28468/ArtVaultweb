@@ -6,6 +6,7 @@ import { auth as authTrigger } from 'firebase-functions/v1'
 initializeApp()
 
 export { approveSellerApplication, moderateArtwork, rejectSellerApplication, suspendArtwork } from './adminActions'
+export { createCheckoutOrder, setArtworkInventory, expireCheckoutReservations } from './commerce'
 
 const DEFAULT_ROLE = 'CUSTOMER'
 

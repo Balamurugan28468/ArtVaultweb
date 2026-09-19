@@ -30,6 +30,11 @@ const BASE_ORDER_DATA = {
 }
 
 describe('mapToOrder', () => {
+  it('preserves trusted reservation and incomplete-pricing metadata without assuming it for legacy orders', () => {
+    const expiry = { toDate: () => new Date('2026-09-17') }
+    expect(mapToOrder('o1', { ...BASE_ORDER_DATA, currency: 'INR', pricingState: 'ITEMS_ONLY', reservationStatus: 'ACTIVE', reservationExpiresAt: expiry })).toMatchObject({ currency: 'INR', pricingState: 'ITEMS_ONLY', reservationStatus: 'ACTIVE', reservationExpiresAt: expiry })
+    expect(mapToOrder('o1', BASE_ORDER_DATA)).not.toHaveProperty('reservationStatus')
+  })
   it('maps a well-formed document', () => {
     const order = mapToOrder('o1', BASE_ORDER_DATA)
     expect(order).toMatchObject({ id: 'o1', buyerId: 'alice', status: 'PAID', paymentState: 'PAID', total: 500000 })

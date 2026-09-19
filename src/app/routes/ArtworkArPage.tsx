@@ -1,6 +1,7 @@
 import { Box, ImageOff, Sparkles, Star } from 'lucide-react'
 import { type ComponentType } from 'react'
 import { Link, useParams } from 'react-router'
+import { DevelopmentArProof } from '@/features/ar/components/DevelopmentArProof'
 import { usePublicArtwork } from '@/features/artwork'
 import { LikeButton } from '@/features/likes'
 import { WishlistButton } from '@/features/wishlist'
@@ -12,7 +13,7 @@ interface SidebarLink {
   href?: string
 }
 
-/** Artwork image and AR availability information. No viewer or device detection exists yet. */
+/** Public artwork view; an operator-selected proof is available only on the dev server. */
 export function ArtworkArPage() {
   const { artworkId } = useParams()
   const artworkQuery = usePublicArtwork(artworkId)
@@ -23,7 +24,7 @@ export function ArtworkArPage() {
   const sidebarLinks: SidebarLink[] = artworkId
     ? [
         { icon: Sparkles, label: 'Overview', href: `/artworks/${artworkId}` },
-        { icon: Box, label: 'AR unavailable' },
+        { icon: Box, label: 'AR preview' },
         { icon: Sparkles, label: 'AI Analysis', href: `/artworks/${artworkId}/analysis` },
         { icon: Star, label: 'Artist Info', href: artwork ? `/artists/${artwork.sellerId}` : undefined },
         { icon: Star, label: 'Reviews unavailable' },
@@ -80,7 +81,7 @@ export function ArtworkArPage() {
                   ) : (
                     <span
                       key={link.label}
-                      aria-current={link.label === 'AR unavailable' ? 'page' : undefined}
+                      aria-current={link.label === 'AR preview' ? 'page' : undefined}
                       className="flex shrink-0 items-center gap-1.5 rounded-full bg-blue-600/10 px-3 py-1.5 text-xs font-medium text-blue-400"
                     >
                       <link.icon aria-hidden="true" className="h-3.5 w-3.5" />
@@ -118,6 +119,7 @@ export function ArtworkArPage() {
               </div>
             </div>
 
+            <DevelopmentArProof artwork={artwork}>
             {/* Keep the real artwork image prominent on mobile. */}
             <div className="flex flex-col gap-3">
               <div className="relative flex min-h-[20rem] items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-elevated sm:min-h-[26rem]">
@@ -142,6 +144,7 @@ export function ArtworkArPage() {
                 You can view the artwork image and return to its details.
               </p>
             </div>
+            </DevelopmentArProof>
           </div>
         )}
       </section>

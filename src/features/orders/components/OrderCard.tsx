@@ -43,7 +43,10 @@ export function OrderCard({ order }: { order: Order }) {
       </div>
 
       <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end sm:justify-center sm:gap-2">
-        <p className="font-display text-base font-medium text-accent-gold">₹{(order.total / 100).toFixed(0)}</p>
+        <div className="min-w-0 sm:text-right">
+          <p className="font-display text-base font-medium text-accent-gold">₹{order.total / 100}</p>
+          {order.pricingState === 'ITEMS_ONLY' && <p className="text-xs text-text-muted">Artwork subtotal · shipping/taxes pending</p>}
+        </div>
         <Link to={`/orders/${order.id}`}>
           <Button type="button" variant="secondary" size="sm">
             View Details

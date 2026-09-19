@@ -24,6 +24,7 @@ import { envWithResolvedJavaOnPath, resolveJavaOrExit } from './lib/javaRuntime.
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 const SUITES = {
+  commerce: { services: 'firestore', script: 'scripts/exec-commerce-tests.mjs' },
   firestore: { services: 'firestore', script: 'scripts/exec-rules-tests.mjs' },
   storage: { services: 'firestore,storage', script: 'scripts/exec-storage-rules-tests.mjs' },
 }

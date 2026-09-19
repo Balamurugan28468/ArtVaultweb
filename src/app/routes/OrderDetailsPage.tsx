@@ -2,6 +2,7 @@ import { ImageOff } from 'lucide-react'
 import { Link, useParams } from 'react-router'
 import { OrderStatusBadge, OrderStatusTimeline, useOrder } from '@/features/orders'
 import { useArtistDisplayNames } from '@/features/marketplace'
+import { ReservationNotice } from '@/features/orders/components/ReservationNotice'
 import { Card, Container, EmptyState, ErrorState, PageHeader, Skeleton, buttonClassName } from '@/shared/ui'
 
 const PAYMENT_STATE_LABEL: Record<string, string> = {
@@ -92,10 +93,10 @@ export function OrderDetailsPage() {
                         {item.title}
                       </Link>
                       <p className="truncate text-xs text-text-muted">
-                        {artistNames[item.sellerId] ?? 'ArtVault seller'} · Qty {item.quantity} · ₹{(item.unitPrice / 100).toFixed(0)} each
+                        {artistNames[item.sellerId] ?? 'ArtVault seller'} · Qty {item.quantity} · ₹{item.unitPrice / 100} each
                       </p>
                     </div>
-                    <p className="shrink-0 text-sm font-medium text-text-primary">₹{(item.subtotal / 100).toFixed(0)}</p>
+                    <p className="shrink-0 text-sm font-medium text-text-primary">₹{item.subtotal / 100}</p>
                   </li>
                 ))}
               </ul>
@@ -103,17 +104,18 @@ export function OrderDetailsPage() {
               <div className="flex flex-col gap-1.5 border-t border-border pt-3 text-sm">
                 <div className="flex justify-between text-text-secondary">
                   <span>Subtotal</span>
-                  <span>₹{(state.order.subtotal / 100).toFixed(0)}</span>
+                  <span>₹{state.order.subtotal / 100}</span>
                 </div>
                 <div className="flex justify-between text-text-secondary">
                   <span>Shipping</span>
-                  <span>{state.order.shippingCost === null ? 'Not recorded' : `₹${(state.order.shippingCost / 100).toFixed(0)}`}</span>
+                  <span>{state.order.shippingCost === null ? 'Not recorded' : `₹${state.order.shippingCost / 100}`}</span>
                 </div>
                 <div className="flex justify-between border-t border-border pt-2 text-base font-medium text-text-primary">
-                  <span>Total</span>
-                  <span className="text-accent-gold">₹{(state.order.total / 100).toFixed(0)}</span>
+                    <span>{state.order.pricingState === 'ITEMS_ONLY' ? 'Artwork subtotal' : 'Total'}</span>
+                  <span className="text-accent-gold">₹{state.order.total / 100}</span>
+                  </div>
                 </div>
-              </div>
+                <ReservationNotice order={state.order} />
             </Card>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

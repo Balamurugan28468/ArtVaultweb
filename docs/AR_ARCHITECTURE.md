@@ -1,7 +1,13 @@
 # ArtVault — Augmented Reality Architecture
 
-**Status: design only.** No AR viewer, asset pipeline, or `<ViewInAR>`
-component exists yet.
+**Current status: Phase 1 local implementation and desktop/browser verification complete; physical validation pending.**
+See [AR_PHASE1_PROOF.md](AR_PHASE1_PROOF.md) for the authoritative current scope:
+one controlled calibration print (explicitly assigned 300 x 200 mm, not an
+owner-measured artwork), local versioned GLB, shared lazy viewer,
+Android launch paths, and no iOS Quick Look yet. No production rollout exists.
+The remainder of this document is the earlier design proposal, not a list of
+implemented capabilities. Phase 1 uses millimetres at input and metres in GLB;
+the proposed services, seller metadata, USDZ, and broader controls below remain deferred.
 
 ## Pipeline
 

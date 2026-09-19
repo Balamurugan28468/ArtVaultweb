@@ -1,6 +1,8 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it, vi } from 'vitest'
 import type { ArtworkImage } from '../types'
+const { setArtworkInventory } = vi.hoisted(() => ({ setArtworkInventory: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@/features/inventory/setArtworkInventory', () => ({ setArtworkInventory }))
 
 const { addDoc, collection, deleteDoc, doc, onSnapshot, query, runTransaction, updateDoc, where, serverTimestamp } = vi.hoisted(
   () => ({
@@ -80,10 +82,17 @@ describe('createArtworkDraft', () => {
 })
 
 describe('updateArtworkDraft', () => {
+  it('does not save metadata or claim success when trusted stock adjustment rejects reservations', async () => {
+    const previousWrites = updateDoc.mock.calls.length
+    setArtworkInventory.mockRejectedValueOnce({ code: 'functions/failed-precondition', message: 'Stock cannot be lower than reserved units.' })
+    await expect(updateArtworkDraft('a1', INPUT)).rejects.toMatchObject({ message: 'Stock cannot be lower than reserved units.' })
+    expect(updateDoc).toHaveBeenCalledTimes(previousWrites)
+  })
   it('writes the editable fields plus a fresh updatedAt, never sellerId/status/images', async () => {
     updateDoc.mockResolvedValueOnce(undefined)
 
     await updateArtworkDraft('a1', INPUT)
+    expect(setArtworkInventory).toHaveBeenCalledWith('a1', 2)
 
     expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
       title: 'Sunset',
@@ -91,7 +100,6 @@ describe('updateArtworkDraft', () => {
       price: 1500,
       category: 'painting',
       tags: ['blue', 'abstract'],
-      inventoryCount: 2,
       updatedAt: 'SERVER_TIMESTAMP',
     })
   })
@@ -106,14 +114,14 @@ describe('submitArtwork', () => {
 })
 
 describe('updatePublishedArtworkSafeFields (Module 13 Phase 4)', () => {
-  it('writes only price/inventoryCount/tags plus a fresh updatedAt — never status/title/description/category/images', async () => {
+  it('adjusts stock through the callable and writes only safe metadata directly', async () => {
     updateDoc.mockResolvedValueOnce(undefined)
 
     await updatePublishedArtworkSafeFields('a1', { price: 1750, inventoryCount: 4, tags: ['updated'] })
+    expect(setArtworkInventory).toHaveBeenCalledWith('a1', 4)
 
     expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
       price: 1750,
-      inventoryCount: 4,
       tags: ['updated'],
       updatedAt: 'SERVER_TIMESTAMP',
     })
@@ -136,6 +144,7 @@ describe('resubmitArtworkForReview (Module 13 Phase 4; images added by its photo
     updateDoc.mockResolvedValueOnce(undefined)
 
     await resubmitArtworkForReview('a1', INPUT, IMAGES)
+    expect(setArtworkInventory).toHaveBeenCalledWith('a1', 2)
 
     expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
       title: 'Sunset',
@@ -144,7 +153,6 @@ describe('resubmitArtworkForReview (Module 13 Phase 4; images added by its photo
       category: 'painting',
       tags: ['blue', 'abstract'],
       images: IMAGES,
-      inventoryCount: 2,
       status: 'SUBMITTED',
       reviewedAt: null,
       rejectionReason: null,

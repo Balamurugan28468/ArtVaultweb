@@ -102,6 +102,8 @@ export interface Artwork {
   tags: string[]
   images: ArtworkImage[]
   inventoryCount: number
+  /** Server-owned unpaid reservation counter; absent legacy values mean zero. */
+  reservedCount?: number
   status: ArtworkStatus
   reviewedAt: Timestamp | null
   rejectionReason: string | null

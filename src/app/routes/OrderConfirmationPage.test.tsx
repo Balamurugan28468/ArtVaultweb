@@ -44,6 +44,14 @@ function renderPage(orderId = 'order123456') {
 }
 
 describe('OrderConfirmationPage', () => {
+  it('shows a created unpaid reservation without implying a successful charge or priced shipping', () => {
+    useOrder.mockReturnValue({ status: 'loaded', order: buildOrder({ status: 'PAYMENT_PENDING', paymentState: 'PENDING', pricingState: 'ITEMS_ONLY', currency: 'INR', reservationStatus: 'ACTIVE', reservationExpiresAt: now }) })
+    renderPage()
+    expect(screen.getByText('Order created — payment pending')).toBeInTheDocument()
+    expect(screen.getByText(/Shipping and taxes are not priced/)).toBeInTheDocument()
+    expect(screen.queryByText('Payment recorded as paid')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View Order' })).toHaveAttribute('href', '/orders/order123456')
+  })
   it('shows a loading state', () => {
     useOrder.mockReturnValue({ status: 'loading' })
     renderPage()

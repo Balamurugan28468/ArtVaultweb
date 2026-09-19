@@ -206,6 +206,14 @@ describe('artworks storage — read', () => {
 })
 
 describe('artworks storage — delete', () => {
+  it('protects images referenced by active inventory reservations from deletion or replacement', async () => {
+    await seedArtwork('reserved', { status: 'PUBLISHED', reservedCount: 1 })
+    await seedImage('artworks/alice/reserved/front.jpg')
+    const image = ref(sellerStorage('alice'), 'artworks/alice/reserved/front.jpg')
+    await assertFails(deleteObject(image))
+    await assertFails(uploadBytes(image, JPEG_BYTES, { contentType: 'image/jpeg' }))
+    await assertSucceeds(getBytes(image))
+  })
   it('allows the owner to delete their own DRAFT artwork image', async () => {
     await seedArtwork('art1')
     await seedImage('artworks/alice/art1/img1.jpg')

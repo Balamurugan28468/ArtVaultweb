@@ -9,14 +9,9 @@
     "typecheck": "tsc -b",
     "lint": "oxlint",
     "test": "vitest",
-    "test:rules": "node scripts/run-isolated-emulator-tests.mjs firestore",
-    "test:storage-rules": "node scripts/run-isolated-emulator-tests.mjs storage",
     "test:scripts": "vitest run --config vitest.scripts.config.ts",
     "test:supabase": "node --test --test-concurrency=1 supabase/tests/foundation.test.mjs supabase/tests/owner-bootstrap.test.mjs",
-    "verify:emulator-state": "node scripts/verify-emulator-state.mjs",
     "preview": "vite preview",
-    "emulators": "node scripts/start-emulators.mjs",
-    "checkpoint:emulators": "node scripts/checkpoint-emulators.mjs",
     "ar:prepare": "node scripts/prepare-ar-proof.mjs"
   },
   "dependencies": {
@@ -24,7 +19,6 @@
     "@hookform/resolvers": "^5.9.1",
     "@supabase/supabase-js": "^2.116.0",
     "@tanstack/react-query": "^5.102.8",
-    "firebase": "^12.18.0",
     "lucide-react": "^1.37.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -35,7 +29,6 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
-    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

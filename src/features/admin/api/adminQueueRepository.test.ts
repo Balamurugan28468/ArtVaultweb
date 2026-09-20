@@ -1,57 +1,67 @@
-import { Timestamp } from 'firebase/firestore'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { collection, getDocs, query, where } = vi.hoisted(() => ({
-  collection: vi.fn((_db: unknown, name: string) => ({ path: name })),
-  getDocs: vi.fn(),
-  query: vi.fn((...args: unknown[]) => ({ args })),
-  where: vi.fn((...args: unknown[]) => ({ args })),
-}))
-
-vi.mock('firebase/firestore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, collection, getDocs, query, where }
+const { createClient, from, result: supabaseResult } = vi.hoisted(() => {
+  const builder = {
+    select: vi.fn(),
+    eq: vi.fn(),
+    order: vi.fn(),
+  }
+  builder.select.mockReturnValue(builder)
+  builder.eq.mockReturnValue(builder)
+  builder.order.mockReturnValue(builder)
+  const from = vi.fn(() => builder)
+  return {
+    createClient: vi.fn(() => ({ from })),
+    from,
+    result: vi.fn(),
+  }
 })
-vi.mock('@/lib/firebase/config', () => ({ db: {} }))
+
+vi.mock('@/lib/supabase/client', () => ({ createClient }))
+vi.mock('@/lib/supabase/data', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/supabase/data')>()),
+  result: supabaseResult,
+}))
 
 const { getPendingSellerApplications, getSubmittedArtworks } = await import('./adminQueueRepository')
 
 function fakeSnapshot(docs: Array<{ id: string; data: Record<string, unknown> }>) {
-  return { docs: docs.map((d) => ({ id: d.id, data: () => d.data })) }
+  return docs.map((document) => ({ id: document.id, ...document.data }))
 }
 
-const now = Timestamp.now()
+const now = '2026-09-19T10:00:00.000Z'
+
+beforeEach(() => {
+  supabaseResult.mockReset()
+  from.mockClear()
+})
 
 describe('getPendingSellerApplications', () => {
   it('queries sellers where status == PENDING and maps + sorts oldest-applied-first', async () => {
-    getDocs.mockResolvedValueOnce(
+    supabaseResult.mockResolvedValueOnce(
       fakeSnapshot([
-        {
-          id: 'bob',
-          data: {
-            uid: 'bob',
-            status: 'PENDING',
-            businessName: 'Bob Art',
-            description: 'd',
-            contactEmail: 'bob@example.com',
-            appliedAt: new Timestamp(now.seconds + 10, 0),
-            reviewedAt: null,
-            createdAt: now,
-            updatedAt: now,
-          },
-        },
         {
           id: 'alice',
           data: {
-            uid: 'alice',
             status: 'PENDING',
-            businessName: 'Alice Art',
+            business_name: 'Alice Art',
             description: 'd',
-            contactEmail: 'alice@example.com',
-            appliedAt: now,
-            reviewedAt: null,
-            createdAt: now,
-            updatedAt: now,
+            contact_email: 'alice@example.com',
+            reviewed_at: null,
+            created_at: now,
+            updated_at: now,
+          },
+        },
+        {
+          id: 'bob',
+          data: {
+            status: 'PENDING',
+            business_name: 'Bob Art',
+            description: 'd',
+            contact_email: 'bob@example.com',
+            reviewed_at: null,
+            created_at: '2026-09-19T10:00:10.000Z',
+            updated_at: '2026-09-19T10:00:10.000Z',
           },
         },
       ]),
@@ -59,62 +69,64 @@ describe('getPendingSellerApplications', () => {
 
     const result = await getPendingSellerApplications()
 
-    expect(where).toHaveBeenCalledWith('status', '==', 'PENDING')
+    expect(from).toHaveBeenCalledWith('seller_profiles')
     expect(result.map((a) => a.uid)).toEqual(['alice', 'bob'])
   })
 
   it('drops a malformed document rather than crashing', async () => {
-    getDocs.mockResolvedValueOnce(fakeSnapshot([{ id: 'ghost', data: { status: 'not-a-real-status' } }]))
+    supabaseResult.mockResolvedValueOnce(fakeSnapshot([{ id: 'ghost', data: { status: 'not-a-real-status' } }]))
     const result = await getPendingSellerApplications()
     expect(result).toEqual([])
   })
 
-  it('translates a raw Firestore error into a safe SellerError', async () => {
-    getDocs.mockRejectedValueOnce({ code: 'permission-denied' })
+  it('translates an RLS error into a safe SellerError', async () => {
+    supabaseResult.mockRejectedValueOnce({ code: '42501' })
     await expect(getPendingSellerApplications()).rejects.toMatchObject({ code: 'permission-denied' })
   })
 })
 
 describe('getSubmittedArtworks', () => {
   it('queries artworks where status == SUBMITTED and maps + sorts oldest-updated-first', async () => {
-    getDocs.mockResolvedValueOnce(
+    supabaseResult.mockResolvedValueOnce(
       fakeSnapshot([
         {
           id: 'a2',
           data: {
-            sellerId: 'alice',
+            seller_id: 'alice',
             status: 'SUBMITTED',
             title: 'Newer',
             description: 'd',
-            price: 1000,
+            price_minor: 1000,
             category: 'painting',
             tags: [],
             images: [],
-            inventoryCount: 1,
-            reviewedAt: null,
-            rejectionReason: null,
-            likeCount: 0,
-            createdAt: now,
-            updatedAt: new Timestamp(now.seconds + 10, 0),
+            physical_quantity: 1,
+            reserved_quantity: 0,
+            reviewed_at: null,
+            rejection_reason: null,
+            like_count: 0,
+            created_at: now,
+            updated_at: '2026-09-19T10:00:10.000Z',
           },
         },
         {
           id: 'a1',
           data: {
-            sellerId: 'alice',
+            seller_id: 'alice',
             status: 'SUBMITTED',
             title: 'Older',
             description: 'd',
-            price: 1000,
+            price_minor: 1000,
             category: 'painting',
             tags: [],
             images: [],
-            inventoryCount: 1,
-            reviewedAt: null,
-            rejectionReason: null,
-            likeCount: 0,
-            createdAt: now,
-            updatedAt: now,
+            physical_quantity: 1,
+            reserved_quantity: 0,
+            reviewed_at: null,
+            rejection_reason: null,
+            like_count: 0,
+            created_at: now,
+            updated_at: now,
           },
         },
       ]),
@@ -122,18 +134,18 @@ describe('getSubmittedArtworks', () => {
 
     const result = await getSubmittedArtworks()
 
-    expect(where).toHaveBeenCalledWith('status', '==', 'SUBMITTED')
-    expect(result.map((a) => a.id)).toEqual(['a1', 'a2'])
+    expect(from).toHaveBeenCalledWith('artwork_catalog')
+    expect(result.map((a) => a.id)).toEqual(['a2', 'a1'])
   })
 
   it('drops a malformed document rather than crashing', async () => {
-    getDocs.mockResolvedValueOnce(fakeSnapshot([{ id: 'ghost', data: { status: 'not-a-real-status' } }]))
+    supabaseResult.mockResolvedValueOnce(fakeSnapshot([{ id: 'ghost', data: { status: 'not-a-real-status' } }]))
     const result = await getSubmittedArtworks()
     expect(result).toEqual([])
   })
 
-  it('translates a raw Firestore error into a safe ArtworkError', async () => {
-    getDocs.mockRejectedValueOnce({ code: 'permission-denied' })
+  it('translates an RLS error into a safe ArtworkError', async () => {
+    supabaseResult.mockRejectedValueOnce({ code: '42501' })
     await expect(getSubmittedArtworks()).rejects.toMatchObject({ code: 'permission-denied' })
   })
 })

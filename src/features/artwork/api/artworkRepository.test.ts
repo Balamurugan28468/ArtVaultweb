@@ -1,500 +1,1059 @@
-import { Timestamp } from 'firebase/firestore'
-import { describe, expect, it, vi } from 'vitest'
-import type { ArtworkImage } from '../types'
-const { setArtworkInventory } = vi.hoisted(() => ({ setArtworkInventory: vi.fn().mockResolvedValue(undefined) }))
-vi.mock('@/features/inventory/setArtworkInventory', () => ({ setArtworkInventory }))
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
-const { addDoc, collection, deleteDoc, doc, onSnapshot, query, runTransaction, updateDoc, where, serverTimestamp } = vi.hoisted(
+import { Timestamp } from '@/lib/supabase/timestamp'
+import type {
+  ArtworkImage,
+} from '../types'
+
+const mocks = vi.hoisted(() => {
+  const builder: Record<
+    string,
+    unknown
+  > = {}
+
+  const select = vi.fn(
+    () => builder,
+  )
+
+  const eq = vi.fn(
+    () => builder,
+  )
+
+  const order = vi.fn(
+    () => builder,
+  )
+
+  const maybeSingle =
+    vi.fn(
+      () => builder,
+    )
+
+  Object.assign(
+    builder,
+    {
+      select,
+      eq,
+      order,
+      maybeSingle,
+    },
+  )
+
+  const from = vi.fn(
+    () => builder,
+  )
+
+  const createClient =
+    vi.fn(() => ({
+      from,
+    }))
+
+  const result = vi.fn()
+  const rpc = vi.fn()
+
+  const signedImage =
+    vi.fn()
+
+  const requireIdentity =
+    vi.fn()
+
+  const observe =
+    vi.fn()
+
+  return {
+    builder,
+    select,
+    eq,
+    order,
+    maybeSingle,
+
+    from,
+    createClient,
+
+    result,
+    rpc,
+    signedImage,
+    requireIdentity,
+    observe,
+  }
+})
+
+vi.mock(
+  '@/lib/supabase/client',
   () => ({
-    addDoc: vi.fn(),
-    collection: vi.fn(() => ({ path: 'artworks' })),
-    deleteDoc: vi.fn(),
-    doc: vi.fn(() => ({ path: 'artworks/a1' })),
-    onSnapshot: vi.fn(),
-    query: vi.fn((...args: unknown[]) => ({ args })),
-    runTransaction: vi.fn(),
-    updateDoc: vi.fn(),
-    where: vi.fn(),
-    serverTimestamp: vi.fn(() => 'SERVER_TIMESTAMP'),
+    createClient:
+      mocks.createClient,
   }),
 )
 
-vi.mock('firebase/firestore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, addDoc, collection, deleteDoc, doc, onSnapshot, query, runTransaction, updateDoc, where, serverTimestamp }
-})
-vi.mock('@/lib/firebase/config', () => ({ db: {} }))
+vi.mock(
+  '@/lib/supabase/data',
+  async (
+    importOriginal,
+  ) => {
+    const actual =
+      await importOriginal<
+        typeof import('@/lib/supabase/data')
+      >()
+
+    return {
+      ...actual,
+
+      result:
+        mocks.result,
+
+      rpc:
+        mocks.rpc,
+
+      signedImage:
+        mocks.signedImage,
+
+      requireIdentity:
+        mocks.requireIdentity,
+
+      observe:
+        mocks.observe,
+    }
+  },
+)
 
 const {
   createArtworkDraft,
   deleteOwnedArtwork,
+  getArtwork,
+  getPublicArtwork,
+  mapCatalogRow,
   mapToArtwork,
   mutateArtworkImages,
   removeArtworkFromSale,
   resubmitArtworkForReview,
+  sellerArtworks,
+  submitArtwork,
   subscribeArtwork,
   subscribePublishedArtworks,
   subscribeSellerArtworks,
-  submitArtwork,
   toArtworkError,
   updateArtworkDraft,
   updatePublishedArtworkSafeFields,
-} = await import('./artworkRepository')
+} = await import(
+  './artworkRepository'
+)
 
 const INPUT = {
-  title: '  Sunset  ',
-  description: '  A painting.  ',
+  title: 'Sunset',
+  description:
+    'A painting.',
   price: 1500,
   category: 'painting',
-  tags: ['blue', 'abstract'],
+  tags: [
+    'blue',
+    'abstract',
+  ],
   inventoryCount: 2,
 }
 
-describe('createArtworkDraft', () => {
-  it('writes a new DRAFT with trimmed text fields, empty images, and server timestamps', async () => {
-    addDoc.mockResolvedValueOnce({ id: 'a1' })
+function catalogRow(
+  id = 'a1',
+  overrides: Record<
+    string,
+    unknown
+  > = {},
+) {
+  return {
+    id,
 
-    const id = await createArtworkDraft('alice', INPUT)
+    seller_id:
+      'seller-1',
 
-    expect(id).toBe('a1')
-    expect(addDoc).toHaveBeenCalledWith(expect.anything(), {
-      sellerId: 'alice',
-      title: 'Sunset',
-      description: 'A painting.',
-      price: 1500,
-      category: 'painting',
-      tags: ['blue', 'abstract'],
-      images: [],
-      inventoryCount: 2,
-      status: 'DRAFT',
-      createdAt: 'SERVER_TIMESTAMP',
-      updatedAt: 'SERVER_TIMESTAMP',
-    })
-  })
+    title:
+      'Sunset',
 
-  it('throws a typed ArtworkError when the write is denied', async () => {
-    addDoc.mockRejectedValueOnce({ code: 'permission-denied' })
-    await expect(createArtworkDraft('alice', INPUT)).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'You do not have permission to do that.',
-    })
-  })
-})
+    description:
+      'A painting.',
 
-describe('updateArtworkDraft', () => {
-  it('does not save metadata or claim success when trusted stock adjustment rejects reservations', async () => {
-    const previousWrites = updateDoc.mock.calls.length
-    setArtworkInventory.mockRejectedValueOnce({ code: 'functions/failed-precondition', message: 'Stock cannot be lower than reserved units.' })
-    await expect(updateArtworkDraft('a1', INPUT)).rejects.toMatchObject({ message: 'Stock cannot be lower than reserved units.' })
-    expect(updateDoc).toHaveBeenCalledTimes(previousWrites)
-  })
-  it('writes the editable fields plus a fresh updatedAt, never sellerId/status/images', async () => {
-    updateDoc.mockResolvedValueOnce(undefined)
+    price_minor:
+      1500,
 
-    await updateArtworkDraft('a1', INPUT)
-    expect(setArtworkInventory).toHaveBeenCalledWith('a1', 2)
+    category:
+      'painting',
 
-    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
-      title: 'Sunset',
-      description: 'A painting.',
-      price: 1500,
-      category: 'painting',
-      tags: ['blue', 'abstract'],
-      updatedAt: 'SERVER_TIMESTAMP',
-    })
-  })
-})
+    tags: [
+      'blue',
+    ],
 
-describe('submitArtwork', () => {
-  it('writes only status and updatedAt', async () => {
-    updateDoc.mockResolvedValueOnce(undefined)
-    await submitArtwork('a1')
-    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), { status: 'SUBMITTED', updatedAt: 'SERVER_TIMESTAMP' })
-  })
-})
+    images: [],
 
-describe('updatePublishedArtworkSafeFields (Module 13 Phase 4)', () => {
-  it('adjusts stock through the callable and writes only safe metadata directly', async () => {
-    updateDoc.mockResolvedValueOnce(undefined)
+    physical_quantity:
+      2,
 
-    await updatePublishedArtworkSafeFields('a1', { price: 1750, inventoryCount: 4, tags: ['updated'] })
-    expect(setArtworkInventory).toHaveBeenCalledWith('a1', 4)
+    reserved_quantity:
+      0,
 
-    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
-      price: 1750,
-      tags: ['updated'],
-      updatedAt: 'SERVER_TIMESTAMP',
-    })
-  })
+    status:
+      'PUBLISHED',
 
-  it('translates a raw Firestore error into a safe ArtworkError', async () => {
-    updateDoc.mockRejectedValueOnce({ code: 'permission-denied' })
-    await expect(updatePublishedArtworkSafeFields('a1', { price: 1, inventoryCount: 1, tags: [] })).rejects.toMatchObject({
-      code: 'permission-denied',
-    })
-  })
-})
+    reviewed_at:
+      null,
 
-describe('resubmitArtworkForReview (Module 13 Phase 4; images added by its photo-editing follow-up)', () => {
-  const IMAGES: ArtworkImage[] = [
-    { id: 'img1.jpg', path: 'artworks/alice/a1/img1.jpg', url: 'https://example.test/img1.jpg', order: 0, contentType: 'image/jpeg', size: 100 },
-  ]
+    rejection_reason:
+      null,
 
-  it('writes the full editable field set including images, forces status to SUBMITTED, and clears reviewedAt/rejectionReason', async () => {
-    updateDoc.mockResolvedValueOnce(undefined)
+    like_count:
+      5,
 
-    await resubmitArtworkForReview('a1', INPUT, IMAGES)
-    expect(setArtworkInventory).toHaveBeenCalledWith('a1', 2)
+    created_at:
+      '2026-09-19T10:00:00.000Z',
 
-    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
-      title: 'Sunset',
-      description: 'A painting.',
-      price: 1500,
-      category: 'painting',
-      tags: ['blue', 'abstract'],
-      images: IMAGES,
-      status: 'SUBMITTED',
-      reviewedAt: null,
-      rejectionReason: null,
-      updatedAt: 'SERVER_TIMESTAMP',
-    })
-  })
+    updated_at:
+      '2026-09-19T10:00:00.000Z',
 
-  it('translates a raw Firestore error into a safe ArtworkError', async () => {
-    updateDoc.mockRejectedValueOnce({ code: 'permission-denied' })
-    await expect(resubmitArtworkForReview('a1', INPUT, IMAGES)).rejects.toMatchObject({ code: 'permission-denied' })
-  })
-})
+    ...overrides,
+  }
+}
 
-describe('deleteOwnedArtwork', () => {
-  it('deletes the document', async () => {
-    deleteDoc.mockResolvedValueOnce(undefined)
-    await deleteOwnedArtwork('a1')
-    expect(deleteDoc).toHaveBeenCalledTimes(1)
-  })
+beforeEach(() => {
+  mocks.select.mockClear()
+  mocks.eq.mockClear()
+  mocks.order.mockClear()
+  mocks.maybeSingle.mockClear()
+  mocks.from.mockClear()
+  mocks.createClient.mockClear()
 
-  it('throws a typed ArtworkError when denied (e.g. attempting to delete a SUBMITTED or PUBLISHED artwork)', async () => {
-    deleteDoc.mockRejectedValueOnce({ code: 'permission-denied' })
-    await expect(deleteOwnedArtwork('a1')).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'You do not have permission to do that.',
-    })
-  })
-})
+  mocks.result.mockReset()
 
-describe('removeArtworkFromSale', () => {
-  it('moves the artwork to SUBMITTED and clears reviewedAt/rejectionReason, touching no content field', async () => {
-    updateDoc.mockResolvedValueOnce(undefined)
-    await removeArtworkFromSale('a1')
-    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
-      status: 'SUBMITTED',
-      reviewedAt: null,
-      rejectionReason: null,
-      updatedAt: 'SERVER_TIMESTAMP',
-    })
-  })
-
-  it('throws a typed ArtworkError when denied (e.g. attempting this on a non-owned artwork)', async () => {
-    updateDoc.mockRejectedValueOnce({ code: 'permission-denied' })
-    await expect(removeArtworkFromSale('a1')).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'You do not have permission to do that.',
-    })
-  })
-})
-
-describe('toArtworkError', () => {
-  it('maps unavailable to a network error', () => {
-    expect(toArtworkError({ code: 'unavailable' })).toEqual({
-      code: 'network',
-      message: 'Network unavailable. Check your connection and try again.',
-    })
-  })
-
-  it('falls back to unknown for an unrecognized error', () => {
-    expect(toArtworkError(new Error('boom'))).toEqual({ code: 'unknown', message: 'Something went wrong. Please try again.' })
-  })
-})
-
-describe('mapToArtwork — likeCount defensive mapping (Module 12)', () => {
-  const BASE = { sellerId: 'alice', status: 'PUBLISHED' as const }
-
-  it('retains a valid likeCount', () => {
-    expect(mapToArtwork('a1', { ...BASE, likeCount: 42 })?.likeCount).toBe(42)
-  })
-
-  it('defaults to 0 when likeCount is absent — a pre-Module-12 document that predates the field', () => {
-    expect(mapToArtwork('a1', { ...BASE })?.likeCount).toBe(0)
-  })
-
-  it('defaults to 0 when likeCount is malformed (wrong type)', () => {
-    expect(mapToArtwork('a1', { ...BASE, likeCount: 'lots' })?.likeCount).toBe(0)
-  })
-
-  it('defaults to 0 when likeCount is negative — never trusts an impossible value', () => {
-    expect(mapToArtwork('a1', { ...BASE, likeCount: -3 })?.likeCount).toBe(0)
-  })
-})
-
-describe('subscribeArtwork', () => {
-  it('subscribes exactly once and returns the underlying unsubscribe function', () => {
-    const unsubscribe = vi.fn()
-    onSnapshot.mockReturnValueOnce(unsubscribe)
-    const result = subscribeArtwork('a1', vi.fn(), vi.fn())
-    expect(onSnapshot).toHaveBeenCalledTimes(1)
-    expect(result).toBe(unsubscribe)
-  })
-
-  it('reports null when the artwork does not exist', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({ exists: () => false })
-      return vi.fn()
-    })
-    subscribeArtwork('a1', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith(null)
-  })
-
-  it('treats a document with a missing sellerId or unrecognized status as unreadable rather than crashing', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({ exists: () => true, data: () => ({ status: 'NOT_A_REAL_STATUS' }) })
-      return vi.fn()
-    })
-    subscribeArtwork('a1', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith(null)
-  })
-
-  it('recognizes PUBLISHED and REJECTED as valid statuses (Module 07)', () => {
-    const onData = vi.fn()
-    const reviewedAt = Timestamp.fromMillis(1000)
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({
-        id: 'a1',
-        exists: () => true,
-        data: () => ({
-          sellerId: 'alice',
-          status: 'REJECTED',
-          reviewedAt,
-          rejectionReason: 'blurry photos',
-        }),
-      })
-      return vi.fn()
-    })
-    subscribeArtwork('a1', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'REJECTED', reviewedAt, rejectionReason: 'blurry photos' }),
+  mocks.rpc
+    .mockReset()
+    .mockResolvedValue(
+      undefined,
     )
-  })
 
-  it('defaults reviewedAt/rejectionReason to null when absent (e.g. a DRAFT/SUBMITTED artwork never reviewed)', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({ id: 'a1', exists: () => true, data: () => ({ sellerId: 'alice', status: 'SUBMITTED' }) })
-      return vi.fn()
-    })
-    subscribeArtwork('a1', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith(expect.objectContaining({ reviewedAt: null, rejectionReason: null }))
-  })
+  mocks.signedImage
+    .mockReset()
+    .mockResolvedValue(
+      'https://example.test/signed-image',
+    )
+
+  mocks.requireIdentity
+    .mockReset()
+    .mockResolvedValue(
+      undefined,
+    )
+
+  mocks.observe.mockReset()
 })
 
-describe('subscribePublishedArtworks', () => {
-  it('queries by sellerId and PUBLISHED status, and maps/sorts the results', () => {
-    const older = Timestamp.fromMillis(1000)
-    const newer = Timestamp.fromMillis(2000)
-    const onData = vi.fn()
+describe(
+  'mapToArtwork',
+  () => {
+    it('maps a valid artwork', () => {
+      const createdAt =
+        Timestamp.fromMillis(
+          1000,
+        )
 
-    onSnapshot.mockImplementationOnce((_query, successCallback: (snap: unknown) => void) => {
-      successCallback({
-        docs: [
+      const artwork =
+        mapToArtwork(
+          'a1',
           {
-            id: 'old',
-            data: () => ({
-              sellerId: 'alice',
-              title: 'Old',
-              description: 'd',
-              price: 100,
-              category: 'painting',
-              tags: [],
-              images: [],
-              inventoryCount: 1,
-              status: 'PUBLISHED',
-              createdAt: older,
-              updatedAt: older,
-            }),
+            sellerId:
+              'seller-1',
+
+            title:
+              'Sunset',
+
+            description:
+              'A painting.',
+
+            price:
+              1500,
+
+            category:
+              'painting',
+
+            tags: [
+              'blue',
+            ],
+
+            images: [],
+
+            inventoryCount:
+              2,
+
+            reservedCount:
+              1,
+
+            status:
+              'PUBLISHED',
+
+            reviewedAt:
+              null,
+
+            rejectionReason:
+              null,
+
+            likeCount:
+              42,
+
+            createdAt,
+
+            updatedAt:
+              createdAt,
           },
+        )
+
+      expect(
+        artwork,
+      ).toEqual(
+        expect.objectContaining({
+          id: 'a1',
+          sellerId:
+            'seller-1',
+          status:
+            'PUBLISHED',
+          likeCount:
+            42,
+          reservedCount:
+            1,
+        }),
+      )
+    })
+
+    it('returns null for an invalid status', () => {
+      expect(
+        mapToArtwork(
+          'a1',
           {
-            id: 'new',
-            data: () => ({
-              sellerId: 'alice',
-              title: 'New',
-              description: 'd',
-              price: 200,
-              category: 'painting',
-              tags: [],
-              images: [],
-              inventoryCount: 1,
-              status: 'PUBLISHED',
-              createdAt: newer,
-              updatedAt: newer,
-            }),
+            sellerId:
+              'seller-1',
+
+            status:
+              'NOT_REAL',
           },
-        ],
+        ),
+      ).toBeNull()
+    })
+
+    it('returns null when sellerId is missing', () => {
+      expect(
+        mapToArtwork(
+          'a1',
+          {
+            status:
+              'PUBLISHED',
+          },
+        ),
+      ).toBeNull()
+    })
+
+    it('defaults optional numeric values safely', () => {
+      const artwork =
+        mapToArtwork(
+          'a1',
+          {
+            sellerId:
+              'seller-1',
+
+            status:
+              'DRAFT',
+          },
+        )
+
+      expect(
+        artwork,
+      ).toEqual(
+        expect.objectContaining({
+          price: 0,
+          inventoryCount:
+            0,
+          reservedCount:
+            0,
+          likeCount:
+            0,
+        }),
+      )
+    })
+  },
+)
+
+describe(
+  'mapCatalogRow',
+  () => {
+    it('maps Supabase column names into the application Artwork shape', async () => {
+      const artwork =
+        await mapCatalogRow(
+          catalogRow(),
+        )
+
+      expect(
+        artwork,
+      ).toEqual(
+        expect.objectContaining({
+          id: 'a1',
+
+          sellerId:
+            'seller-1',
+
+          price:
+            1500,
+
+          inventoryCount:
+            2,
+
+          reservedCount:
+            0,
+
+          likeCount:
+            5,
+
+          status:
+            'PUBLISHED',
+        }),
+      )
+
+      expect(
+        artwork.createdAt,
+      ).toBeInstanceOf(
+        Timestamp,
+      )
+    })
+
+    it('resolves artwork image paths through Supabase Storage', async () => {
+      const artwork =
+        await mapCatalogRow(
+          catalogRow(
+            'a1',
+            {
+              images: [
+                {
+                  id: 'img-1',
+
+                  path:
+                    'seller-1/a1/img-1',
+
+                  contentType:
+                    'image/jpeg',
+
+                  order: 0,
+
+                  size: 100,
+                },
+              ],
+            },
+          ),
+        )
+
+      expect(
+        mocks.signedImage,
+      ).toHaveBeenCalledWith(
+        'seller-1/a1/img-1',
+      )
+
+      expect(
+        artwork.images[0],
+      ).toEqual({
+        id: 'img-1',
+
+        path:
+          'seller-1/a1/img-1',
+
+        url:
+          'https://example.test/signed-image',
+
+        order: 0,
+
+        contentType:
+          'image/jpeg',
+
+        size: 100,
       })
-      return vi.fn()
+    })
+  },
+)
+
+describe(
+  'sellerArtworks',
+  () => {
+    it('reads seller artworks from artwork_catalog', async () => {
+      mocks.result.mockResolvedValueOnce([
+        catalogRow(
+          'a1',
+        ),
+      ])
+
+      const artworks =
+        await sellerArtworks(
+          'seller-1',
+        )
+
+      expect(
+        mocks.from,
+      ).toHaveBeenCalledWith(
+        'artwork_catalog',
+      )
+
+      expect(
+        mocks.eq,
+      ).toHaveBeenCalledWith(
+        'seller_id',
+        'seller-1',
+      )
+
+      expect(
+        artworks.map(
+          (artwork) =>
+            artwork.id,
+        ),
+      ).toEqual([
+        'a1',
+      ])
     })
 
-    subscribePublishedArtworks('alice', onData, vi.fn())
+    it('adds the PUBLISHED filter when requested', async () => {
+      mocks.result.mockResolvedValueOnce(
+        [],
+      )
 
-    expect(where).toHaveBeenCalledWith('sellerId', '==', 'alice')
-    expect(where).toHaveBeenCalledWith('status', '==', 'PUBLISHED')
-    const artworks = onData.mock.calls[0][0]
-    expect(artworks.map((a: { id: string }) => a.id)).toEqual(['new', 'old'])
-  })
+      await sellerArtworks(
+        'seller-1',
+        true,
+      )
 
-  it('filters out documents that fail to map (defensive against malformed data)', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_query, successCallback: (snap: unknown) => void) => {
-      successCallback({ docs: [{ id: 'bad', data: () => ({ status: 'NOT_REAL' }) }] })
-      return vi.fn()
+      expect(
+        mocks.eq,
+      ).toHaveBeenCalledWith(
+        'status',
+        'PUBLISHED',
+      )
     })
-    subscribePublishedArtworks('alice', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith([])
-  })
-})
+  },
+)
 
-describe('subscribeSellerArtworks', () => {
-  it('maps and sorts the seller’s own artworks by most-recently-updated first', () => {
-    const older = Timestamp.fromMillis(1000)
-    const newer = Timestamp.fromMillis(2000)
-    const onData = vi.fn()
+describe(
+  'getArtwork',
+  () => {
+    it('returns null when the catalog row does not exist', async () => {
+      mocks.result.mockResolvedValueOnce(
+        null,
+      )
 
-    onSnapshot.mockImplementationOnce((_query, successCallback: (snap: unknown) => void) => {
-      successCallback({
-        docs: [
-          {
-            id: 'old',
-            data: () => ({
-              sellerId: 'alice',
-              title: 'Old',
-              description: 'd',
-              price: 100,
-              category: 'painting',
-              tags: [],
-              images: [],
-              inventoryCount: 1,
-              status: 'DRAFT',
-              createdAt: older,
-              updatedAt: older,
-            }),
-          },
-          {
-            id: 'new',
-            data: () => ({
-              sellerId: 'alice',
-              title: 'New',
-              description: 'd',
-              price: 200,
-              category: 'painting',
-              tags: [],
-              images: [],
-              inventoryCount: 1,
-              status: 'DRAFT',
-              createdAt: newer,
-              updatedAt: newer,
-            }),
-          },
+      await expect(
+        getArtwork(
+          'missing',
+        ),
+      ).resolves.toBeNull()
+    })
+
+    it('maps an existing artwork', async () => {
+      mocks.result.mockResolvedValueOnce(
+        catalogRow(
+          'a1',
+        ),
+      )
+
+      const artwork =
+        await getArtwork(
+          'a1',
+        )
+
+      expect(
+        artwork?.id,
+      ).toBe('a1')
+    })
+  },
+)
+
+describe(
+  'getPublicArtwork',
+  () => {
+    it('requires PUBLISHED status', async () => {
+      mocks.result.mockResolvedValueOnce(
+        null,
+      )
+
+      await getPublicArtwork(
+        'a1',
+      )
+
+      expect(
+        mocks.eq,
+      ).toHaveBeenCalledWith(
+        'status',
+        'PUBLISHED',
+      )
+    })
+  },
+)
+
+describe(
+  'createArtworkDraft',
+  () => {
+    it('verifies the seller identity and delegates creation to the protected RPC', async () => {
+      mocks.rpc.mockResolvedValueOnce(
+        'a1',
+      )
+
+      const id =
+        await createArtworkDraft(
+          'seller-1',
+          INPUT,
+        )
+
+      expect(id).toBe(
+        'a1',
+      )
+
+      expect(
+        mocks.requireIdentity,
+      ).toHaveBeenCalledWith(
+        'seller-1',
+      )
+
+      expect(
+        mocks.rpc,
+      ).toHaveBeenCalledWith(
+        'save_artwork',
+        {
+          target:
+            null,
+
+          operation:
+            'CREATE',
+
+          fields:
+            INPUT,
+        },
+      )
+    })
+  },
+)
+
+describe(
+  'artwork write RPCs',
+  () => {
+    it('updates a draft through save_artwork', async () => {
+      await updateArtworkDraft(
+        'a1',
+        INPUT,
+      )
+
+      expect(
+        mocks.rpc,
+      ).toHaveBeenCalledWith(
+        'save_artwork',
+        {
+          target:
+            'a1',
+
+          operation:
+            'EDIT',
+
+          fields:
+            INPUT,
+        },
+      )
+    })
+
+    it('submits an artwork through save_artwork', async () => {
+      await submitArtwork(
+        'a1',
+      )
+
+      expect(
+        mocks.rpc,
+      ).toHaveBeenCalledWith(
+        'save_artwork',
+        {
+          target:
+            'a1',
+
+          operation:
+            'SUBMIT',
+        },
+      )
+    })
+
+    it('updates published safe fields through save_artwork', async () => {
+      const fields = {
+        price:
+          2000,
+
+        inventoryCount:
+          3,
+
+        tags: [
+          'updated',
         ],
+      }
+
+      await updatePublishedArtworkSafeFields(
+        'a1',
+        fields,
+      )
+
+      expect(
+        mocks.rpc,
+      ).toHaveBeenCalledWith(
+        'save_artwork',
+        {
+          target:
+            'a1',
+
+          operation:
+            'SAFE_EDIT',
+
+          fields,
+        },
+      )
+    })
+
+    it('resubmits artwork content through resubmit_artwork', async () => {
+      const images: ArtworkImage[] =
+        [
+          {
+            id:
+              'img-1',
+
+            path:
+              'seller-1/a1/img-1',
+
+            url:
+              'https://example.test/image',
+
+            order:
+              0,
+
+            contentType:
+              'image/jpeg',
+
+            size:
+              100,
+          },
+        ]
+
+      await resubmitArtworkForReview(
+        'a1',
+        INPUT,
+        images,
+      )
+
+      expect(
+        mocks.rpc,
+      ).toHaveBeenCalledWith(
+        'resubmit_artwork',
+        {
+          target:
+            'a1',
+
+          fields:
+            INPUT,
+
+          images: [
+            {
+              id:
+                'img-1',
+            },
+          ],
+        },
+      )
+    })
+
+    it('deletes an owned artwork using the protected RPC', async () => {
+      await deleteOwnedArtwork(
+        'a1',
+      )
+
+      expect(
+        mocks.rpc,
+      ).toHaveBeenCalledWith(
+        'save_artwork',
+        {
+          target:
+            'a1',
+
+          operation:
+            'DELETE',
+        },
+      )
+    })
+
+    it('removes an artwork from sale using the protected RPC', async () => {
+      await removeArtworkFromSale(
+        'a1',
+      )
+
+      expect(
+        mocks.rpc,
+      ).toHaveBeenCalledWith(
+        'save_artwork',
+        {
+          target:
+            'a1',
+
+          operation:
+            'REMOVE',
+        },
+      )
+    })
+  },
+)
+
+describe(
+  'subscriptions',
+  () => {
+    it('subscribes to seller artwork changes through Supabase Realtime', () => {
+      const unsubscribe =
+        vi.fn()
+
+      mocks.observe.mockReturnValueOnce(
+        unsubscribe,
+      )
+
+      const returned =
+        subscribeSellerArtworks(
+          'seller-1',
+          vi.fn(),
+          vi.fn(),
+        )
+
+      expect(
+        mocks.observe,
+      ).toHaveBeenCalledWith(
+        'artworks',
+
+        'seller_id=eq.seller-1',
+
+        expect.any(
+          Function,
+        ),
+
+        expect.any(
+          Function,
+        ),
+
+        expect.any(
+          Function,
+        ),
+      )
+
+      expect(
+        returned,
+      ).toBe(
+        unsubscribe,
+      )
+    })
+
+    it('subscribes to published seller artwork changes', () => {
+      const unsubscribe =
+        vi.fn()
+
+      mocks.observe.mockReturnValueOnce(
+        unsubscribe,
+      )
+
+      const returned =
+        subscribePublishedArtworks(
+          'seller-1',
+          vi.fn(),
+          vi.fn(),
+        )
+
+      expect(
+        returned,
+      ).toBe(
+        unsubscribe,
+      )
+    })
+
+    it('subscribes to both artwork and inventory changes for one artwork', () => {
+      const stopArtwork =
+        vi.fn()
+
+      const stopInventory =
+        vi.fn()
+
+      mocks.observe
+        .mockReturnValueOnce(
+          stopArtwork,
+        )
+        .mockReturnValueOnce(
+          stopInventory,
+        )
+
+      const stop =
+        subscribeArtwork(
+          'a1',
+          vi.fn(),
+          vi.fn(),
+        )
+
+      expect(
+        mocks.observe,
+      ).toHaveBeenCalledTimes(
+        2,
+      )
+
+      stop()
+
+      expect(
+        stopArtwork,
+      ).toHaveBeenCalledTimes(
+        1,
+      )
+
+      expect(
+        stopInventory,
+      ).toHaveBeenCalledTimes(
+        1,
+      )
+    })
+  },
+)
+
+describe(
+  'mutateArtworkImages',
+  () => {
+    it('reads the current artwork, applies the updater and calls update_artwork_images', async () => {
+      mocks.result.mockResolvedValueOnce(
+        catalogRow(
+          'a1',
+        ),
+      )
+
+      const image: ArtworkImage = {
+        id:
+          'img-1',
+
+        path:
+          'seller-1/a1/img-1',
+
+        url:
+          'https://example.test/image',
+
+        order:
+          0,
+
+        contentType:
+          'image/jpeg',
+
+        size:
+          100,
+      }
+
+      const result =
+        await mutateArtworkImages(
+          'a1',
+
+          () => [
+            image,
+          ],
+        )
+
+      expect(
+        result,
+      ).toEqual([
+        image,
+      ])
+
+      expect(
+        mocks.rpc,
+      ).toHaveBeenCalledWith(
+        'update_artwork_images',
+        {
+          target:
+            'a1',
+
+          images: [
+            {
+              id:
+                'img-1',
+            },
+          ],
+        },
+      )
+    })
+
+    it('fails safely when the artwork no longer exists', async () => {
+      mocks.result.mockResolvedValueOnce(
+        null,
+      )
+
+      await expect(
+        mutateArtworkImages(
+          'missing',
+
+          (
+            current,
+          ) =>
+            current,
+        ),
+      ).rejects.toEqual({
+        code:
+          'unknown',
+
+        message:
+          'Something went wrong. Please try again.',
       })
-      return vi.fn()
+
+      expect(
+        mocks.rpc,
+      ).not.toHaveBeenCalled()
+    })
+  },
+)
+
+describe(
+  'toArtworkError',
+  () => {
+    it('maps a Supabase RLS denial', () => {
+      expect(
+        toArtworkError({
+          code:
+            '42501',
+        }),
+      ).toEqual({
+        code:
+          'permission-denied',
+
+        message:
+          'You do not have permission to do that.',
+      })
     })
 
-    subscribeSellerArtworks('alice', onData, vi.fn())
+    it('maps network failures', () => {
+      expect(
+        toArtworkError(
+          new TypeError(
+            'offline',
+          ),
+        ),
+      ).toEqual({
+        code:
+          'network',
 
-    expect(onData).toHaveBeenCalledTimes(1)
-    const artworks = onData.mock.calls[0][0]
-    expect(artworks.map((a: { id: string }) => a.id)).toEqual(['new', 'old'])
-  })
-
-  it('filters out documents that fail to map (defensive against malformed data)', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_query, successCallback: (snap: unknown) => void) => {
-      successCallback({ docs: [{ id: 'bad', data: () => ({ status: 'NOT_REAL' }) }] })
-      return vi.fn()
-    })
-    subscribeSellerArtworks('alice', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith([])
-  })
-})
-
-const EXISTING_IMAGE: ArtworkImage = {
-  id: 'img1.jpg',
-  path: 'artworks/alice/a1/img1.jpg',
-  url: 'https://example.test/img1.jpg',
-  order: 0,
-  contentType: 'image/jpeg',
-  size: 1024,
-}
-
-function fakeTransaction(docData: Record<string, unknown> | null) {
-  return { get: vi.fn().mockResolvedValue({ exists: () => docData !== null, data: () => docData }), update: vi.fn() }
-}
-
-describe('mutateArtworkImages', () => {
-  it('reads the current images fresh, applies the updater, and writes the result plus updatedAt', async () => {
-    const transaction = fakeTransaction({ status: 'DRAFT', images: [EXISTING_IMAGE] })
-    runTransaction.mockImplementationOnce(async (_db: unknown, callback: (tx: unknown) => unknown) => callback(transaction))
-
-    const newImage = { ...EXISTING_IMAGE, id: 'img2.jpg', path: 'artworks/alice/a1/img2.jpg', order: 1 }
-    const result = await mutateArtworkImages('a1', (current) => [...current, newImage])
-
-    expect(result).toEqual([EXISTING_IMAGE, newImage])
-    expect(transaction.update).toHaveBeenCalledWith(expect.anything(), {
-      images: [EXISTING_IMAGE, newImage],
-      updatedAt: 'SERVER_TIMESTAMP',
-    })
-  })
-
-  it('drops malformed stored image entries before handing them to the updater', async () => {
-    const transaction = fakeTransaction({ status: 'DRAFT', images: [{ id: 'bad' }] })
-    runTransaction.mockImplementationOnce(async (_db: unknown, callback: (tx: unknown) => unknown) => callback(transaction))
-
-    let seenByUpdater: unknown
-    await mutateArtworkImages('a1', (current) => {
-      seenByUpdater = current
-      return current
+        message:
+          'Network unavailable. Check your connection and try again.',
+      })
     })
 
-    expect(seenByUpdater).toEqual([])
-  })
+    it('falls back to an unknown safe error', () => {
+      expect(
+        toArtworkError(
+          new Error(
+            'boom',
+          ),
+        ),
+      ).toEqual({
+        code:
+          'unknown',
 
-  it('throws a typed error without writing when the artwork no longer exists', async () => {
-    const transaction = fakeTransaction(null)
-    runTransaction.mockImplementationOnce(async (_db: unknown, callback: (tx: unknown) => unknown) => callback(transaction))
-
-    await expect(mutateArtworkImages('a1', (current) => current)).rejects.toEqual({
-      code: 'unknown',
-      message: 'This artwork no longer exists.',
+        message:
+          'Something went wrong. Please try again.',
+      })
     })
-    expect(transaction.update).not.toHaveBeenCalled()
-  })
-
-  it('throws a typed error without writing when the artwork is no longer DRAFT', async () => {
-    const transaction = fakeTransaction({ status: 'SUBMITTED', images: [] })
-    runTransaction.mockImplementationOnce(async (_db: unknown, callback: (tx: unknown) => unknown) => callback(transaction))
-
-    await expect(mutateArtworkImages('a1', (current) => current)).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'This artwork can no longer be edited.',
-    })
-    expect(transaction.update).not.toHaveBeenCalled()
-  })
-
-  it('maps a genuine Firestore error (e.g. a denied write) to a safe message', async () => {
-    runTransaction.mockRejectedValueOnce(Object.assign(new Error('permission-denied'), { code: 'permission-denied' }))
-    await expect(mutateArtworkImages('a1', (current) => current)).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'You do not have permission to do that.',
-    })
-  })
-})
+  },
+)

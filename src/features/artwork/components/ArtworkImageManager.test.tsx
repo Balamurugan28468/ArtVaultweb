@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ArtworkImageManager } from './ArtworkImageManager'
 import type { FileValidationError } from '../api/artworkImageStorage'

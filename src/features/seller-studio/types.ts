@@ -1,4 +1,4 @@
-import type { Timestamp } from 'firebase/firestore'
+import type { Timestamp } from '@/lib/supabase/timestamp'
 
 export const SELLER_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as const
 

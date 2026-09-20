@@ -1,4 +1,4 @@
-import type { Timestamp } from 'firebase/firestore'
+import type { Timestamp } from '@/lib/supabase/timestamp'
 
 /**
  * Canonical shape of a carts/{uid}/items/{artworkId} Firestore document

@@ -1,134 +1,366 @@
+import { createClient } from '@/lib/supabase/client'
 import {
-  collection,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  writeBatch,
-  type Unsubscribe,
-} from 'firebase/firestore'
-import { db } from '@/lib/firebase/config'
-import type { Address, AddressError, AddressInput } from '../types'
+  dataError,
+  observe,
+  requireIdentity,
+  result,
+  rpc,
+} from '@/lib/supabase/data'
+import type {
+  Address,
+  AddressError,
+  AddressInput,
+} from '../types'
 
-function addressesCollection(uid: string) {
-  return collection(db, 'addresses', uid, 'entries')
+function getErrorCode(
+  error: unknown,
+): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error
+  ) {
+    return String(error.code)
+  }
+
+  return ''
 }
 
-function addressDocRef(uid: string, addressId: string) {
-  return doc(db, 'addresses', uid, 'entries', addressId)
-}
+export function toAddressError(
+  error: unknown,
+): AddressError {
+  const code = getErrorCode(error)
 
-function isFirestoreErrorLike(error: unknown): error is { code: string } {
-  return typeof error === 'object' && error !== null && 'code' in error
-}
-
-export function toAddressError(error: unknown): AddressError {
-  if (isFirestoreErrorLike(error)) {
-    if (error.code === 'permission-denied') {
-      return { code: 'permission-denied', message: 'You do not have permission to do that.' }
-    }
-    if (error.code === 'unavailable' || error.code === 'deadline-exceeded') {
-      return { code: 'network', message: 'Network unavailable. Check your connection and try again.' }
+  if (
+    code === '42501' ||
+    code === 'PGRST301' ||
+    code === 'permission-denied'
+  ) {
+    return {
+      code: 'permission-denied',
+      message:
+        'You do not have permission to do that.',
     }
   }
-  return { code: 'unknown', message: 'Something went wrong. Please try again.' }
-}
 
-/** Defensive against a malformed/partial document — a client never assumes every field is present. */
-export function mapToAddress(id: string, data: Record<string, unknown>): Address | null {
-  if (typeof data.fullName !== 'string' || typeof data.addressLine1 !== 'string') return null
+  if (
+    error instanceof TypeError ||
+    code === '57014' ||
+    code === 'network' ||
+    code === 'unavailable'
+  ) {
+    return {
+      code: 'network',
+      message:
+        'Network unavailable. Check your connection and try again.',
+    }
+  }
+
   return {
-    id,
-    fullName: data.fullName,
-    addressLine1: data.addressLine1,
-    addressLine2: typeof data.addressLine2 === 'string' ? data.addressLine2 : '',
-    city: typeof data.city === 'string' ? data.city : '',
-    state: typeof data.state === 'string' ? data.state : '',
-    postalCode: typeof data.postalCode === 'string' ? data.postalCode : '',
-    country: typeof data.country === 'string' ? data.country : '',
-    phone: typeof data.phone === 'string' ? data.phone : '',
-    isDefault: data.isDefault === true,
-    createdAt: data.createdAt as Address['createdAt'],
-    updatedAt: data.updatedAt as Address['updatedAt'],
+    code: 'unknown',
+    message:
+      'Something went wrong. Please try again.',
   }
 }
 
-/**
- * The one and only Firestore listener this feature ever opens per signed-in
- * session — a single subscription over the whole `addresses/{uid}/entries`
- * collection (same "one shared listener, not one per card" discipline
- * `subscribeWishlistIds` already established), ordered newest-first so a
- * just-added address appears at the top.
- */
+function stringValue(
+  value: unknown,
+): string {
+  return typeof value === 'string'
+    ? value
+    : ''
+}
+
+function nullableStringValue(
+  value: unknown,
+): string {
+  return typeof value === 'string'
+    ? value
+    : ''
+}
+
+function timestampValue(
+  value: unknown,
+): string {
+  if (typeof value === 'string') {
+    const date = new Date(value)
+
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString()
+    }
+  }
+
+  return new Date().toISOString()
+}
+
+export function mapToAddress(
+  data: Record<string, unknown>,
+): Address | null {
+  if (
+    typeof data.id !== 'string' ||
+    typeof data.full_name !== 'string' ||
+    typeof data.address_line1 !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id: data.id,
+
+    fullName:
+      data.full_name,
+
+    addressLine1:
+      data.address_line1,
+
+    addressLine2:
+      nullableStringValue(
+        data.address_line2,
+      ),
+
+    city:
+      stringValue(data.city),
+
+    state:
+      stringValue(data.state),
+
+    postalCode:
+      stringValue(
+        data.postal_code,
+      ),
+
+    country:
+      stringValue(data.country),
+
+    phone:
+      nullableStringValue(
+        data.phone,
+      ),
+
+    isDefault:
+      data.is_default === true,
+
+    createdAt:
+      timestampValue(
+        data.created_at,
+      ),
+
+    updatedAt:
+      timestampValue(
+        data.updated_at,
+      ),
+  }
+}
+
+async function readAddresses(
+  uid: string,
+): Promise<Address[]> {
+  await requireIdentity(uid)
+
+  const rows =
+    (await result(
+      createClient()
+        .from('addresses')
+        .select(
+          `
+            id,
+            user_id,
+            full_name,
+            address_line1,
+            address_line2,
+            city,
+            state,
+            postal_code,
+            country,
+            phone,
+            is_default,
+            created_at,
+            updated_at
+          `,
+        )
+        .eq(
+          'user_id',
+          uid,
+        )
+        .order(
+          'created_at',
+          {
+            ascending: false,
+          },
+        ),
+    )) ?? []
+
+  return rows
+    .map((row) =>
+      mapToAddress(
+        row as Record<
+          string,
+          unknown
+        >,
+      ),
+    )
+    .filter(
+      (
+        address,
+      ): address is Address =>
+        address !== null,
+    )
+}
+
 export function subscribeAddresses(
   uid: string,
-  onData: (addresses: Address[]) => void,
-  onError: (error: AddressError) => void,
-): Unsubscribe {
-  const addressesQuery = query(addressesCollection(uid), orderBy('createdAt', 'desc'))
-  return onSnapshot(
-    addressesQuery,
-    (snapshot) => {
-      const addresses = snapshot.docs
-        .map((docSnapshot) => mapToAddress(docSnapshot.id, docSnapshot.data()))
-        .filter((address): address is Address => address !== null)
-      onData(addresses)
+  onData: (
+    addresses: Address[],
+  ) => void,
+  onError: (
+    error: AddressError,
+  ) => void,
+): () => void {
+  return observe(
+    'addresses',
+
+    `user_id=eq.${uid}`,
+
+    () =>
+      readAddresses(uid),
+
+    onData,
+
+    (error) => {
+      onError(
+        toAddressError(error),
+      )
     },
-    (error) => onError(toAddressError(error)),
   )
 }
 
-/**
- * Adds a real address. `isDefault: true` also clears every other saved
- * address's own `isDefault` flag in the same atomic batch — exactly one
- * address is ever the default at a time, never a client-side-only
- * assumption that could drift from what's actually stored.
- */
-export async function addAddress(uid: string, input: AddressInput, existingIds: string[]): Promise<string> {
+function addressPayload(
+  input: AddressInput,
+): Record<string, unknown> {
+  return {
+    fullName:
+      input.fullName.trim(),
+
+    addressLine1:
+      input.addressLine1.trim(),
+
+    addressLine2:
+      input.addressLine2?.trim() ??
+      '',
+
+    city:
+      input.city.trim(),
+
+    state:
+      input.state.trim(),
+
+    postalCode:
+      input.postalCode.trim(),
+
+    country:
+      input.country.trim(),
+
+    phone:
+      input.phone?.trim() ??
+      '',
+
+    isDefault:
+      input.isDefault,
+  }
+}
+
+export async function addAddress(
+  uid: string,
+  input: AddressInput,
+  _existingIds: string[],
+): Promise<string> {
   try {
-    const batch = writeBatch(db)
-    const ref = doc(addressesCollection(uid))
-    batch.set(ref, { ...input, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
-    if (input.isDefault) {
-      for (const id of existingIds) batch.update(addressDocRef(uid, id), { isDefault: false, updatedAt: serverTimestamp() })
+    await requireIdentity(uid)
+
+    const id =
+      await rpc<string>(
+        'save_address',
+        {
+          target: null,
+          payload:
+            addressPayload(
+              input,
+            ),
+        },
+      )
+
+    if (
+      typeof id !== 'string'
+    ) {
+      throw dataError(null)
     }
-    await batch.commit()
-    return ref.id
+
+    return id
   } catch (error) {
     throw toAddressError(error)
   }
 }
 
-export async function updateAddress(uid: string, addressId: string, input: AddressInput, otherIds: string[]): Promise<void> {
+export async function updateAddress(
+  uid: string,
+  addressId: string,
+  input: AddressInput,
+  _otherIds: string[],
+): Promise<void> {
   try {
-    const batch = writeBatch(db)
-    batch.set(addressDocRef(uid, addressId), { ...input, updatedAt: serverTimestamp() }, { merge: true })
-    if (input.isDefault) {
-      for (const id of otherIds) batch.update(addressDocRef(uid, id), { isDefault: false, updatedAt: serverTimestamp() })
-    }
-    await batch.commit()
+    await requireIdentity(uid)
+
+    await rpc(
+      'save_address',
+      {
+        target:
+          addressId,
+
+        payload:
+          addressPayload(
+            input,
+          ),
+      },
+    )
   } catch (error) {
     throw toAddressError(error)
   }
 }
 
-/** Sets one address as the default, clearing every other one — a compact version of the same batch `addAddress`/`updateAddress` already do inline, exposed separately for AddressCard's own "Set Default" action. */
-export async function setDefaultAddress(uid: string, addressId: string, otherIds: string[]): Promise<void> {
+export async function setDefaultAddress(
+  uid: string,
+  addressId: string,
+  _otherIds: string[],
+): Promise<void> {
   try {
-    const batch = writeBatch(db)
-    batch.update(addressDocRef(uid, addressId), { isDefault: true, updatedAt: serverTimestamp() })
-    for (const id of otherIds) batch.update(addressDocRef(uid, id), { isDefault: false, updatedAt: serverTimestamp() })
-    await batch.commit()
+    await requireIdentity(uid)
+
+    await rpc(
+      'set_default_address',
+      {
+        target:
+          addressId,
+      },
+    )
   } catch (error) {
     throw toAddressError(error)
   }
 }
 
-export async function deleteAddress(uid: string, addressId: string): Promise<void> {
+export async function deleteAddress(
+  uid: string,
+  addressId: string,
+): Promise<void> {
   try {
-    await deleteDoc(addressDocRef(uid, addressId))
+    await requireIdentity(uid)
+
+    await rpc(
+      'delete_address',
+      {
+        target:
+          addressId,
+      },
+    )
   } catch (error) {
     throw toAddressError(error)
   }

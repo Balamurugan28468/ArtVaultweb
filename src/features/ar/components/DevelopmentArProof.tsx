@@ -8,7 +8,7 @@ import { ArtworkArViewer } from './ArtworkArViewer'
 export function DevelopmentArProof({ artwork, children }: { artwork: Artwork; children: ReactNode }) {
   const [proof, setProof] = useState<ArProof | null>(null)
   useEffect(() => {
-    if (!import.meta.env.DEV || !env.VITE_USE_FIREBASE_EMULATORS || env.VITE_FIREBASE_PROJECT_ID !== 'demo-artvault' || artwork.status !== 'PUBLISHED') return
+    if (!import.meta.env.DEV || !env.VITE_ENABLE_DEVELOPMENT_AR_PROOF || artwork.status !== 'PUBLISHED') return
     const controller = new AbortController()
     let busy = false
     const refresh = async () => {
@@ -27,6 +27,6 @@ export function DevelopmentArProof({ artwork, children }: { artwork: Artwork; ch
     return () => { controller.abort(); window.clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [artwork.id, artwork.status])
   const image = artwork.images.find((item) => item.id === proof?.imageId)
-  if (!import.meta.env.DEV || !env.VITE_USE_FIREBASE_EMULATORS || env.VITE_FIREBASE_PROJECT_ID !== 'demo-artvault' || artwork.status !== 'PUBLISHED' || proof?.artworkId !== artwork.id || !image) return <>{children}</>
+  if (!import.meta.env.DEV || !env.VITE_ENABLE_DEVELOPMENT_AR_PROOF || artwork.status !== 'PUBLISHED' || proof?.artworkId !== artwork.id || !image) return <>{children}</>
   return <div className="min-w-0 lg:col-span-2"><ArtworkArViewer key={proof.version} proof={proof} title={artwork.title} poster={image.url} /></div>
 }

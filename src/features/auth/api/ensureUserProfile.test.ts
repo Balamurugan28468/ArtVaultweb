@@ -1,132 +1,284 @@
-import type { User } from 'firebase/auth'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
-const doc = vi.fn((...args: unknown[]) => ({ args }))
-const getDoc = vi.fn()
-const runTransaction = vi.fn()
-const serverTimestamp = vi.fn(() => 'SERVER_TIMESTAMP')
+const mocks = vi.hoisted(() => {
+  const maybeSingle = vi.fn()
+  const select = vi.fn()
+  const eq = vi.fn()
 
-vi.mock('firebase/firestore', () => ({
-  doc: (...args: unknown[]) => doc(...args),
-  getDoc: (...args: unknown[]) => getDoc(...args),
-  runTransaction: (...args: unknown[]) => runTransaction(...args),
-  serverTimestamp: () => serverTimestamp(),
-}))
-vi.mock('@/lib/firebase/config', () => ({ db: {} }))
+  const insert = vi.fn()
+  const update = vi.fn()
+  const upsert = vi.fn()
 
-const { ensureUserProfile } = await import('./ensureUserProfile')
+  const builder = {
+    select,
+    eq,
+    maybeSingle,
+    insert,
+    update,
+    upsert,
+  }
 
-const fakeUser = { uid: 'alice', email: 'alice@example.com', displayName: null, photoURL: null } as User
+  select.mockReturnValue(builder)
+  eq.mockReturnValue(builder)
 
-function fakeTransaction(exists: boolean) {
-  return { get: vi.fn().mockResolvedValue({ exists: () => exists }), set: vi.fn() }
-}
+  const from = vi.fn(
+    () => builder,
+  )
+
+  const supabase = {
+    from,
+  }
+
+  return {
+    maybeSingle,
+    select,
+    eq,
+    insert,
+    update,
+    upsert,
+    from,
+    supabase,
+  }
+})
+
+vi.mock(
+  '@/lib/supabase/client',
+  () => ({
+    createClient: () =>
+      mocks.supabase,
+  }),
+)
+
+const {
+  ensureUserProfile,
+} = await import(
+  './ensureUserProfile'
+)
 
 beforeEach(() => {
-  doc.mockClear()
-  getDoc.mockReset()
-  runTransaction.mockReset()
-})
+  mocks.maybeSingle.mockReset()
 
-describe('ensureUserProfile', () => {
-  it('does nothing when the profile document already exists', async () => {
-    const tx = fakeTransaction(true)
-    runTransaction.mockImplementationOnce(async (_db: unknown, updateFn: (tx: unknown) => Promise<void>) => {
-      await updateFn(tx)
-    })
+  mocks.select.mockClear()
+  mocks.eq.mockClear()
 
-    await ensureUserProfile(fakeUser, { role: 'CUSTOMER' })
+  mocks.insert.mockClear()
+  mocks.update.mockClear()
+  mocks.upsert.mockClear()
 
-    expect(tx.set).not.toHaveBeenCalled()
-  })
+  mocks.from.mockClear()
 
-  it('never downgrades an existing SELLER profile to CUSTOMER, even if called with role: "CUSTOMER"', async () => {
-    // This function has no code path that reads an existing document's
-    // current role at all — the transaction's only question is "does a
-    // document exist" (see fakeTransaction(true) above); if it does, this
-    // call is a complete no-op regardless of what `role` was passed in.
-    // That's what makes it structurally impossible for an ordinary
-    // ensureUserProfile call (e.g. AuthProvider momentarily reading a stale
-    // or default role during session restore) to ever overwrite a real
-    // SELLER's profile back to CUSTOMER.
-    const tx = fakeTransaction(true)
-    runTransaction.mockImplementationOnce(async (_db: unknown, updateFn: (tx: unknown) => Promise<void>) => {
-      await updateFn(tx)
-    })
-
-    await ensureUserProfile(fakeUser, { role: 'CUSTOMER' })
-
-    expect(tx.set).not.toHaveBeenCalled()
-  })
-
-  it('creates the canonical profile document when missing, with the caller-provided display name', async () => {
-    const tx = fakeTransaction(false)
-    runTransaction.mockImplementationOnce(async (_db: unknown, updateFn: (tx: unknown) => Promise<void>) => {
-      await updateFn(tx)
-    })
-
-    await ensureUserProfile(fakeUser, { role: 'CUSTOMER', displayName: 'Alice' })
-
-    expect(tx.set).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        uid: 'alice',
-        email: 'alice@example.com',
-        displayName: 'Alice',
-        role: 'CUSTOMER',
-        photoURL: null,
-        phoneNumber: null,
-        bio: null,
-        profileCompleted: false,
-      }),
-    )
-  })
-
-  it('falls back to the Auth user displayName when none is explicitly provided', async () => {
-    const tx = fakeTransaction(false)
-    runTransaction.mockImplementationOnce(async (_db: unknown, updateFn: (tx: unknown) => Promise<void>) => {
-      await updateFn(tx)
-    })
-
-    await ensureUserProfile({ ...fakeUser, displayName: 'From Auth' } as User, { role: 'CUSTOMER' })
-
-    expect(tx.set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ displayName: 'From Auth' }))
-  })
-
-  it('preserves a trusted SELLER role when recovering a missing profile — never downgrades to CUSTOMER', async () => {
-    const tx = fakeTransaction(false)
-    runTransaction.mockImplementationOnce(async (_db: unknown, updateFn: (tx: unknown) => Promise<void>) => {
-      await updateFn(tx)
-    })
-
-    await ensureUserProfile(fakeUser, { role: 'SELLER' })
-
-    expect(tx.set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ role: 'SELLER' }))
-  })
-
-  it('does not treat a REJECTED seller application as pending SELLER reconciliation — only APPROVED blocks profile creation (Module 13)', async () => {
-    const tx = fakeTransaction(false)
-    runTransaction.mockImplementationOnce(async (_db: unknown, updateFn: (tx: unknown) => Promise<void>) => {
-      await updateFn(tx)
-    })
-    getDoc.mockResolvedValueOnce({ exists: () => true, data: () => ({ status: 'REJECTED' }) })
-
-    await ensureUserProfile(fakeUser, { role: 'CUSTOMER' })
-
-    expect(tx.set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ role: 'CUSTOMER' }))
-  })
-
-  it('treats a rejected write as success if the document turns out to already exist (benign race with onUserCreate)', async () => {
-    runTransaction.mockRejectedValueOnce(new Error('permission-denied'))
-    getDoc.mockResolvedValueOnce({ exists: () => true })
-
-    await expect(ensureUserProfile(fakeUser, { role: 'CUSTOMER' })).resolves.toBeUndefined()
-  })
-
-  it('propagates a genuine failure — does not swallow it — when the document still does not exist afterward', async () => {
-    runTransaction.mockRejectedValueOnce(new Error('permission-denied'))
-    getDoc.mockResolvedValueOnce({ exists: () => false })
-
-    await expect(ensureUserProfile(fakeUser, { role: 'CUSTOMER' })).rejects.toThrow('permission-denied')
+  mocks.maybeSingle.mockResolvedValue({
+    data: {
+      id: 'alice',
+    },
+    error: null,
   })
 })
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+describe(
+  'ensureUserProfile',
+  () => {
+    it('returns immediately when the server-provisioned Supabase profile already exists', async () => {
+      await expect(
+        ensureUserProfile({
+          id: 'alice',
+        }),
+      ).resolves.toBeUndefined()
+
+      expect(
+        mocks.from,
+      ).toHaveBeenCalledWith(
+        'profiles',
+      )
+
+      expect(
+        mocks.select,
+      ).toHaveBeenCalledWith(
+        'id',
+      )
+
+      expect(
+        mocks.eq,
+      ).toHaveBeenCalledWith(
+        'id',
+        'alice',
+      )
+
+      expect(
+        mocks.maybeSingle,
+      ).toHaveBeenCalledTimes(1)
+    })
+
+    it('supports the uid compatibility alias during the migration', async () => {
+      await expect(
+        ensureUserProfile({
+          uid: 'alice',
+        }),
+      ).resolves.toBeUndefined()
+
+      expect(
+        mocks.eq,
+      ).toHaveBeenCalledWith(
+        'id',
+        'alice',
+      )
+    })
+
+    it('never performs a client-side profile write regardless of the requested role', async () => {
+      await ensureUserProfile(
+        {
+          id: 'alice',
+        },
+        {
+          role: 'CUSTOMER',
+          displayName: 'Alice',
+        },
+      )
+
+      expect(
+        mocks.insert,
+      ).not.toHaveBeenCalled()
+
+      expect(
+        mocks.update,
+      ).not.toHaveBeenCalled()
+
+      expect(
+        mocks.upsert,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('does not use a caller-provided SELLER role to mutate authority state', async () => {
+      await ensureUserProfile(
+        {
+          id: 'alice',
+        },
+        {
+          role: 'SELLER',
+          displayName: 'Alice',
+        },
+      )
+
+      expect(
+        mocks.insert,
+      ).not.toHaveBeenCalled()
+
+      expect(
+        mocks.update,
+      ).not.toHaveBeenCalled()
+
+      expect(
+        mocks.upsert,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('polls until server-side profile provisioning becomes visible', async () => {
+      vi.useFakeTimers()
+
+      mocks.maybeSingle
+        .mockResolvedValueOnce({
+          data: null,
+          error: null,
+        })
+        .mockResolvedValueOnce({
+          data: {
+            id: 'alice',
+          },
+          error: null,
+        })
+
+      const promise =
+        ensureUserProfile({
+          id: 'alice',
+        })
+
+      await vi.runAllTimersAsync()
+
+      await expect(
+        promise,
+      ).resolves.toBeUndefined()
+
+      expect(
+        mocks.maybeSingle,
+      ).toHaveBeenCalledTimes(2)
+    })
+
+    it('propagates a Supabase profile-read failure immediately', async () => {
+      const error = {
+        code: '42501',
+        message:
+          'permission denied',
+      }
+
+      mocks.maybeSingle.mockResolvedValueOnce({
+        data: null,
+        error,
+      })
+
+      await expect(
+        ensureUserProfile({
+          id: 'alice',
+        }),
+      ).rejects.toEqual(
+        error,
+      )
+
+      expect(
+        mocks.maybeSingle,
+      ).toHaveBeenCalledTimes(1)
+    })
+
+    it('throws when the authenticated identity has no usable id', async () => {
+      await expect(
+        ensureUserProfile({}),
+      ).rejects.toThrow(
+        'Authenticated user ID is missing.',
+      )
+
+      expect(
+        mocks.from,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('fails clearly when server-side provisioning never produces the profile', async () => {
+      vi.useFakeTimers()
+
+      mocks.maybeSingle.mockResolvedValue({
+        data: null,
+        error: null,
+      })
+
+      const promise =
+        ensureUserProfile({
+          id: 'alice',
+        })
+
+      const expectation =
+        expect(
+          promise,
+        ).rejects.toThrow(
+          'Your Supabase account exists, but its profile was not provisioned.',
+        )
+
+      await vi.runAllTimersAsync()
+
+      await expectation
+
+      expect(
+        mocks.maybeSingle,
+      ).toHaveBeenCalledTimes(11)
+    })
+  },
+)

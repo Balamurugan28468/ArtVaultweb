@@ -1,4 +1,4 @@
-import type { Timestamp } from 'firebase/firestore'
+import type { Timestamp } from '@/lib/supabase/timestamp'
 
 /**
  * UI-04 — Auctions UI/UX foundation. Matches the planned `auctions/{auctionId}`

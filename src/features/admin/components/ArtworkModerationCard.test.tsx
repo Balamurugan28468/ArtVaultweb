@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { describe, expect, it, vi } from 'vitest'
 import type { Artwork } from '@/features/artwork'
 import { ArtworkModerationCard } from './ArtworkModerationCard'

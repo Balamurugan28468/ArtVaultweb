@@ -1,37 +1,20 @@
-import { doc, getDoc, onSnapshot, serverTimestamp, Timestamp, updateDoc, type Unsubscribe } from 'firebase/firestore'
-import { db } from '@/lib/firebase/config'
+import { createClient } from '@/lib/supabase/client'
+import { dataError, observe, requireIdentity, result } from '@/lib/supabase/data'
+import { Timestamp, timestamp } from '@/lib/supabase/timestamp'
 import type { ArtistProfile, ArtistProfileError, UpdateArtistProfileInput } from '../types'
 
-function artistDocRef(uid: string) {
-  return doc(db, 'artists', uid)
-}
-
-function isFirestoreErrorLike(error: unknown): error is { code: string } {
-  return typeof error === 'object' && error !== null && 'code' in error
-}
-
-export function toArtistProfileError(error: unknown): ArtistProfileError {
-  if (isFirestoreErrorLike(error)) {
-    if (error.code === 'permission-denied') {
-      return { code: 'permission-denied', message: 'You do not have permission to do that.' }
-    }
-    if (error.code === 'unavailable' || error.code === 'deadline-exceeded') {
-      return { code: 'network', message: 'Network unavailable. Check your connection and try again.' }
-    }
-  }
-  return { code: 'unknown', message: 'Something went wrong. Please try again.' }
-}
+export const toArtistProfileError = dataError
 
 /** Defensive mapping — never assumes every field is present or well-typed. */
 function mapToArtistProfile(uid: string, data: Record<string, unknown>): ArtistProfile | null {
-  if (typeof data.displayName !== 'string' || typeof data.bio !== 'string') return null
+  if (typeof data.display_name !== 'string' || typeof data.bio !== 'string') return null
 
   return {
     uid,
-    displayName: data.displayName,
+    displayName: data.display_name,
     bio: data.bio,
-    createdAt: data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.now(),
-    updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : Timestamp.now(),
+    createdAt: typeof data.created_at === 'string' ? timestamp(data.created_at) : Timestamp.now(),
+    updatedAt: typeof data.updated_at === 'string' ? timestamp(data.updated_at) : Timestamp.now(),
   }
 }
 
@@ -44,14 +27,11 @@ export function subscribeArtistProfile(
   uid: string,
   onData: (profile: ArtistProfile | null) => void,
   onError: (error: ArtistProfileError) => void,
-): Unsubscribe {
-  return onSnapshot(
-    artistDocRef(uid),
-    (snapshot) => {
-      onData(snapshot.exists() ? mapToArtistProfile(snapshot.id, snapshot.data()) : null)
-    },
-    (error) => onError(toArtistProfileError(error)),
-  )
+): () => void {
+  return observe('artist_profiles', `id=eq.${uid}`, async () => {
+    const row = await result(createClient().from('artist_profiles').select('*').eq('id', uid).maybeSingle())
+    return row ? mapToArtistProfile(uid, row) : null
+  }, onData, onError)
 }
 
 /**
@@ -66,10 +46,8 @@ export function subscribeArtistProfile(
  */
 export async function getArtistDisplayName(uid: string): Promise<string | null> {
   try {
-    const snapshot = await getDoc(artistDocRef(uid))
-    if (!snapshot.exists()) return null
-    const data = snapshot.data()
-    return typeof data.displayName === 'string' ? data.displayName : null
+    const row = await result(createClient().from('artist_profiles').select('display_name').eq('id', uid).maybeSingle())
+    return row && typeof row.display_name === 'string' ? row.display_name : null
   } catch {
     return null
   }
@@ -85,11 +63,11 @@ export async function getArtistDisplayName(uid: string): Promise<string | null> 
  */
 export async function updateArtistProfile(uid: string, input: UpdateArtistProfileInput): Promise<void> {
   try {
-    await updateDoc(artistDocRef(uid), {
-      displayName: input.displayName.trim(),
-      bio: input.bio.trim(),
-      updatedAt: serverTimestamp(),
-    })
+    await requireIdentity(uid)
+    const rows = (await result(createClient().from('artist_profiles').update({
+      display_name: input.displayName.trim(), bio: input.bio.trim(),
+    }).eq('id', uid).select('id'))) ?? []
+    if (rows.length !== 1) throw dataError({ code: '42501' })
   } catch (error) {
     throw toArtistProfileError(error)
   }

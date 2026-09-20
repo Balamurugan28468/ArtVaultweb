@@ -1,7 +1,17 @@
-import { collection, getDocs, query, where } from 'firebase/firestore'
-import { mapToArtwork, toArtworkError, type Artwork, type ArtworkError } from '@/features/artwork'
+import { createClient } from '@/lib/supabase/client'
+import { result } from '@/lib/supabase/data'
+import { mapCatalogRow, toArtworkError } from '@/features/artwork/api/artworkRepository'
+import type { Artwork, ArtworkError } from '@/features/artwork'
 import { mapToSellerApplication, toSellerError, type SellerApplication, type SellerError } from '@/features/seller-studio'
-import { db } from '@/lib/firebase/config'
+
+function isSubmittedCatalogRow(row: Record<string, unknown>): boolean {
+  return typeof row.id === 'string' &&
+    typeof row.seller_id === 'string' &&
+    row.status === 'SUBMITTED' &&
+    typeof row.title === 'string' &&
+    typeof row.created_at === 'string' &&
+    typeof row.updated_at === 'string'
+}
 
 /**
  * Module 13 Phase 3 — the Admin Control Center's two review queues. Both
@@ -17,22 +27,13 @@ import { db } from '@/lib/firebase/config'
  * server, not merely avoided by convention.
  */
 
-function sellersCollection() {
-  return collection(db, 'sellers')
-}
-
-function artworksCollection() {
-  return collection(db, 'artworks')
-}
-
 /** Newest-applied-first — sorted client-side, matching every other small-catalog query in this codebase (see artworkRepository.ts) rather than adding a composite index for a queue this size. */
 export async function getPendingSellerApplications(): Promise<SellerApplication[]> {
   try {
-    const snapshot = await getDocs(query(sellersCollection(), where('status', '==', 'PENDING')))
-    return snapshot.docs
-      .map((docSnapshot) => mapToSellerApplication(docSnapshot.id, docSnapshot.data()))
+    const rows = (await result(createClient().from('seller_profiles').select('*').eq('status', 'PENDING').order('created_at'))) ?? []
+    return rows
+      .map((row) => mapToSellerApplication(row.id, row))
       .filter((application): application is SellerApplication => application !== null)
-      .sort((a, b) => a.appliedAt.toMillis() - b.appliedAt.toMillis())
   } catch (error) {
     throw toSellerError(error) satisfies SellerError
   }
@@ -41,11 +42,10 @@ export async function getPendingSellerApplications(): Promise<SellerApplication[
 /** Oldest-submitted-first — the fairest default review order for a moderation queue. */
 export async function getSubmittedArtworks(): Promise<Artwork[]> {
   try {
-    const snapshot = await getDocs(query(artworksCollection(), where('status', '==', 'SUBMITTED')))
-    return snapshot.docs
-      .map((docSnapshot) => mapToArtwork(docSnapshot.id, docSnapshot.data()))
-      .filter((artwork): artwork is Artwork => artwork !== null)
-      .sort((a, b) => a.updatedAt.toMillis() - b.updatedAt.toMillis())
+    const rows = (await result(createClient().from('artwork_catalog').select('*').eq('status', 'SUBMITTED').order('updated_at'))) ?? []
+    return await Promise.all(rows
+      .filter(isSubmittedCatalogRow)
+      .map((row) => mapCatalogRow(row)))
   } catch (error) {
     throw toArtworkError(error) satisfies ArtworkError
   }

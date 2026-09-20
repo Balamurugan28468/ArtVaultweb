@@ -1,24 +1,35 @@
-import { Timestamp } from 'firebase/firestore'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { doc, onSnapshot, setDoc, serverTimestamp } = vi.hoisted(() => ({
-  doc: vi.fn(() => ({ path: 'sellers/alice' })),
-  onSnapshot: vi.fn(),
-  setDoc: vi.fn(),
-  serverTimestamp: vi.fn(() => 'SERVER_TIMESTAMP'),
-}))
-
-vi.mock('firebase/firestore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, doc, onSnapshot, setDoc, serverTimestamp }
+const mocks = vi.hoisted(() => {
+  const builder = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn(), insert: vi.fn() }
+  builder.select.mockReturnValue(builder)
+  builder.eq.mockReturnValue(builder)
+  builder.maybeSingle.mockReturnValue(builder)
+  builder.insert.mockReturnValue(builder)
+  return {
+    createClient: vi.fn(() => ({ from: vi.fn(() => builder) })), observe: vi.fn(),
+    requireIdentity: vi.fn(), result: vi.fn(), builder,
+  }
 })
-vi.mock('@/lib/firebase/config', () => ({ db: {} }))
+
+vi.mock('@/lib/supabase/client', () => ({ createClient: mocks.createClient }))
+vi.mock('@/lib/supabase/data', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/supabase/data')>()),
+  observe: mocks.observe, requireIdentity: mocks.requireIdentity, result: mocks.result,
+}))
 
 const { applyAsSeller, subscribeSellerApplication, toSellerError } = await import('./sellerRepository')
 
+beforeEach(() => {
+  mocks.observe.mockReset()
+  mocks.requireIdentity.mockReset().mockResolvedValue(undefined)
+  mocks.result.mockReset()
+  mocks.builder.insert.mockClear()
+})
+
 describe('applyAsSeller', () => {
-  it('writes a PENDING application with a server timestamp, trimming free-text fields', async () => {
-    setDoc.mockResolvedValueOnce(undefined)
+  it('writes application fields through the owner-scoped Supabase insert while status remains server-controlled', async () => {
+    mocks.result.mockResolvedValueOnce(null)
 
     await applyAsSeller('alice', {
       businessName: '  Alice Fine Art  ',
@@ -26,21 +37,14 @@ describe('applyAsSeller', () => {
       contactEmail: '  alice@example.com  ',
     })
 
-    expect(setDoc).toHaveBeenCalledWith(expect.anything(), {
-      uid: 'alice',
-      status: 'PENDING',
-      businessName: 'Alice Fine Art',
-      description: 'Contemporary landscapes.',
-      contactEmail: 'alice@example.com',
-      appliedAt: 'SERVER_TIMESTAMP',
-      reviewedAt: null,
-      createdAt: 'SERVER_TIMESTAMP',
-      updatedAt: 'SERVER_TIMESTAMP',
+    expect(mocks.requireIdentity).toHaveBeenCalledWith('alice')
+    expect(mocks.builder.insert).toHaveBeenCalledWith({
+      id: 'alice', business_name: 'Alice Fine Art', description: 'Contemporary landscapes.', contact_email: 'alice@example.com',
     })
   })
 
   it('throws a typed SellerError when the write is denied (e.g. a duplicate application)', async () => {
-    setDoc.mockRejectedValueOnce({ code: 'permission-denied' })
+    mocks.result.mockRejectedValueOnce({ code: '42501' })
 
     await expect(
       applyAsSeller('alice', { businessName: 'A', description: 'B', contactEmail: 'a@example.com' }),
@@ -49,8 +53,8 @@ describe('applyAsSeller', () => {
 })
 
 describe('toSellerError', () => {
-  it('maps unavailable to a network error', () => {
-    expect(toSellerError({ code: 'unavailable' })).toEqual({
+  it('maps a network failure to a network error', () => {
+    expect(toSellerError(new TypeError('offline'))).toEqual({
       code: 'network',
       message: 'Network unavailable. Check your connection and try again.',
     })
@@ -65,115 +69,57 @@ describe('toSellerError', () => {
 })
 
 describe('subscribeSellerApplication', () => {
-  it('subscribes exactly once and returns the underlying unsubscribe function', () => {
+  it('subscribes once through Supabase Realtime and returns the underlying cleanup function', () => {
     const unsubscribe = vi.fn()
-    onSnapshot.mockReturnValueOnce(unsubscribe)
+    mocks.observe.mockReturnValueOnce(unsubscribe)
 
     const result = subscribeSellerApplication('alice', vi.fn(), vi.fn())
 
-    expect(onSnapshot).toHaveBeenCalledTimes(1)
+    expect(mocks.observe).toHaveBeenCalledWith('seller_profiles', 'id=eq.alice', expect.any(Function), expect.any(Function), expect.any(Function))
     expect(result).toBe(unsubscribe)
   })
 
-  it('maps a snapshot to a SellerApplication', () => {
-    const now = Timestamp.now()
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({
-        exists: () => true,
-        data: () => ({
-          status: 'PENDING',
-          businessName: 'Alice Fine Art',
-          description: 'desc',
-          contactEmail: 'alice@example.com',
-          appliedAt: now,
-          reviewedAt: null,
-          createdAt: now,
-          updatedAt: now,
-        }),
-      })
-      return vi.fn()
+  it('maps a refreshed Supabase row to a SellerApplication', async () => {
+    let read: (() => Promise<unknown>) | undefined
+    mocks.observe.mockImplementationOnce((_table, _filter, readFunction) => { read = readFunction; return vi.fn() })
+    mocks.result.mockResolvedValueOnce({
+      id: 'alice', status: 'PENDING', business_name: 'Alice Fine Art', description: 'desc', contact_email: 'alice@example.com',
+      created_at: '2026-09-19T10:00:00.000Z', updated_at: '2026-09-19T10:00:00.000Z', reviewed_at: null,
     })
-
-    subscribeSellerApplication('alice', onData, vi.fn())
-
-    expect(onData).toHaveBeenCalledWith({
-      uid: 'alice',
-      status: 'PENDING',
-      businessName: 'Alice Fine Art',
-      description: 'desc',
-      contactEmail: 'alice@example.com',
-      appliedAt: now,
-      reviewedAt: null,
-      rejectionReason: null,
-      createdAt: now,
-      updatedAt: now,
+    subscribeSellerApplication('alice', vi.fn(), vi.fn())
+    await expect(read?.()).resolves.toMatchObject({
+      uid: 'alice', status: 'PENDING', businessName: 'Alice Fine Art', contactEmail: 'alice@example.com', rejectionReason: null,
     })
   })
 
-  it('maps a REJECTED snapshot, including its real rejectionReason', () => {
-    const now = Timestamp.now()
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({
-        exists: () => true,
-        data: () => ({
-          status: 'REJECTED',
-          businessName: 'Alice Fine Art',
-          description: 'desc',
-          contactEmail: 'alice@example.com',
-          appliedAt: now,
-          reviewedAt: now,
-          rejectionReason: 'Portfolio does not meet our quality guidelines.',
-          createdAt: now,
-          updatedAt: now,
-        }),
-      })
-      return vi.fn()
+  it('maps a REJECTED row including its stored rejection reason', async () => {
+    let read: (() => Promise<unknown>) | undefined
+    mocks.observe.mockImplementationOnce((_table, _filter, readFunction) => { read = readFunction; return vi.fn() })
+    mocks.result.mockResolvedValueOnce({
+      id: 'alice', status: 'REJECTED', business_name: 'Alice Fine Art', description: 'desc', contact_email: 'alice@example.com',
+      created_at: '2026-09-19T10:00:00.000Z', updated_at: '2026-09-20T10:00:00.000Z', reviewed_at: '2026-09-20T10:00:00.000Z',
+      rejection_reason: 'Portfolio does not meet our quality guidelines.',
     })
-
-    subscribeSellerApplication('alice', onData, vi.fn())
-
-    expect(onData).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'REJECTED', rejectionReason: 'Portfolio does not meet our quality guidelines.' }),
-    )
+    subscribeSellerApplication('alice', vi.fn(), vi.fn())
+    await expect(read?.()).resolves.toMatchObject({ status: 'REJECTED', rejectionReason: 'Portfolio does not meet our quality guidelines.' })
   })
 
   it('defaults rejectionReason to null when missing/malformed — never trusts an unexpected type', () => {
-    const now = Timestamp.now()
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({
-        exists: () => true,
-        data: () => ({
-          status: 'PENDING',
-          businessName: 'Alice',
-          description: 'desc',
-          contactEmail: 'a@example.com',
-          appliedAt: now,
-          reviewedAt: null,
-          rejectionReason: 12345,
-          createdAt: now,
-          updatedAt: now,
-        }),
-      })
-      return vi.fn()
+    let read: (() => Promise<unknown>) | undefined
+    mocks.observe.mockImplementationOnce((_table, _filter, readFunction) => { read = readFunction; return vi.fn() })
+    mocks.result.mockResolvedValueOnce({
+      id: 'alice', status: 'PENDING', business_name: 'Alice', description: 'desc', contact_email: 'a@example.com',
+      created_at: '2026-09-19T10:00:00.000Z', updated_at: '2026-09-19T10:00:00.000Z', reviewed_at: null, rejection_reason: 12345,
     })
-
-    subscribeSellerApplication('alice', onData, vi.fn())
-
-    expect(onData).toHaveBeenCalledWith(expect.objectContaining({ rejectionReason: null }))
+    subscribeSellerApplication('alice', vi.fn(), vi.fn())
+    return expect(read?.()).resolves.toMatchObject({ rejectionReason: null })
   })
 
-  it('reports null when no application document exists', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({ exists: () => false })
-      return vi.fn()
-    })
-
-    subscribeSellerApplication('alice', onData, vi.fn())
-
-    expect(onData).toHaveBeenCalledWith(null)
+  it('reports null when no application document exists', async () => {
+    let read: (() => Promise<unknown>) | undefined
+    mocks.observe.mockImplementationOnce((_table, _filter, readFunction) => { read = readFunction; return vi.fn() })
+    mocks.result.mockResolvedValueOnce(null)
+    subscribeSellerApplication('alice', vi.fn(), vi.fn())
+    return expect(read?.()).resolves.toBeNull()
   })
 })

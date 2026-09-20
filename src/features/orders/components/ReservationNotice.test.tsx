@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { describe, expect, it } from 'vitest'
 import type { Order } from '../types'
 import { ReservationNotice } from './ReservationNotice'
@@ -10,7 +10,7 @@ describe('ReservationNotice', () => {
     expect(container).toBeEmptyDOMElement()
   })
   it('labels the amount as merchandise only and does not infer release from the clock', () => {
-    render(<ReservationNotice order={{ pricingState: 'ITEMS_ONLY', reservationStatus: 'ACTIVE', reservationExpiresAt: Timestamp.fromMillis(1) } as Order} />)
+    render(<ReservationNotice order={{ pricingState: 'ITEMS_ONLY', reservationStatus: 'ACTIVE', reservationExpiresAt: Timestamp.fromMillis(1) } as unknown as Order} />)
     expect(screen.getByRole('status')).toHaveTextContent('Shipping and taxes are not priced')
     expect(screen.getByRole('status')).toHaveTextContent('Recorded reservation deadline')
     expect(screen.queryByText(/was released/)).not.toBeInTheDocument()

@@ -1,94 +1,331 @@
-import type { User } from 'firebase/auth'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
-const createUserWithEmailAndPassword = vi.fn()
-const updateProfile = vi.fn()
-const setPersistence = vi.fn()
-const updateDoc = vi.fn()
-const doc = vi.fn((...args: unknown[]) => ({ args }))
-const serverTimestamp = vi.fn(() => 'server-timestamp')
-const ensureUserProfile = vi.fn()
-const toAuthErrorMessage = vi.fn((error: unknown) => (error instanceof Error ? error.message : 'Something went wrong. Please try again.'))
+const mocks = vi.hoisted(() => {
+  const signUp = vi.fn()
+  const signInWithPassword = vi.fn()
+  const signOut = vi.fn()
+  const resetPasswordForEmail = vi.fn()
 
-vi.mock('firebase/auth', () => ({
-  browserLocalPersistence: 'local',
-  createUserWithEmailAndPassword: (...args: unknown[]) => createUserWithEmailAndPassword(...args),
-  setPersistence: (...args: unknown[]) => setPersistence(...args),
-  signInWithEmailAndPassword: vi.fn(),
-  signOut: vi.fn(),
-  updateProfile: (...args: unknown[]) => updateProfile(...args),
-}))
-vi.mock('firebase/firestore', () => ({
-  doc: (...args: unknown[]) => doc(...args),
-  serverTimestamp: () => serverTimestamp(),
-  updateDoc: (...args: unknown[]) => updateDoc(...args),
-}))
-vi.mock('@/lib/firebase/config', () => ({ auth: {}, db: {} }))
-vi.mock('./authErrors', () => ({ toAuthErrorMessage: (error: unknown) => toAuthErrorMessage(error) }))
-vi.mock('./ensureUserProfile', () => ({ ensureUserProfile: (...args: unknown[]) => ensureUserProfile(...args) }))
+  const supabase = {
+    auth: {
+      signUp,
+      signInWithPassword,
+      signOut,
+      resetPasswordForEmail,
+    },
+  }
 
-const { signUpWithEmail } = await import('./authClient')
+  return {
+    signUp,
+    signInWithPassword,
+    signOut,
+    resetPasswordForEmail,
+    supabase,
+  }
+})
 
-const fakeUser = { uid: 'alice' } as User
+vi.mock(
+  '@/lib/supabase/client',
+  () => ({
+    createClient: () =>
+      mocks.supabase,
+  }),
+)
+
+const {
+  requestPasswordReset,
+  signInWithEmail,
+  signOutUser,
+  signUpWithEmail,
+} = await import('./authClient')
+
+const fakeUser = {
+  id: 'alice',
+  email: 'a@example.com',
+  email_confirmed_at:
+    '2026-09-19T10:00:00.000Z',
+  created_at:
+    '2026-09-19T10:00:00.000Z',
+  phone: null,
+  user_metadata: {
+    display_name: 'Alice',
+  },
+}
 
 beforeEach(() => {
-  createUserWithEmailAndPassword.mockReset().mockResolvedValue({ user: fakeUser })
-  updateProfile.mockReset().mockResolvedValue(undefined)
-  setPersistence.mockReset().mockResolvedValue(undefined)
-  updateDoc.mockReset()
-  doc.mockClear()
-  ensureUserProfile.mockReset().mockResolvedValue(undefined)
-  toAuthErrorMessage.mockClear()
-})
+  mocks.signUp.mockReset()
+  mocks.signInWithPassword.mockReset()
+  mocks.signOut.mockReset()
+  mocks.resetPasswordForEmail.mockReset()
 
-// Regression coverage for a real, now permanently-fixed architectural gap:
-// users/{uid} used to depend entirely on the asynchronous onUserCreate
-// Cloud Function trigger, which repeatedly failed to run on this project's
-// local Functions emulator under load. signUpWithEmail now calls
-// ensureUserProfile — a client-triggered, rules-enforced, idempotent
-// provisioning guarantee (see ensureUserProfile.ts/firestore.rules) — so
-// the canonical profile is guaranteed to exist synchronously with sign-up
-// itself, never dependent on an out-of-band trigger completing.
-describe('signUpWithEmail', () => {
-  it('guarantees the canonical profile exists (as CUSTOMER) before writing the display name', async () => {
-    const callOrder: string[] = []
-    ensureUserProfile.mockImplementationOnce(async () => {
-      callOrder.push('ensured-profile')
-    })
-    updateDoc.mockImplementationOnce(async () => {
-      callOrder.push('updated-display-name')
-    })
-
-    await signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })
-
-    expect(ensureUserProfile).toHaveBeenCalledWith(fakeUser, { role: 'CUSTOMER', displayName: 'Alice' })
-    expect(callOrder).toEqual(['ensured-profile', 'updated-display-name'])
-    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
-      displayName: 'Alice',
-      updatedAt: 'server-timestamp',
-    })
+  mocks.signUp.mockResolvedValue({
+    data: {
+      user: fakeUser,
+      session: {
+        access_token: 'test-token',
+      },
+    },
+    error: null,
   })
 
-  it('propagates a genuine profile-provisioning failure instead of silently swallowing it', async () => {
-    ensureUserProfile.mockRejectedValueOnce(new Error('permission-denied'))
-
-    await expect(
-      signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' }),
-    ).rejects.toThrow('permission-denied')
-
-    expect(updateDoc).not.toHaveBeenCalled()
+  mocks.signInWithPassword.mockResolvedValue({
+    data: {
+      user: fakeUser,
+    },
+    error: null,
   })
 
-  it('writes the display name exactly once — never creates a duplicate profile document', async () => {
-    await signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })
-
-    expect(updateDoc).toHaveBeenCalledTimes(1)
-    expect(doc).toHaveBeenCalledWith({}, 'users', 'alice')
+  mocks.signOut.mockResolvedValue({
+    error: null,
   })
 
-  it('never requests a role other than CUSTOMER for a brand-new account', async () => {
-    await signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })
-
-    expect(ensureUserProfile).toHaveBeenCalledWith(fakeUser, expect.objectContaining({ role: 'CUSTOMER' }))
+  mocks.resetPasswordForEmail.mockResolvedValue({
+    error: null,
   })
 })
+
+describe(
+  'signUpWithEmail',
+  () => {
+    it('registers through Supabase Auth with trimmed email and display-name metadata', async () => {
+      const result =
+        await signUpWithEmail({
+          email:
+            '  a@example.com  ',
+          password:
+            'Testpass1',
+          displayName:
+            '  Alice  ',
+        })
+
+      expect(
+        mocks.signUp,
+      ).toHaveBeenCalledTimes(1)
+
+      expect(
+        mocks.signUp,
+      ).toHaveBeenCalledWith({
+        email: 'a@example.com',
+        password: 'Testpass1',
+        options: {
+          data: {
+            display_name: 'Alice',
+          },
+        },
+      })
+
+      expect(
+        result,
+      ).toEqual({
+        user: {
+          id: 'alice',
+          uid: 'alice',
+          email:
+            'a@example.com',
+          displayName: 'Alice',
+          photoURL: null,
+          phoneNumber: null,
+          emailVerified: true,
+          createdAt:
+            '2026-09-19T10:00:00.000Z',
+        },
+        needsEmailConfirmation:
+          false,
+      })
+    })
+
+    it('reports that email confirmation is needed when Supabase creates the user without a session', async () => {
+      mocks.signUp.mockResolvedValueOnce({
+        data: {
+          user: fakeUser,
+          session: null,
+        },
+        error: null,
+      })
+
+      const result =
+        await signUpWithEmail({
+          email:
+            'a@example.com',
+          password:
+            'Testpass1',
+          displayName:
+            'Alice',
+        })
+
+      expect(
+        result.needsEmailConfirmation,
+      ).toBe(true)
+    })
+
+    it('maps an already-registered Supabase error to a safe user-facing message', async () => {
+      mocks.signUp.mockResolvedValueOnce({
+        data: {
+          user: null,
+          session: null,
+        },
+        error:
+          new Error(
+            'User already registered',
+          ),
+      })
+
+      await expect(
+        signUpWithEmail({
+          email:
+            'a@example.com',
+          password:
+            'Testpass1',
+          displayName:
+            'Alice',
+        }),
+      ).rejects.toThrow(
+        'An account already exists with this email.',
+      )
+    })
+  },
+)
+
+describe(
+  'signInWithEmail',
+  () => {
+    it('signs in through Supabase with a trimmed email and returns the mapped AuthUser', async () => {
+      const result =
+        await signInWithEmail({
+          email:
+            '  a@example.com  ',
+          password:
+            'Testpass1',
+        })
+
+      expect(
+        mocks.signInWithPassword,
+      ).toHaveBeenCalledTimes(1)
+
+      expect(
+        mocks.signInWithPassword,
+      ).toHaveBeenCalledWith({
+        email: 'a@example.com',
+        password: 'Testpass1',
+      })
+
+      expect(
+        result,
+      ).toEqual({
+        id: 'alice',
+        uid: 'alice',
+        email:
+          'a@example.com',
+        displayName: 'Alice',
+        photoURL: null,
+        phoneNumber: null,
+        emailVerified: true,
+        createdAt:
+          '2026-09-19T10:00:00.000Z',
+      })
+    })
+
+    it('maps invalid Supabase credentials to the account-enumeration-safe message', async () => {
+      mocks.signInWithPassword.mockResolvedValueOnce({
+        data: {
+          user: null,
+        },
+        error:
+          new Error(
+            'Invalid login credentials',
+          ),
+      })
+
+      await expect(
+        signInWithEmail({
+          email:
+            'a@example.com',
+          password:
+            'wrong-password',
+        }),
+      ).rejects.toThrow(
+        'Incorrect email or password.',
+      )
+    })
+  },
+)
+
+describe(
+  'signOutUser',
+  () => {
+    it('signs out through Supabase Auth', async () => {
+      await expect(
+        signOutUser(),
+      ).resolves.toBeUndefined()
+
+      expect(
+        mocks.signOut,
+      ).toHaveBeenCalledTimes(1)
+    })
+
+    it('maps a Supabase network failure instead of silently succeeding', async () => {
+      mocks.signOut.mockResolvedValueOnce({
+        error:
+          new Error(
+            'Network request failed',
+          ),
+      })
+
+      await expect(
+        signOutUser(),
+      ).rejects.toThrow(
+        'Network error. Check your internet connection and try again.',
+      )
+    })
+  },
+)
+
+describe(
+  'requestPasswordReset',
+  () => {
+    it('sends the recovery email through Supabase with the correct callback URL', async () => {
+      await expect(
+        requestPasswordReset(
+          '  a@example.com  ',
+        ),
+      ).resolves.toBeUndefined()
+
+      expect(
+        mocks.resetPasswordForEmail,
+      ).toHaveBeenCalledTimes(1)
+
+      expect(
+        mocks.resetPasswordForEmail,
+      ).toHaveBeenCalledWith(
+        'a@example.com',
+        {
+          redirectTo:
+            `${window.location.origin}/auth/callback?next=/auth/recovery`,
+        },
+      )
+    })
+
+    it('maps a Supabase rate-limit error to a useful message', async () => {
+      mocks.resetPasswordForEmail.mockResolvedValueOnce({
+        error:
+          new Error(
+            'Email rate limit exceeded',
+          ),
+      })
+
+      await expect(
+        requestPasswordReset(
+          'a@example.com',
+        ),
+      ).rejects.toThrow(
+        'Too many requests. Please wait a moment and try again.',
+      )
+    })
+  },
+)

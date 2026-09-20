@@ -7,7 +7,7 @@ const useAuth = vi.fn()
 vi.mock('@/app/providers/AuthProvider', () => ({ useAuth: () => useAuth() }))
 
 function ts(ms: number) {
-  return { toMillis: () => ms } as unknown as import('firebase/firestore').Timestamp
+  return { toMillis: () => ms } as unknown as import('@/lib/supabase/timestamp').Timestamp
 }
 
 const BASE_AUCTION: Auction = {

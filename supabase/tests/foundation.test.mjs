@@ -166,13 +166,18 @@ test('seller sees own draft, customer cannot', async () => {
   await session(seller, async () => assert.equal((await rows('select * from public.artworks where id=$1', [draft])).length, 1))
   await session(buyer, async () => assert.equal((await rows('select * from public.artworks where id=$1', [draft])).length, 0))
 })
-test('seller cannot edit another seller artwork', () => session(seller2, async () => {
-  assert.equal((await rows('update public.artworks set title=$1 where id=$2 returning id', ['Forged', draft])).length, 0)
-}))
-test('seller can edit own draft but cannot publish it', async () => {
-  await session(seller, async () => assert.equal((await rows('update public.artworks set title=$1 where id=$2 returning id', ['Updated', draft])).length, 1))
-  await session(seller, () => denied("update public.artworks set status='PUBLISHED' where id=$1", [draft]))
-})
+  test('seller cannot edit another seller artwork, including through the protected RPC', async () => {
+    await session(seller2, () => denied('update public.artworks set title=$1 where id=$2', ['Forged', draft]))
+    await session(seller2, () => denied("select public.save_artwork($1,'EDIT',$2::jsonb)", [draft, JSON.stringify({ title: 'Forged', description: '', category: 'painting', price: 10000, inventoryCount: 1, tags: [] })]))
+  })
+  test('seller edits own draft through RPC while direct writes and direct publishing are denied', async () => {
+    await session(seller, () => denied('update public.artworks set title=$1 where id=$2', ['Updated', draft]))
+    await session(seller, async () => {
+      await db.query("select public.save_artwork($1,'EDIT',$2::jsonb)", [draft, JSON.stringify({ title: 'Updated', description: '', category: 'painting', price: 10000, inventoryCount: 1, tags: [] })])
+      assert.equal((await rows('select title from public.artworks where id=$1', [draft]))[0].title, 'Updated')
+    })
+    await session(seller, () => denied("update public.artworks set status='PUBLISHED' where id=$1", [draft]))
+  })
 test('buyer cannot approve a seller application', () => session(buyer, () => denied("update public.seller_profiles set status='APPROVED' where id=$1", [seller])))
 test('cart and address reads are owner-only', () => session(buyer, async () => {
   assert.equal((await rows('select * from public.carts')).length, 1)

@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PublicArtworkGrid } from './PublicArtworkGrid'

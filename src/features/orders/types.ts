@@ -1,4 +1,4 @@
-import type { Timestamp } from 'firebase/firestore'
+import type { Timestamp } from '@/lib/supabase/timestamp'
 
 // The full intended order lifecycle (UI-02 scope). Trusted checkout now
 // records CREATED / PAYMENT_PENDING, and reservation expiry CANCELLED.

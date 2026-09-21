@@ -24,6 +24,7 @@
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.86.0",
     "react-router": "^8.3.1",
+    "three": "0.183.2",
     "zod": "^4.5.2",
     "zustand": "^5.0.15"
   },
@@ -35,6 +36,8 @@
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@types/three": "0.183.1",
+    "@types/webxr": "0.5.24",
     "@vitejs/plugin-react": "^6.1.0",
     "jsdom": "^30.0.1",
     "oxlint": "^1.79.0",

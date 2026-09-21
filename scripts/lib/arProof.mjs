@@ -3,7 +3,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import {
   mkdir,
   readFile,
+  readdir,
   rename,
+  rm,
   writeFile,
 } from 'node:fs/promises'
 import path from 'node:path'
@@ -14,13 +16,113 @@ export const PROOF_PREFIX = '/__ar-proof/'
 
 const ARTWORK_IMAGE_BUCKET = 'artwork-images'
 
-const MAX_SOURCE_BYTES =
-  10 * 1024 * 1024
+const MAX_SOURCE_BYTES = 10 * 1024 * 1024
+const MAX_MODEL_BYTES = 5 * 1024 * 1024
 
-const MAX_MODEL_BYTES =
-  5 * 1024 * 1024
+const MAX_SOURCE_PIXELS = 100_000_000
+const MAX_SOURCE_EDGE_PIXELS = 16_384
+const MAX_TEXTURE_EDGE_PIXELS = 2000
+const MAX_INPUT_CHANNELS = 5
+
+const SIGNED_URL_TTL_SECONDS = 180
+const DOWNLOAD_TIMEOUT_MS = 45_000
+const DOWNLOAD_ATTEMPTS = 3
+
+const DOWNLOAD_RETRY_DELAYS_MS = [
+  0,
+  750,
+  2000,
+]
 
 const FRAME_MM = 30
+
+// Physical depth of the generated framed model.
+//
+// This does not claim to represent the seller's real physical frame.
+// It is an AR visualization profile so wall placement has a meaningful
+// back surface rather than a mathematically flat plane.
+const FRAME_DEPTH_MM = 12
+
+// Move the textured artwork plane slightly in front of the solid backing
+// to avoid z-fighting.
+const FRONT_OFFSET_MM = 0.5
+
+const SCHEMA_VERSION = 6
+
+const SIZING_MODE =
+  'ESTIMATED_STANDARD_DISPLAY'
+
+const GENERATOR_VERSION =
+  'v7-multi-supabase-3d-frame-safe-resize'
+
+export const DEFAULT_FRAME_STYLE =
+  'black'
+
+export const FRAME_STYLES =
+  Object.freeze({
+    black: Object.freeze({
+      label: 'Black',
+
+      color: Object.freeze({
+        r: 22,
+        g: 22,
+        b: 22,
+        alpha: 1,
+      }),
+
+      metallicFactor: 0.05,
+      roughnessFactor: 0.55,
+    }),
+
+    walnut: Object.freeze({
+      label: 'Walnut',
+
+      color: Object.freeze({
+        r: 103,
+        g: 68,
+        b: 43,
+        alpha: 1,
+      }),
+
+      metallicFactor: 0,
+      roughnessFactor: 0.78,
+    }),
+
+    white: Object.freeze({
+      label: 'White',
+
+      color: Object.freeze({
+        r: 238,
+        g: 235,
+        b: 226,
+        alpha: 1,
+      }),
+
+      metallicFactor: 0.02,
+      roughnessFactor: 0.62,
+    }),
+
+    gold: Object.freeze({
+      label: 'Gold',
+
+      color: Object.freeze({
+        r: 184,
+        g: 146,
+        b: 58,
+        alpha: 1,
+      }),
+
+      metallicFactor: 0.65,
+      roughnessFactor: 0.35,
+    }),
+  })
+
+const FRAME_STYLE_KEYS =
+  Object.freeze(
+    Object.keys(
+      FRAME_STYLES,
+    ),
+  )
 
 const ALLOWED_IMAGE_TYPES =
   new Set([
@@ -29,27 +131,71 @@ const ALLOWED_IMAGE_TYPES =
     'image/webp',
   ])
 
-export const sha256 = (bytes) =>
+const proofLocks =
+  new Map()
+
+export const sha256 = (
+  bytes,
+) =>
   createHash('sha256')
     .update(bytes)
     .digest('hex')
 
-const safeId = (value) =>
+const safeId = (
+  value,
+) =>
   typeof value === 'string' &&
-  /^[A-Za-z0-9_-]{1,128}$/.test(
-    value,
+  /^[A-Za-z0-9_-]{1,128}$/.test(value)
+
+const safeImageId = (
+  value,
+) =>
+  typeof value === 'string' &&
+  /^[A-Za-z0-9_.-]{1,200}$/.test(value)
+
+const round1 = (
+  value,
+) =>
+  Math.round(
+    value * 10,
+  ) / 10
+
+function sleep(
+  milliseconds,
+) {
+  if (!milliseconds) {
+    return Promise.resolve()
+  }
+
+  return new Promise(
+    (resolve) => {
+      setTimeout(
+        resolve,
+        milliseconds,
+      )
+    },
   )
+}
 
-const round1 = (value) =>
-  Math.round(value * 10) / 10
+function isFrameStyle(
+  value,
+) {
+  return (
+    typeof value === 'string' &&
+    FRAME_STYLE_KEYS.includes(
+      value,
+    )
+  )
+}
 
-function parseEnvText(text) {
+function parseEnvText(
+  text,
+) {
   const values = {}
 
   for (
-    const rawLine of text.split(
-      /\r?\n/,
-    )
+    const rawLine
+    of text.split(/\r?\n/)
   ) {
     let line =
       rawLine.trim()
@@ -66,21 +212,28 @@ function parseEnvText(text) {
         'export ',
       )
     ) {
-      line = line
-        .slice(7)
-        .trim()
+      line =
+        line
+          .slice(7)
+          .trim()
     }
 
     const equals =
       line.indexOf('=')
 
-    if (equals <= 0) {
+    if (
+      equals <= 0
+    ) {
       continue
     }
 
-    const key = line
-      .slice(0, equals)
-      .trim()
+    const key =
+      line
+        .slice(
+          0,
+          equals,
+        )
+        .trim()
 
     if (
       !/^[A-Za-z_][A-Za-z0-9_]*$/.test(
@@ -90,49 +243,48 @@ function parseEnvText(text) {
       continue
     }
 
-    let value = line
-      .slice(equals + 1)
-      .trim()
+    let value =
+      line
+        .slice(
+          equals + 1,
+        )
+        .trim()
 
     if (
       value.length >= 2 &&
       (
         (
-          value.startsWith(
-            '"',
-          ) &&
-          value.endsWith(
-            '"',
-          )
+          value.startsWith('"') &&
+          value.endsWith('"')
         ) ||
         (
-          value.startsWith(
-            "'",
-          ) &&
-          value.endsWith(
-            "'",
-          )
+          value.startsWith("'") &&
+          value.endsWith("'")
         )
       )
     ) {
       const quote =
         value[0]
 
-      value = value.slice(
-        1,
-        -1,
-      )
+      value =
+        value.slice(
+          1,
+          -1,
+        )
 
-      if (quote === '"') {
-        value = value
-          .replaceAll(
-            '\\n',
-            '\n',
-          )
-          .replaceAll(
-            '\\r',
-            '\r',
-          )
+      if (
+        quote === '"'
+      ) {
+        value =
+          value
+            .replaceAll(
+              '\\n',
+              '\n',
+            )
+            .replaceAll(
+              '\\r',
+              '\r',
+            )
       }
     } else {
       const comment =
@@ -143,22 +295,26 @@ function parseEnvText(text) {
       if (
         comment >= 0
       ) {
-        value = value
-          .slice(
-            0,
-            comment,
-          )
-          .trim()
+        value =
+          value
+            .slice(
+              0,
+              comment,
+            )
+            .trim()
       }
     }
 
-    values[key] = value
+    values[key] =
+      value
   }
 
   return values
 }
 
-function readProjectEnv(root) {
+function readProjectEnv(
+  root,
+) {
   const values = {}
 
   const files = [
@@ -169,7 +325,8 @@ function readProjectEnv(root) {
   ]
 
   for (
-    const file of files
+    const file
+    of files
   ) {
     const filename =
       path.join(
@@ -178,7 +335,9 @@ function readProjectEnv(root) {
       )
 
     if (
-      !existsSync(filename)
+      !existsSync(
+        filename,
+      )
     ) {
       continue
     }
@@ -201,19 +360,17 @@ export function resolveSupabaseConfig(
   root,
 ) {
   const fileEnv =
-    readProjectEnv(root)
+    readProjectEnv(
+      root,
+    )
 
   const url =
-    process.env
-      .VITE_SUPABASE_URL ??
-    fileEnv
-      .VITE_SUPABASE_URL
+    process.env.VITE_SUPABASE_URL ??
+    fileEnv.VITE_SUPABASE_URL
 
   const key =
-    process.env
-      .VITE_SUPABASE_PUBLISHABLE_KEY ??
-    fileEnv
-      .VITE_SUPABASE_PUBLISHABLE_KEY
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
+    fileEnv.VITE_SUPABASE_PUBLISHABLE_KEY
 
   if (
     !url ||
@@ -229,7 +386,8 @@ export function resolveSupabaseConfig(
   let parsed
 
   try {
-    parsed = new URL(url)
+    parsed =
+      new URL(url)
   } catch {
     throw new Error(
       'AR proof Supabase URL is invalid.',
@@ -237,8 +395,7 @@ export function resolveSupabaseConfig(
   }
 
   if (
-    parsed.protocol !==
-      'https:' ||
+    parsed.protocol !== 'https:' ||
     parsed.username ||
     parsed.password
   ) {
@@ -248,7 +405,9 @@ export function resolveSupabaseConfig(
   }
 
   return {
-    url: parsed.origin,
+    url:
+      parsed.origin,
+
     key,
   }
 }
@@ -259,24 +418,129 @@ export function validateSelection(
   if (
     !safeId(
       input?.artworkId,
-    ) ||
-    typeof input.imageId !==
-      'string' ||
-    !/^[A-Za-z0-9_.-]{1,200}$/.test(
+    )
+  ) {
+    throw new Error(
+      'Provide a valid artworkId.',
+    )
+  }
+
+  if (
+    input.imageId !== undefined &&
+    input.imageId !== null &&
+    !safeImageId(
       input.imageId,
     )
   ) {
     throw new Error(
-      'Provide one artworkId and an existing imageId.',
+      'imageId must be a valid artwork image identifier.',
+    )
+  }
+
+  return input.imageId
+    ? {
+        artworkId:
+          input.artworkId,
+
+        imageId:
+          input.imageId,
+      }
+    : {
+        artworkId:
+          input.artworkId,
+      }
+}
+
+function imageOrder(
+  image,
+) {
+  return Number.isFinite(
+    image?.order,
+  )
+    ? image.order
+    : Number.isFinite(
+          image?.position,
+        )
+      ? image.position
+      : Number.MAX_SAFE_INTEGER
+}
+
+function chooseImage(
+  artwork,
+  requestedImageId,
+) {
+  if (
+    typeof artwork?.seller_id !==
+    'string'
+  ) {
+    throw new Error(
+      'Published artwork has no valid seller.',
+    )
+  }
+
+  const images =
+    Array.isArray(
+      artwork.images,
+    )
+      ? artwork.images
+          .filter(
+            (entry) =>
+              entry &&
+              typeof entry ===
+                'object' &&
+              safeImageId(
+                entry.id,
+              ),
+          )
+          .sort(
+            (
+              a,
+              b,
+            ) =>
+              imageOrder(a) -
+              imageOrder(b),
+          )
+      : []
+
+  const image =
+    requestedImageId
+      ? images.find(
+          (entry) =>
+            entry.id ===
+            requestedImageId,
+        )
+      : images[0]
+
+  if (!image) {
+    throw new Error(
+      'Published artwork has no usable image.',
+    )
+  }
+
+  const expectedPath =
+    `${artwork.seller_id}/${artwork.id}/${image.id}`
+
+  if (
+    image.path !==
+      expectedPath ||
+    !ALLOWED_IMAGE_TYPES.has(
+      image.contentType,
+    )
+  ) {
+    throw new Error(
+      'Selected image is missing or does not belong to this published artwork.',
     )
   }
 
   return {
-    artworkId:
-      input.artworkId,
+    id:
+      image.id,
 
-    imageId:
-      input.imageId,
+    path:
+      expectedPath,
+
+    contentType:
+      image.contentType,
   }
 }
 
@@ -306,63 +570,75 @@ export function estimateDisplaySize(
   let artworkWidthMm
   let artworkHeightMm
 
-  // Very wide panorama.
-  if (ratio >= 2) {
-    artworkWidthMm = 1000
+  if (
+    ratio >= 2
+  ) {
+    artworkWidthMm =
+      1000
+
     artworkHeightMm =
       artworkWidthMm /
       ratio
-  }
+  } else if (
+    ratio <= 0.5
+  ) {
+    artworkHeightMm =
+      1000
 
-  // Very tall artwork.
-  else if (ratio <= 0.5) {
-    artworkHeightMm = 1000
     artworkWidthMm =
       artworkHeightMm *
       ratio
-  }
+  } else if (
+    ratio > 1.15
+  ) {
+    artworkWidthMm =
+      800
 
-  // Normal landscape.
-  else if (ratio > 1.15) {
-    artworkWidthMm = 800
     artworkHeightMm =
       artworkWidthMm /
       ratio
-  }
+  } else if (
+    ratio < 0.87
+  ) {
+    artworkHeightMm =
+      700
 
-  // Normal portrait.
-  else if (ratio < 0.87) {
-    artworkHeightMm = 700
     artworkWidthMm =
       artworkHeightMm *
       ratio
-  }
+  } else if (
+    ratio >= 1
+  ) {
+    artworkWidthMm =
+      650
 
-  // Square or near-square.
-  else if (ratio >= 1) {
-    artworkWidthMm = 650
     artworkHeightMm =
       artworkWidthMm /
       ratio
   } else {
-    artworkHeightMm = 650
+    artworkHeightMm =
+      650
+
     artworkWidthMm =
       artworkHeightMm *
       ratio
   }
 
   artworkWidthMm =
-    round1(artworkWidthMm)
+    round1(
+      artworkWidthMm,
+    )
 
   artworkHeightMm =
-    round1(artworkHeightMm)
+    round1(
+      artworkHeightMm,
+    )
 
   return {
     sizingMode:
-      'ESTIMATED_STANDARD_DISPLAY',
+      SIZING_MODE,
 
     artworkWidthMm,
-
     artworkHeightMm,
 
     frameMm:
@@ -380,8 +656,136 @@ export function estimateDisplaySize(
           FRAME_MM * 2,
       ),
 
-    includesFrame: true,
+    includesFrame:
+      true,
   }
+}
+
+function isRetryableHttpStatus(
+  status,
+) {
+  return (
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    (
+      status >= 500 &&
+      status <= 599
+    )
+  )
+}
+
+function isRetryableDownloadError(
+  error,
+) {
+  if (
+    !(error instanceof Error)
+  ) {
+    return false
+  }
+
+  if (
+    error.name ===
+      'TimeoutError' ||
+    error.name ===
+      'AbortError'
+  ) {
+    return true
+  }
+
+  if (
+    error instanceof TypeError
+  ) {
+    return true
+  }
+
+  return /timeout|timed out|network|fetch failed|socket|connection/i
+    .test(
+      error.message,
+    )
+}
+
+async function readLimitedResponseBody(
+  response,
+) {
+  const contentLength =
+    response.headers
+      ?.get?.(
+        'content-length',
+      )
+
+  if (
+    contentLength
+  ) {
+    const declaredBytes =
+      Number(
+        contentLength,
+      )
+
+    if (
+      Number.isFinite(
+        declaredBytes,
+      ) &&
+      declaredBytes >
+        MAX_SOURCE_BYTES
+    ) {
+      throw new Error(
+        'Source image exceeds 10 MB.',
+      )
+    }
+  }
+
+  if (
+    !response.body
+  ) {
+    throw new Error(
+      'Selected published artwork image could not be downloaded.',
+    )
+  }
+
+  const chunks = []
+  let size = 0
+
+  for await (
+    const chunk
+    of response.body
+  ) {
+    const bytes =
+      Buffer.from(
+        chunk,
+      )
+
+    size +=
+      bytes.length
+
+    if (
+      size >
+      MAX_SOURCE_BYTES
+    ) {
+      throw new Error(
+        'Source image exceeds 10 MB.',
+      )
+    }
+
+    chunks.push(
+      bytes,
+    )
+  }
+
+  const bytes =
+    Buffer.concat(
+      chunks,
+    )
+
+  if (
+    !bytes.length
+  ) {
+    throw new Error(
+      'Source image is empty.',
+    )
+  }
+
+  return bytes
 }
 
 export function createSupabaseSource(
@@ -444,7 +848,9 @@ export function createSupabaseSource(
           )
           .maybeSingle()
 
-      if (error) {
+      if (
+        error
+      ) {
         throw new Error(
           'Published artwork could not be read from Supabase.',
         )
@@ -453,121 +859,184 @@ export function createSupabaseSource(
       return data
     },
 
-    async downloadImage(
-      objectPath,
-    ) {
+    async listPublishedArtworkIds() {
       const {
         data,
         error,
       } =
-        await client.storage
+        await client
           .from(
-            ARTWORK_IMAGE_BUCKET,
+            'artwork_catalog',
           )
-          .createSignedUrl(
-            objectPath,
-            60,
+          .select(
+            'id',
+          )
+          .eq(
+            'status',
+            'PUBLISHED',
           )
 
       if (
-        error ||
-        !data?.signedUrl
+        error
       ) {
         throw new Error(
-          'Selected published artwork image could not be signed.',
+          'Published artwork list could not be read from Supabase.',
         )
       }
 
-      const response =
-        await fetcher(
-          data.signedUrl,
-          {
-            signal:
-              AbortSignal.timeout(
-                10000,
-              ),
+      return (
+        data ?? []
+      )
+        .map(
+          (row) =>
+            row?.id,
+        )
+        .filter(
+          safeId,
+        )
+    },
 
-            redirect:
-              'error',
-          },
+    async downloadImage(
+      objectPath,
+    ) {
+      let finalError =
+        null
+
+      for (
+        let attempt = 0;
+        attempt <
+          DOWNLOAD_ATTEMPTS;
+        attempt += 1
+      ) {
+        const delay =
+          DOWNLOAD_RETRY_DELAYS_MS[
+            attempt
+          ] ?? 0
+
+        await sleep(
+          delay,
         )
 
-      if (
-        !response.ok ||
-        !response.body
-      ) {
-        throw new Error(
-          'Selected published artwork image could not be downloaded.',
-        )
-      }
-
-      const chunks = []
-      let size = 0
-
-      for await (
-        const chunk
-        of response.body
-      ) {
-        const bytes =
-          Buffer.from(chunk)
-
-        size +=
-          bytes.length
+        const {
+          data,
+          error,
+        } =
+          await client.storage
+            .from(
+              ARTWORK_IMAGE_BUCKET,
+            )
+            .createSignedUrl(
+              objectPath,
+              SIGNED_URL_TTL_SECONDS,
+            )
 
         if (
-          size >
-          MAX_SOURCE_BYTES
+          error ||
+          !data?.signedUrl
         ) {
           throw new Error(
-            'Source image exceeds 10 MB.',
+            'Selected published artwork image could not be signed.',
           )
         }
 
-        chunks.push(
-          bytes,
-        )
+        try {
+          const response =
+            await fetcher(
+              data.signedUrl,
+              {
+                signal:
+                  AbortSignal.timeout(
+                    DOWNLOAD_TIMEOUT_MS,
+                  ),
+
+                redirect:
+                  'error',
+              },
+            )
+
+          if (
+            !response.ok
+          ) {
+            if (
+              attempt + 1 <
+                DOWNLOAD_ATTEMPTS &&
+              isRetryableHttpStatus(
+                response.status,
+              )
+            ) {
+              finalError =
+                new Error(
+                  `Temporary storage response ${response.status}.`,
+                )
+
+              continue
+            }
+
+            throw new Error(
+              'Selected published artwork image could not be downloaded.',
+            )
+          }
+
+          return await readLimitedResponseBody(
+            response,
+          )
+        } catch (
+          error
+        ) {
+          if (
+            error instanceof Error &&
+            (
+              error.message ===
+                'Source image exceeds 10 MB.' ||
+              error.message ===
+                'Source image is empty.'
+            )
+          ) {
+            throw error
+          }
+
+          finalError =
+            error
+
+          if (
+            attempt + 1 >=
+              DOWNLOAD_ATTEMPTS ||
+            !isRetryableDownloadError(
+              error,
+            )
+          ) {
+            throw new Error(
+              'Selected published artwork image could not be downloaded.',
+            )
+          }
+        }
       }
 
-      const bytes =
-        Buffer.concat(
-          chunks,
-        )
-
-      if (
-        !bytes.length
-      ) {
-        throw new Error(
-          'Source image is empty.',
-        )
-      }
-
-      return bytes
+      throw new Error(
+        finalError instanceof Error
+          ? 'Selected published artwork image could not be downloaded after retrying.'
+          : 'Selected published artwork image could not be downloaded.',
+      )
     },
   }
 }
 
-/**
- * Reads only an RLS-visible PUBLISHED
- * artwork from Supabase.
- *
- * No service-role key or admin bypass
- * is used by the AR proof generator.
- */
 export async function readPublishedSource(
   selection,
   source,
 ) {
-  validateSelection(
-    selection,
-  )
+  const request =
+    validateSelection(
+      selection,
+    )
 
   if (
     !source ||
     typeof source
-        .getPublishedArtwork !==
+      .getPublishedArtwork !==
       'function' ||
     typeof source
-        .downloadImage !==
+      .downloadImage !==
       'function'
   ) {
     throw new Error(
@@ -578,7 +1047,7 @@ export async function readPublishedSource(
   const artwork =
     await source
       .getPublishedArtwork(
-        selection.artworkId,
+        request.artworkId,
       )
 
   if (
@@ -591,53 +1060,16 @@ export async function readPublishedSource(
     )
   }
 
-  if (
-    typeof artwork
-      .seller_id !==
-    'string'
-  ) {
-    throw new Error(
-      'Published artwork has no valid seller.',
-    )
-  }
-
-  const images =
-    Array.isArray(
-      artwork.images,
-    )
-      ? artwork.images
-      : []
-
   const image =
-    images.find(
-      (entry) =>
-        entry &&
-        typeof entry ===
-          'object' &&
-        entry.id ===
-          selection.imageId,
+    chooseImage(
+      artwork,
+      request.imageId,
     )
-
-  const expectedPath =
-    `${artwork.seller_id}/${selection.artworkId}/${selection.imageId}`
-
-  if (
-    !image ||
-    image.path !==
-      expectedPath ||
-    !ALLOWED_IMAGE_TYPES.has(
-      image.contentType,
-    )
-  ) {
-    throw new Error(
-      'Selected image is missing or does not belong to this published artwork.',
-    )
-  }
 
   const downloaded =
     await source
       .downloadImage(
-        expectedPath,
+        image.path,
       )
 
   const bytes =
@@ -649,7 +1081,9 @@ export async function readPublishedSource(
           downloaded,
         )
 
-  if (!bytes.length) {
+  if (
+    !bytes.length
+  ) {
     throw new Error(
       'Source image is empty.',
     )
@@ -665,68 +1099,280 @@ export async function readPublishedSource(
   }
 
   return {
-    bytes,
+    artworkId:
+      artwork.id,
+
+    imageId:
+      image.id,
 
     imagePath:
-      expectedPath,
+      image.path,
 
     sourceSha256:
-      sha256(bytes),
+      sha256(
+        bytes,
+      ),
+
+    bytes,
   }
 }
 
-/**
- * Adds a real visible dark frame around
- * the artwork image.
- *
- * FRAME_MM controls both the physical
- * AR geometry and the visual border.
- */
-export async function buildFramedJpeg(
-  orientedBytes,
+let sharpModule =
+  null
+
+async function loadSharp() {
+  if (
+    !sharpModule
+  ) {
+    const module =
+      await import(
+        'sharp',
+      )
+
+    sharpModule =
+      module.default
+  }
+
+  return sharpModule
+}
+
+export async function inspectSourceImage(
+  sourceBytes,
+) {
+  const bytes =
+    Buffer.isBuffer(
+      sourceBytes,
+    )
+      ? sourceBytes
+      : Buffer.from(
+          sourceBytes ??
+            [],
+        )
+
+  if (
+    !bytes.length
+  ) {
+    throw new Error(
+      'Source image is empty.',
+    )
+  }
+
+  if (
+    bytes.length >
+    MAX_SOURCE_BYTES
+  ) {
+    throw new Error(
+      'Source image exceeds 10 MB.',
+    )
+  }
+
+  const sharp =
+    await loadSharp()
+
+  let metadata
+
+  try {
+    metadata =
+      await sharp(
+        bytes,
+        {
+          failOn:
+            'warning',
+
+          limitInputPixels:
+            MAX_SOURCE_PIXELS,
+
+          limitInputChannels:
+            MAX_INPUT_CHANNELS,
+
+          sequentialRead:
+            true,
+        },
+      ).metadata()
+  } catch (
+    error
+  ) {
+    if (
+      error instanceof Error &&
+      /pixel limit|input image exceeds pixel limit/i
+        .test(
+          error.message,
+        )
+    ) {
+      throw new Error(
+        'Source image exceeds the 100 megapixel AR safety limit.',
+      )
+    }
+
+    throw new Error(
+      'Source image metadata could not be read safely.',
+    )
+  }
+
+  if (
+    ![
+      'jpeg',
+      'png',
+      'webp',
+    ].includes(
+      metadata.format,
+    )
+  ) {
+    throw new Error(
+      'Source image format is not supported for AR.',
+    )
+  }
+
+  if (
+    Number.isSafeInteger(
+      metadata.pages,
+    ) &&
+    metadata.pages > 1
+  ) {
+    throw new Error(
+      'Animated or multi-page artwork images are not supported for AR.',
+    )
+  }
+
+  const oriented =
+    metadata.autoOrient
+
+  const width =
+    oriented?.width ??
+    metadata.width
+
+  const height =
+    oriented?.height ??
+    metadata.height
+
+  if (
+    !Number.isSafeInteger(
+      width,
+    ) ||
+    !Number.isSafeInteger(
+      height,
+    ) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    throw new Error(
+      'The artwork image dimensions could not be determined.',
+    )
+  }
+
+  if (
+    width >
+      MAX_SOURCE_EDGE_PIXELS ||
+    height >
+      MAX_SOURCE_EDGE_PIXELS
+  ) {
+    throw new Error(
+      'Source image exceeds the 16384 pixel AR edge safety limit.',
+    )
+  }
+
+  const pixels =
+    width *
+    height
+
+  if (
+    !Number.isSafeInteger(
+      pixels,
+    ) ||
+    pixels >
+      MAX_SOURCE_PIXELS
+  ) {
+    throw new Error(
+      'Source image exceeds the 100 megapixel AR safety limit.',
+    )
+  }
+
+  return {
+    width,
+    height,
+    pixels,
+
+    format:
+      metadata.format,
+  }
+}
+
+function texturePixelGeometry(
   geometry,
 ) {
   const scale =
     Math.min(
-      2000 /
+      MAX_TEXTURE_EDGE_PIXELS /
         geometry.widthMm,
 
-      2000 /
+      MAX_TEXTURE_EDGE_PIXELS /
         geometry.heightMm,
     )
 
-  const framePixels =
-    Math.max(
-      2,
-      Math.round(
-        geometry.frameMm *
-          scale,
+  return {
+    framePixels:
+      Math.max(
+        2,
+        Math.round(
+          geometry.frameMm *
+            scale,
+        ),
       ),
+
+    artworkWidthPixels:
+      Math.max(
+        1,
+        Math.round(
+          geometry
+            .artworkWidthMm *
+            scale,
+        ),
+      ),
+
+    artworkHeightPixels:
+      Math.max(
+        1,
+        Math.round(
+          geometry
+            .artworkHeightMm *
+            scale,
+        ),
+      ),
+  }
+}
+
+async function buildArtworkJpeg(
+  sourceBytes,
+  geometry,
+) {
+  const sharp =
+    await loadSharp()
+
+  const {
+    artworkWidthPixels,
+    artworkHeightPixels,
+  } =
+    texturePixelGeometry(
+      geometry,
     )
 
-  const artworkWidthPixels =
-    Math.max(
-      1,
-      Math.round(
-        geometry
-          .artworkWidthMm *
-          scale,
-      ),
-    )
+  return sharp(
+    sourceBytes,
+    {
+      failOn:
+        'warning',
 
-  const artworkHeightPixels =
-    Math.max(
-      1,
-      Math.round(
-        geometry
-          .artworkHeightMm *
-          scale,
-      ),
-    )
+      limitInputPixels:
+        MAX_SOURCE_PIXELS,
 
-  return sharpArtwork(
-    orientedBytes,
+      limitInputChannels:
+        MAX_INPUT_CHANNELS,
+
+      sequentialRead:
+        true,
+    },
   )
+    .autoOrient()
     .resize({
       width:
         artworkWidthPixels,
@@ -734,12 +1380,69 @@ export async function buildFramedJpeg(
       height:
         artworkHeightPixels,
 
-      fit: 'fill',
+      fit:
+        'fill',
     })
     .flatten({
       background:
         '#ffffff',
     })
+    .jpeg({
+      quality:
+        88,
+
+      chromaSubsampling:
+        '4:4:4',
+    })
+    .toBuffer()
+}
+
+async function applyFrameToArtworkJpeg(
+  artworkJpeg,
+  geometry,
+  frameStyle,
+) {
+  if (
+    !isFrameStyle(
+      frameStyle,
+    )
+  ) {
+    throw new Error(
+      'Unknown AR frame style.',
+    )
+  }
+
+  const sharp =
+    await loadSharp()
+
+  const {
+    framePixels,
+  } =
+    texturePixelGeometry(
+      geometry,
+    )
+
+  const frame =
+    FRAME_STYLES[
+      frameStyle
+    ]
+
+  return sharp(
+    artworkJpeg,
+    {
+      failOn:
+        'warning',
+
+      limitInputPixels:
+        MAX_SOURCE_PIXELS,
+
+      limitInputChannels:
+        MAX_INPUT_CHANNELS,
+
+      sequentialRead:
+        true,
+    },
+  )
     .extend({
       top:
         framePixels,
@@ -753,15 +1456,12 @@ export async function buildFramedJpeg(
       right:
         framePixels,
 
-      background: {
-        r: 22,
-        g: 22,
-        b: 22,
-        alpha: 1,
-      },
+      background:
+        frame.color,
     })
     .jpeg({
-      quality: 88,
+      quality:
+        88,
 
       chromaSubsampling:
         '4:4:4',
@@ -769,49 +1469,188 @@ export async function buildFramedJpeg(
     .toBuffer()
 }
 
-let sharpModule = null
-
-async function loadSharp() {
-  if (!sharpModule) {
-    const module =
-      await import(
-        'sharp',
-      )
-
-    sharpModule =
-      module.default
-  }
-
-  return sharpModule
-}
-
-function sharpArtwork(bytes) {
-  if (!sharpModule) {
-    throw new Error(
-      'Sharp is not loaded.',
+export async function buildFramedJpeg(
+  sourceBytes,
+  geometry,
+  frameStyle =
+    DEFAULT_FRAME_STYLE,
+) {
+  const artworkJpeg =
+    await buildArtworkJpeg(
+      sourceBytes,
+      geometry,
     )
-  }
 
-  return sharpModule(
-    bytes,
-    {
-      limitInputPixels:
-        25_000_000,
-    },
+  return applyFrameToArtworkJpeg(
+    artworkJpeg,
+    geometry,
+    frameStyle,
   )
 }
 
-/**
- * Minimal glTF 2.0.
+function frameMaterial(
+  frameStyle,
+) {
+  const frame =
+    FRAME_STYLES[
+      frameStyle
+    ] ??
+    FRAME_STYLES[
+      DEFAULT_FRAME_STYLE
+    ]
+
+  return {
+    baseColorFactor: [
+      frame.color.r / 255,
+      frame.color.g / 255,
+      frame.color.b / 255,
+      1,
+    ],
+
+    metallicFactor:
+      frame.metallicFactor,
+
+    roughnessFactor:
+      frame.roughnessFactor,
+  }
+}
+
+function createBackingGeometry(
+  halfWidth,
+  halfHeight,
+  frontZ,
+  backZ,
+) {
+  /*
+   * 24 vertices:
+   * 4 for each face.
+   *
+   * Separate vertices per face give
+   * every face a correct flat normal.
+   */
+
+  const positions =
+    new Float32Array([
+      // Front
+      -halfWidth, -halfHeight, frontZ,
+      halfWidth, -halfHeight, frontZ,
+      halfWidth, halfHeight, frontZ,
+      -halfWidth, halfHeight, frontZ,
+
+      // Back
+      halfWidth, -halfHeight, backZ,
+      -halfWidth, -halfHeight, backZ,
+      -halfWidth, halfHeight, backZ,
+      halfWidth, halfHeight, backZ,
+
+      // Left
+      -halfWidth, -halfHeight, backZ,
+      -halfWidth, -halfHeight, frontZ,
+      -halfWidth, halfHeight, frontZ,
+      -halfWidth, halfHeight, backZ,
+
+      // Right
+      halfWidth, -halfHeight, frontZ,
+      halfWidth, -halfHeight, backZ,
+      halfWidth, halfHeight, backZ,
+      halfWidth, halfHeight, frontZ,
+
+      // Top
+      -halfWidth, halfHeight, frontZ,
+      halfWidth, halfHeight, frontZ,
+      halfWidth, halfHeight, backZ,
+      -halfWidth, halfHeight, backZ,
+
+      // Bottom
+      -halfWidth, -halfHeight, backZ,
+      halfWidth, -halfHeight, backZ,
+      halfWidth, -halfHeight, frontZ,
+      -halfWidth, -halfHeight, frontZ,
+    ])
+
+  const normals =
+    new Float32Array([
+      // Front
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+
+      // Back
+      0, 0, -1,
+      0, 0, -1,
+      0, 0, -1,
+      0, 0, -1,
+
+      // Left
+      -1, 0, 0,
+      -1, 0, 0,
+      -1, 0, 0,
+      -1, 0, 0,
+
+      // Right
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+      1, 0, 0,
+
+      // Top
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+      0, 1, 0,
+
+      // Bottom
+      0, -1, 0,
+      0, -1, 0,
+      0, -1, 0,
+      0, -1, 0,
+    ])
+
+  const indices =
+    new Uint16Array([
+      0, 1, 2,
+      0, 2, 3,
+
+      4, 5, 6,
+      4, 6, 7,
+
+      8, 9, 10,
+      8, 10, 11,
+
+      12, 13, 14,
+      12, 14, 15,
+
+      16, 17, 18,
+      16, 18, 19,
+
+      20, 21, 22,
+      20, 22, 23,
+    ])
+
+  return {
+    positions,
+    normals,
+    indices,
+  }
+}
+
+/*
+ * Legacy function name retained so the
+ * existing script tests/API do not need
+ * a breaking rename.
  *
- * The JPEG already contains the artwork
- * plus frame, so this plane represents
- * the complete framed display rectangle.
+ * The model is no longer mathematically
+ * flat: it now includes a shallow solid
+ * backing/profile behind the textured
+ * artwork plane.
  */
 export function buildFlatGlb(
   jpeg,
   widthMm,
   heightMm,
+  frameStyle =
+    DEFAULT_FRAME_STYLE,
 ) {
   if (
     ![
@@ -823,7 +1662,8 @@ export function buildFlatGlb(
           value,
         ) &&
         value > 0 &&
-        value <= 10000,
+        value <=
+          10000,
     )
   ) {
     throw new Error(
@@ -831,22 +1671,50 @@ export function buildFlatGlb(
     )
   }
 
+  if (
+    !isFrameStyle(
+      frameStyle,
+    )
+  ) {
+    throw new Error(
+      'Unknown AR frame style.',
+    )
+  }
+
   const w =
     Math.fround(
-      widthMm / 2000,
+      widthMm /
+        2000,
     )
 
   const h =
     Math.fround(
-      heightMm / 2000,
+      heightMm /
+        2000,
     )
 
+  const frontOffset =
+    Math.fround(
+      FRONT_OFFSET_MM /
+        1000,
+    )
+
+  const depth =
+    Math.fround(
+      FRAME_DEPTH_MM /
+        1000,
+    )
+
+  /*
+   * Keep the textured front slightly in
+   * front of the solid backing surface.
+   */
   const positions =
     new Float32Array([
-      -w, -h, 0,
-      w, -h, 0,
-      w, h, 0,
-      -w, h, 0,
+      -w, -h, frontOffset,
+      w, -h, frontOffset,
+      w, h, frontOffset,
+      -w, h, frontOffset,
     ])
 
   const normals =
@@ -871,6 +1739,21 @@ export function buildFlatGlb(
       0, 2, 3,
     ])
 
+  const backing =
+    createBackingGeometry(
+      w,
+      h,
+      0,
+      -depth,
+    )
+
+  /*
+   * Keep the original first four buffer
+   * views in the same order. Existing
+   * tests and tooling therefore continue
+   * to inspect the front plane exactly as
+   * before.
+   */
   const buffers = [
     Buffer.from(
       positions.buffer,
@@ -886,6 +1769,18 @@ export function buildFlatGlb(
 
     Buffer.from(
       indices.buffer,
+    ),
+
+    Buffer.from(
+      backing.positions.buffer,
+    ),
+
+    Buffer.from(
+      backing.normals.buffer,
+    ),
+
+    Buffer.from(
+      backing.indices.buffer,
     ),
 
     jpeg,
@@ -920,45 +1815,91 @@ export function buildFlatGlb(
       Buffer.alloc(
         (
           4 -
-          (offset % 4)
-        ) % 4,
+          (
+            offset %
+            4
+          )
+        ) %
+          4,
       ),
     ])
 
+  const solidMaterial =
+    frameMaterial(
+      frameStyle,
+    )
+
   const gltf = {
     asset: {
-      version: '2.0',
+      version:
+        '2.0',
 
       generator:
-        'ArtVault framed-wall AR proof v3-supabase',
+        `ArtVault framed-wall AR proof ${GENERATOR_VERSION}`,
     },
 
-    scene: 0,
+    scene:
+      0,
 
     scenes: [
       {
-        nodes: [0],
+        nodes: [
+          0,
+        ],
       },
     ],
 
     nodes: [
       {
-        mesh: 0,
+        mesh:
+          0,
       },
     ],
 
     meshes: [
       {
         primitives: [
+          /*
+           * Front artwork + visible
+           * 30 mm frame texture.
+           */
           {
             attributes: {
-              POSITION: 0,
-              NORMAL: 1,
-              TEXCOORD_0: 2,
+              POSITION:
+                0,
+
+              NORMAL:
+                1,
+
+              TEXCOORD_0:
+                2,
             },
 
-            indices: 3,
-            material: 0,
+            indices:
+              3,
+
+            material:
+              0,
+          },
+
+          /*
+           * Physical shallow backing
+           * and visible side profile.
+           */
+          {
+            attributes: {
+              POSITION:
+                4,
+
+              NORMAL:
+                5,
+            },
+
+            indices:
+              6,
+
+            material:
+              1,
           },
         ],
       },
@@ -968,38 +1909,76 @@ export function buildFlatGlb(
       {
         pbrMetallicRoughness: {
           baseColorTexture: {
-            index: 0,
+            index:
+              0,
           },
 
-          metallicFactor: 0,
+          metallicFactor:
+            0,
 
-          roughnessFactor: 1,
+          roughnessFactor:
+            1,
         },
 
-        doubleSided: false,
+        /*
+         * Preserve the physical Android
+         * visibility fix from the
+         * previously working proof.
+         */
+        doubleSided:
+          true,
+      },
+
+      {
+        pbrMetallicRoughness: {
+          baseColorFactor:
+            solidMaterial
+              .baseColorFactor,
+
+          metallicFactor:
+            solidMaterial
+              .metallicFactor,
+
+          roughnessFactor:
+            solidMaterial
+              .roughnessFactor,
+        },
+
+        doubleSided:
+          true,
       },
     ],
 
     textures: [
       {
-        source: 0,
-        sampler: 0,
+        source:
+          0,
+
+        sampler:
+          0,
       },
     ],
 
     samplers: [
       {
-        wrapS: 33071,
-        wrapT: 33071,
+        wrapS:
+          33071,
 
-        magFilter: 9729,
-        minFilter: 9987,
+        wrapT:
+          33071,
+
+        magFilter:
+          9729,
+
+        minFilter:
+          9987,
       },
     ],
 
     images: [
       {
-        bufferView: 4,
+        bufferView:
+          7,
 
         mimeType:
           'image/jpeg',
@@ -1017,20 +1996,98 @@ export function buildFlatGlb(
     ],
 
     accessors: [
+      /*
+       * Existing front-plane
+       * accessors remain 0-3.
+       */
       {
-        bufferView: 0,
+        bufferView:
+          0,
 
         componentType:
           5126,
 
-        count: 4,
+        count:
+          4,
 
-        type: 'VEC3',
+        type:
+          'VEC3',
 
         min: [
           -w,
           -h,
-          0,
+          frontOffset,
+        ],
+
+        max: [
+          w,
+          h,
+          frontOffset,
+        ],
+      },
+
+      {
+        bufferView:
+          1,
+
+        componentType:
+          5126,
+
+        count:
+          4,
+
+        type:
+          'VEC3',
+      },
+
+      {
+        bufferView:
+          2,
+
+        componentType:
+          5126,
+
+        count:
+          4,
+
+        type:
+          'VEC2',
+      },
+
+      {
+        bufferView:
+          3,
+
+        componentType:
+          5123,
+
+        count:
+          6,
+
+        type:
+          'SCALAR',
+      },
+
+      /*
+       * Solid backing/profile.
+       */
+      {
+        bufferView:
+          4,
+
+        componentType:
+          5126,
+
+        count:
+          24,
+
+        type:
+          'VEC3',
+
+        min: [
+          -w,
+          -h,
+          -depth,
         ],
 
         max: [
@@ -1041,36 +2098,31 @@ export function buildFlatGlb(
       },
 
       {
-        bufferView: 1,
+        bufferView:
+          5,
 
         componentType:
           5126,
 
-        count: 4,
+        count:
+          24,
 
-        type: 'VEC3',
+        type:
+          'VEC3',
       },
 
       {
-        bufferView: 2,
-
-        componentType:
-          5126,
-
-        count: 4,
-
-        type: 'VEC2',
-      },
-
-      {
-        bufferView: 3,
+        bufferView:
+          6,
 
         componentType:
           5123,
 
-        count: 6,
+        count:
+          36,
 
-        type: 'SCALAR',
+        type:
+          'SCALAR',
       },
     ],
   }
@@ -1089,15 +2141,20 @@ export function buildFlatGlb(
       Buffer.alloc(
         (
           4 -
-          (json.length % 4)
-        ) % 4,
-
+          (
+            json.length %
+            4
+          )
+        ) %
+          4,
         32,
       ),
     ])
 
   const header =
-    Buffer.alloc(20)
+    Buffer.alloc(
+      20,
+    )
 
   header.writeUInt32LE(
     0x46546c67,
@@ -1112,7 +2169,6 @@ export function buildFlatGlb(
     28 +
       json.length +
       binary.length,
-
     8,
   )
 
@@ -1127,7 +2183,9 @@ export function buildFlatGlb(
   )
 
   const binHeader =
-    Buffer.alloc(8)
+    Buffer.alloc(
+      8,
+    )
 
   binHeader.writeUInt32LE(
     binary.length,
@@ -1146,13 +2204,599 @@ export function buildFlatGlb(
   ])
 }
 
+function artworkDirectory(
+  root,
+  artworkId,
+) {
+  return path.join(
+    root,
+    PROOF_DIRECTORY,
+    artworkId,
+  )
+}
+
+function manifestFilename(
+  root,
+  artworkId,
+) {
+  return path.join(
+    artworkDirectory(
+      root,
+      artworkId,
+    ),
+    'manifest.json',
+  )
+}
+
+function modelFilename(
+  root,
+  artworkId,
+  version,
+) {
+  return path.join(
+    artworkDirectory(
+      root,
+      artworkId,
+    ),
+    `${version}.glb`,
+  )
+}
+
+function validDimension(
+  value,
+) {
+  return (
+    Number.isFinite(
+      value,
+    ) &&
+    value > 0 &&
+    value <=
+      10000
+  )
+}
+
+function validateFrameManifest(
+  frames,
+) {
+  if (
+    !frames ||
+    typeof frames !==
+      'object'
+  ) {
+    throw new Error(
+      'Invalid AR frame variants.',
+    )
+  }
+
+  for (
+    const frameStyle
+    of FRAME_STYLE_KEYS
+  ) {
+    const variant =
+      frames[
+        frameStyle
+      ]
+
+    const expectedLabel =
+      FRAME_STYLES[
+        frameStyle
+      ].label
+
+    if (
+      !variant ||
+      typeof variant !==
+        'object' ||
+      variant.label !==
+        expectedLabel ||
+      !/^[a-f0-9]{64}$/.test(
+        variant.version,
+      ) ||
+      !Number.isSafeInteger(
+        variant.bytes,
+      ) ||
+      variant.bytes <= 0 ||
+      variant.bytes >
+        MAX_MODEL_BYTES
+    ) {
+      throw new Error(
+        'Invalid AR frame variant.',
+      )
+    }
+  }
+
+  return frames
+}
+
+function validateManifest(
+  manifest,
+  artworkId,
+) {
+  if (
+    !manifest ||
+    typeof manifest !==
+      'object' ||
+    manifest.schemaVersion !==
+      SCHEMA_VERSION ||
+    manifest.generatorVersion !==
+      GENERATOR_VERSION ||
+    manifest.artworkId !==
+      artworkId ||
+    !safeImageId(
+      manifest.imageId,
+    ) ||
+    manifest.sizingMode !==
+      SIZING_MODE ||
+    manifest.includesFrame !==
+      true ||
+    manifest.frameMm !==
+      FRAME_MM ||
+    manifest.frameDepthMm !==
+      FRAME_DEPTH_MM ||
+    !validDimension(
+      manifest.artworkWidthMm,
+    ) ||
+    !validDimension(
+      manifest.artworkHeightMm,
+    ) ||
+    !validDimension(
+      manifest.widthMm,
+    ) ||
+    !validDimension(
+      manifest.heightMm,
+    ) ||
+    typeof manifest.imagePath !==
+      'string' ||
+    !Number.isSafeInteger(
+      manifest.sourceWidthPixels,
+    ) ||
+    manifest.sourceWidthPixels <=
+      0 ||
+    manifest.sourceWidthPixels >
+      MAX_SOURCE_EDGE_PIXELS ||
+    !Number.isSafeInteger(
+      manifest.sourceHeightPixels,
+    ) ||
+    manifest.sourceHeightPixels <=
+      0 ||
+    manifest.sourceHeightPixels >
+      MAX_SOURCE_EDGE_PIXELS ||
+    !Number.isSafeInteger(
+      manifest.sourcePixels,
+    ) ||
+    manifest.sourcePixels <=
+      0 ||
+    manifest.sourcePixels >
+      MAX_SOURCE_PIXELS ||
+    manifest.sourcePixels !==
+      manifest.sourceWidthPixels *
+        manifest.sourceHeightPixels ||
+    !/^[a-f0-9]{64}$/.test(
+      manifest.sourceSha256,
+    ) ||
+    manifest.defaultFrame !==
+      DEFAULT_FRAME_STYLE ||
+    !/^[a-f0-9]{64}$/.test(
+      manifest.version,
+    ) ||
+    !Number.isSafeInteger(
+      manifest.bytes,
+    ) ||
+    manifest.bytes <=
+      0 ||
+    manifest.bytes >
+      MAX_MODEL_BYTES
+  ) {
+    throw new Error(
+      'Invalid AR proof manifest.',
+    )
+  }
+
+  const frames =
+    validateFrameManifest(
+      manifest.frames,
+    )
+
+  const defaultVariant =
+    frames[
+      DEFAULT_FRAME_STYLE
+    ]
+
+  if (
+    manifest.version !==
+      defaultVariant.version ||
+    manifest.bytes !==
+      defaultVariant.bytes
+  ) {
+    throw new Error(
+      'Invalid default AR frame variant.',
+    )
+  }
+
+  return manifest
+}
+
+function publicProof(
+  manifest,
+) {
+  const frames = {}
+
+  for (
+    const frameStyle
+    of FRAME_STYLE_KEYS
+  ) {
+    const variant =
+      manifest.frames[
+        frameStyle
+      ]
+
+    frames[
+      frameStyle
+    ] = {
+      label:
+        variant.label,
+
+      modelUrl:
+        `${PROOF_PREFIX}model/${manifest.artworkId}/${variant.version}.glb`,
+
+      version:
+        variant.version,
+    }
+  }
+
+  const defaultVariant =
+    frames[
+      manifest.defaultFrame
+    ]
+
+  return {
+    artworkId:
+      manifest.artworkId,
+
+    imageId:
+      manifest.imageId,
+
+    sizingMode:
+      manifest.sizingMode,
+
+    artworkWidthMm:
+      manifest.artworkWidthMm,
+
+    artworkHeightMm:
+      manifest.artworkHeightMm,
+
+    frameMm:
+      manifest.frameMm,
+
+    widthMm:
+      manifest.widthMm,
+
+    heightMm:
+      manifest.heightMm,
+
+    includesFrame:
+      true,
+
+    defaultFrame:
+      manifest.defaultFrame,
+
+    frames,
+
+    modelUrl:
+      defaultVariant.modelUrl,
+
+    version:
+      defaultVariant.version,
+  }
+}
+
+async function readLocalManifest(
+  root,
+  artworkId,
+) {
+  const manifest =
+    JSON.parse(
+      await readFile(
+        manifestFilename(
+          root,
+          artworkId,
+        ),
+        'utf8',
+      ),
+    )
+
+  return validateManifest(
+    manifest,
+    artworkId,
+  )
+}
+
+async function removeOldModels(
+  directory,
+  keepVersions,
+) {
+  let entries = []
+
+  try {
+    entries =
+      await readdir(
+        directory,
+      )
+  } catch {
+    return
+  }
+
+  const keep =
+    new Set(
+      keepVersions,
+    )
+
+  await Promise.all(
+    entries
+      .filter(
+        (name) =>
+          /^[a-f0-9]{64}\.glb$/.test(
+            name,
+          ) &&
+          !keep.has(
+            name.slice(
+              0,
+              -4,
+            ),
+          ),
+      )
+      .map(
+        (name) =>
+          rm(
+            path.join(
+              directory,
+              name,
+            ),
+            {
+              force:
+                true,
+            },
+          ),
+      ),
+  )
+}
+
+async function generateFromPublished(
+  root,
+  published,
+) {
+  const sourceImage =
+    await inspectSourceImage(
+      published.bytes,
+    )
+
+  const geometry =
+    estimateDisplaySize(
+      sourceImage.width,
+      sourceImage.height,
+    )
+
+  /*
+   * Resize the seller artwork once.
+   * Frame variants are created from
+   * the already-normalized texture.
+   */
+  const artworkJpeg =
+    await buildArtworkJpeg(
+      published.bytes,
+      geometry,
+    )
+
+  const generatedFrames =
+    {}
+
+  for (
+    const frameStyle
+    of FRAME_STYLE_KEYS
+  ) {
+    const jpeg =
+      await applyFrameToArtworkJpeg(
+        artworkJpeg,
+        geometry,
+        frameStyle,
+      )
+
+    const glb =
+      buildFlatGlb(
+        jpeg,
+        geometry.widthMm,
+        geometry.heightMm,
+        frameStyle,
+      )
+
+    if (
+      glb.length >
+      MAX_MODEL_BYTES
+    ) {
+      throw new Error(
+        `Generated ${FRAME_STYLES[frameStyle].label} frame GLB exceeds the 5 MB proof budget.`,
+      )
+    }
+
+    generatedFrames[
+      frameStyle
+    ] = {
+      label:
+        FRAME_STYLES[
+          frameStyle
+        ].label,
+
+      version:
+        sha256(
+          glb,
+        ),
+
+      bytes:
+        glb.length,
+
+      glb,
+    }
+  }
+
+  const defaultVariant =
+    generatedFrames[
+      DEFAULT_FRAME_STYLE
+    ]
+
+  const manifestFrames =
+    Object.fromEntries(
+      FRAME_STYLE_KEYS.map(
+        (
+          frameStyle,
+        ) => {
+          const variant =
+            generatedFrames[
+              frameStyle
+            ]
+
+          return [
+            frameStyle,
+            {
+              label:
+                variant.label,
+
+              version:
+                variant.version,
+
+              bytes:
+                variant.bytes,
+            },
+          ]
+        },
+      ),
+    )
+
+  const manifest = {
+    schemaVersion:
+      SCHEMA_VERSION,
+
+    generatorVersion:
+      GENERATOR_VERSION,
+
+    artworkId:
+      published.artworkId,
+
+    imageId:
+      published.imageId,
+
+    ...geometry,
+
+    frameDepthMm:
+      FRAME_DEPTH_MM,
+
+    imagePath:
+      published.imagePath,
+
+    sourceWidthPixels:
+      sourceImage.width,
+
+    sourceHeightPixels:
+      sourceImage.height,
+
+    sourcePixels:
+      sourceImage.pixels,
+
+    sourceSha256:
+      published.sourceSha256,
+
+    defaultFrame:
+      DEFAULT_FRAME_STYLE,
+
+    frames:
+      manifestFrames,
+
+    version:
+      defaultVariant.version,
+
+    bytes:
+      defaultVariant.bytes,
+  }
+
+  const directory =
+    artworkDirectory(
+      root,
+      published.artworkId,
+    )
+
+  await mkdir(
+    directory,
+    {
+      recursive:
+        true,
+    },
+  )
+
+  for (
+    const frameStyle
+    of FRAME_STYLE_KEYS
+  ) {
+    const variant =
+      generatedFrames[
+        frameStyle
+      ]
+
+    await writeFile(
+      modelFilename(
+        root,
+        published.artworkId,
+        variant.version,
+      ),
+      variant.glb,
+    )
+  }
+
+  const temporary =
+    path.join(
+      directory,
+      'manifest.tmp',
+    )
+
+  await writeFile(
+    temporary,
+    `${JSON.stringify(
+      manifest,
+      null,
+      2,
+    )}\n`,
+  )
+
+  await rename(
+    temporary,
+    manifestFilename(
+      root,
+      published.artworkId,
+    ),
+  )
+
+  await removeOldModels(
+    directory,
+
+    FRAME_STYLE_KEYS.map(
+      (
+        frameStyle,
+      ) =>
+        generatedFrames[
+          frameStyle
+        ].version,
+    ),
+  )
+
+  return manifest
+}
+
 export async function generateProof(
   root,
   input,
   suppliedSource,
 ) {
   const selection =
-    validateSelection(input)
+    validateSelection(
+      input,
+    )
 
   const source =
     suppliedSource ??
@@ -1166,139 +2810,236 @@ export async function generateProof(
       source,
     )
 
-  const sharp =
-    await loadSharp()
-
-  const oriented =
-    await sharp(
-      published.bytes,
-      {
-        limitInputPixels:
-          25_000_000,
-      },
-    )
-      .rotate()
-      .toBuffer({
-        resolveWithObject:
-          true,
-      })
-
-  if (
-    !oriented.info.width ||
-    !oriented.info.height
-  ) {
-    throw new Error(
-      'The artwork image dimensions could not be determined.',
-    )
-  }
-
-  const geometry =
-    estimateDisplaySize(
-      oriented.info.width,
-      oriented.info.height,
-    )
-
-  const jpeg =
-    await buildFramedJpeg(
-      oriented.data,
-      geometry,
-    )
-
-  const glb =
-    buildFlatGlb(
-      jpeg,
-      geometry.widthMm,
-      geometry.heightMm,
-    )
-
-  if (
-    glb.length >
-    MAX_MODEL_BYTES
-  ) {
-    throw new Error(
-      'Generated GLB exceeds the 5 MB proof budget.',
-    )
-  }
-
-  const version =
-    sha256(glb)
-
-  const manifest = {
-    schemaVersion: 2,
-
-    ...selection,
-
-    ...geometry,
-
-    imagePath:
-      published.imagePath,
-
-    sourceSha256:
-      published.sourceSha256,
-
-    version,
-
-    bytes:
-      glb.length,
-  }
-
-  const directory =
-    path.join(
-      root,
-      PROOF_DIRECTORY,
-    )
-
-  await mkdir(
-    directory,
-    {
-      recursive: true,
-    },
+  return generateFromPublished(
+    root,
+    published,
   )
-
-  await writeFile(
-    path.join(
-      directory,
-      `${version}.glb`,
-    ),
-
-    glb,
-  )
-
-  await writeFile(
-    path.join(
-      directory,
-      'manifest.tmp',
-    ),
-
-    `${JSON.stringify(
-      manifest,
-      null,
-      2,
-    )}\n`,
-  )
-
-  await rename(
-    path.join(
-      directory,
-      'manifest.tmp',
-    ),
-
-    path.join(
-      directory,
-      'manifest.json',
-    ),
-  )
-
-  return manifest
 }
 
-/**
- * The model stays development-only.
- *
- * Every read rechecks the current
- * Supabase publication state and source
- * image before returning the model.
- */
+async function manifestModelsAreValid(
+  root,
+  artworkId,
+  manifest,
+) {
+  for (
+    const frameStyle
+    of FRAME_STYLE_KEYS
+  ) {
+    const variant =
+      manifest.frames[
+        frameStyle
+      ]
+
+    const model =
+      await readFile(
+        modelFilename(
+          root,
+          artworkId,
+          variant.version,
+        ),
+      )
+
+    if (
+      sha256(
+        model,
+      ) !==
+      variant.version
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+
+export async function ensureProof(
+  root,
+  artworkId,
+  suppliedSource,
+) {
+  if (
+    !safeId(
+      artworkId,
+    )
+  ) {
+    throw new Error(
+      'Invalid artwork id.',
+    )
+  }
+
+  const existingLock =
+    proofLocks.get(
+      artworkId,
+    )
+
+  if (
+    existingLock
+  ) {
+    return existingLock
+  }
+
+  const task =
+    (
+      async () => {
+        const source =
+          suppliedSource ??
+          createSupabaseSource(
+            root,
+          )
+
+        const current =
+          await readPublishedSource(
+            {
+              artworkId,
+            },
+            source,
+          )
+
+        try {
+          const manifest =
+            await readLocalManifest(
+              root,
+              artworkId,
+            )
+
+          if (
+            manifest.imageId ===
+              current.imageId &&
+            manifest.imagePath ===
+              current.imagePath &&
+            manifest.sourceSha256 ===
+              current.sourceSha256 &&
+            await manifestModelsAreValid(
+              root,
+              artworkId,
+              manifest,
+            )
+          ) {
+            return manifest
+          }
+        } catch {
+          /*
+           * Missing, stale,
+           * old-schema,
+           * incomplete,
+           * or corrupt proof:
+           * regenerate below.
+           */
+        }
+
+        return generateFromPublished(
+          root,
+          current,
+        )
+      }
+    )()
+
+  proofLocks.set(
+    artworkId,
+    task,
+  )
+
+  try {
+    return await task
+  } finally {
+    proofLocks.delete(
+      artworkId,
+    )
+  }
+}
+
+export async function prepareAllProofs(
+  root,
+  suppliedSource,
+) {
+  const source =
+    suppliedSource ??
+    createSupabaseSource(
+      root,
+    )
+
+  if (
+    typeof source
+      .listPublishedArtworkIds !==
+      'function'
+  ) {
+    throw new Error(
+      'The Supabase source cannot list published artworks.',
+    )
+  }
+
+  const ids =
+    await source
+      .listPublishedArtworkIds()
+
+  const uniqueIds = [
+    ...new Set(
+      ids.filter(
+        safeId,
+      ),
+    ),
+  ]
+
+  const results = []
+  const failures = []
+
+  /*
+   * Deliberately sequential so
+   * several high-resolution seller
+   * images are never processed in
+   * parallel on the development
+   * machine.
+   */
+  for (
+    const artworkId
+    of uniqueIds
+  ) {
+    try {
+      results.push(
+        await ensureProof(
+          root,
+          artworkId,
+          source,
+        ),
+      )
+    } catch (
+      error
+    ) {
+      failures.push({
+        artworkId,
+
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Unknown AR preparation error.',
+      })
+    }
+  }
+
+  if (
+    failures.length
+  ) {
+    const details =
+      failures
+        .map(
+          ({
+            artworkId,
+            message,
+          }) =>
+            `${artworkId}: ${message}`,
+        )
+        .join(
+          '; ',
+        )
+
+    throw new Error(
+      `AR proof preparation failed for ${failures.length} published artwork${failures.length === 1 ? '' : 's'}: ${details}`,
+    )
+  }
+
+  return results
+}
+
 export function proofMiddleware(
   root,
   suppliedSource,
@@ -1306,16 +3047,19 @@ export function proofMiddleware(
   let source =
     suppliedSource
 
-  const getSource = () => {
-    if (!source) {
-      source =
-        createSupabaseSource(
-          root,
-        )
-    }
+  const getSource =
+    () => {
+      if (
+        !source
+      ) {
+        source =
+          createSupabaseSource(
+            root,
+          )
+      }
 
-    return source
-  }
+      return source
+    }
 
   return async (
     req,
@@ -1354,75 +3098,108 @@ export function proofMiddleware(
         req.method,
       )
     ) {
-      res.statusCode = 405
+      res.statusCode =
+        405
+
       return res.end()
     }
 
     try {
-      const directory =
-        path.join(
-          root,
-          PROOF_DIRECTORY,
+      const manifestMatch =
+        url.pathname.match(
+          /^\/__ar-proof\/manifest\/([A-Za-z0-9_-]{1,128})$/,
         )
-
-      const manifest =
-        JSON.parse(
-          await readFile(
-            path.join(
-              directory,
-              'manifest.json',
-            ),
-
-            'utf8',
-          ),
-        )
-
-      validateSelection(
-        manifest,
-      )
 
       if (
-        manifest.schemaVersion !==
-          2 ||
-        manifest
-          .sizingMode !==
-          'ESTIMATED_STANDARD_DISPLAY' ||
-        manifest
-          .includesFrame !==
-          true ||
-        manifest.frameMm !==
-          FRAME_MM ||
-        !/^[a-f0-9]{64}$/.test(
-          manifest.version,
-        )
+        manifestMatch
       ) {
-        throw new Error(
-          'Invalid manifest',
+        const artworkId =
+          manifestMatch[1]
+
+        const manifest =
+          await ensureProof(
+            root,
+            artworkId,
+            getSource(),
+          )
+
+        res.setHeader(
+          'Content-Type',
+          'application/json',
+        )
+
+        return res.end(
+          req.method ===
+            'HEAD'
+            ? undefined
+            : JSON.stringify(
+                publicProof(
+                  manifest,
+                ),
+              ),
         )
       }
 
-      const manifestPath =
-        `${PROOF_PREFIX}manifest/${manifest.artworkId}`
-
-      const modelPath =
-        `${PROOF_PREFIX}model/${manifest.version}.glb`
+      const modelMatch =
+        url.pathname.match(
+          /^\/__ar-proof\/model\/([A-Za-z0-9_-]{1,128})\/([a-f0-9]{64})\.glb$/,
+        )
 
       if (
-        ![
-          manifestPath,
-          modelPath,
-        ].includes(
-          url.pathname,
-        )
+        !modelMatch
       ) {
         throw new Error(
-          'Unselected artwork/version',
+          'Unknown AR proof path.',
+        )
+      }
+
+      const [
+        ,
+        artworkId,
+        version,
+      ] =
+        modelMatch
+
+      const manifest =
+        await readLocalManifest(
+          root,
+          artworkId,
+        )
+
+      const selectedVariant =
+        FRAME_STYLE_KEYS
+          .map(
+            (
+              frameStyle,
+            ) =>
+              manifest.frames[
+                frameStyle
+              ],
+          )
+          .find(
+            (
+              variant,
+            ) =>
+              variant.version ===
+              version,
+          )
+
+      if (
+        !selectedVariant
+      ) {
+        throw new Error(
+          'Unselected artwork version.',
         )
       }
 
       const current =
         await readPublishedSource(
-          manifest,
+          {
+            artworkId,
+
+            imageId:
+              manifest.imageId,
+          },
           getSource(),
         )
 
@@ -1433,74 +3210,27 @@ export function proofMiddleware(
           manifest.sourceSha256
       ) {
         throw new Error(
-          'Stale source',
+          'Stale source.',
         )
       }
 
       const model =
         await readFile(
-          path.join(
-            directory,
-            `${manifest.version}.glb`,
+          modelFilename(
+            root,
+            artworkId,
+            version,
           ),
         )
 
       if (
-        sha256(model) !==
-        manifest.version
+        sha256(
+          model,
+        ) !==
+        version
       ) {
         throw new Error(
-          'Corrupt asset',
-        )
-      }
-
-      if (
-        url.pathname ===
-        manifestPath
-      ) {
-        res.setHeader(
-          'Content-Type',
-          'application/json',
-        )
-
-        return res.end(
-          req.method ===
-            'HEAD'
-            ? undefined
-            : JSON.stringify({
-                artworkId:
-                  manifest.artworkId,
-
-                imageId:
-                  manifest.imageId,
-
-                sizingMode:
-                  manifest.sizingMode,
-
-                artworkWidthMm:
-                  manifest.artworkWidthMm,
-
-                artworkHeightMm:
-                  manifest.artworkHeightMm,
-
-                frameMm:
-                  manifest.frameMm,
-
-                widthMm:
-                  manifest.widthMm,
-
-                heightMm:
-                  manifest.heightMm,
-
-                includesFrame:
-                  true,
-
-                modelUrl:
-                  modelPath,
-
-                version:
-                  manifest.version,
-              }),
+          'Corrupt asset.',
         )
       }
 
@@ -1521,10 +3251,8 @@ export function proofMiddleware(
           : model,
       )
     } catch {
-      // Never expose signed URLs,
-      // storage paths, environment
-      // values, or backend details.
-      res.statusCode = 404
+      res.statusCode =
+        404
 
       return res.end(
         'AR proof unavailable',
@@ -1541,28 +3269,31 @@ export function arProofPlugin() {
     apply:
       'serve',
 
-    config: () => ({
-      server: {
-        fs: {
-          deny: [
-            '.env',
-            '.env.*',
-            '*.{crt,pem}',
-            '**/.git/**',
-            `**/${PROOF_DIRECTORY}/**`,
-          ],
+    config:
+      () => ({
+        server: {
+          fs: {
+            deny: [
+              '.env',
+              '.env.*',
+              '*.{crt,pem}',
+              '**/.git/**',
+              `**/${PROOF_DIRECTORY}/**`,
+            ],
+          },
         },
-      },
-    }),
+      }),
 
     configureServer(
       server,
     ) {
-      server.middlewares.use(
-        proofMiddleware(
-          server.config.root,
-        ),
-      )
+      server
+        .middlewares
+        .use(
+          proofMiddleware(
+            server.config.root,
+          ),
+        )
     },
   }
 }

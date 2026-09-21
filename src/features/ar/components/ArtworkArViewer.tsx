@@ -3,10 +3,81 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { ModelViewerElement } from '@google/model-viewer'
-import { Button } from '@/shared/ui'
-import { loadViewer } from '../loadViewer'
-import type { ArProof } from '../proof'
+import type {
+  ModelViewerElement,
+} from '@google/model-viewer'
+import {
+  Button,
+} from '@/shared/ui'
+import {
+  loadViewer,
+} from '../loadViewer'
+import {
+  AR_FRAME_LABELS,
+  AR_FRAME_STYLES,
+  type ArFrameStyle,
+  type ArProof,
+} from '../proof'
+
+type ArStatus =
+  | 'not-presenting'
+  | 'session-started'
+  | 'object-placed'
+  | 'failed'
+
+type ArTracking =
+  | 'tracking'
+  | 'not-tracking'
+
+const MIN_SCALE_PERCENT =
+  35
+
+const MAX_SCALE_PERCENT =
+  300
+
+const SCALE_STEP_PERCENT =
+  5
+
+const FRAME_SWATCHES: Record<
+  ArFrameStyle,
+  string
+> = {
+  black:
+    'linear-gradient(135deg,#050505,#303030)',
+
+  walnut:
+    'linear-gradient(135deg,#3f2719,#8a5b3b,#4b2c1c)',
+
+  white:
+    'linear-gradient(135deg,#fffdf7,#ded8cc)',
+
+  gold:
+    'linear-gradient(135deg,#75500d,#d9b65a,#8d6619)',
+}
+
+function clampScalePercent(
+  value: number,
+): number {
+  if (
+    !Number.isFinite(
+      value,
+    )
+  ) {
+    return 100
+  }
+
+  return Math.min(
+    MAX_SCALE_PERCENT,
+    Math.max(
+      MIN_SCALE_PERCENT,
+      Math.round(
+        value /
+          SCALE_STEP_PERCENT,
+      ) *
+        SCALE_STEP_PERCENT,
+    ),
+  )
+}
 
 function formatCm(
   millimetres: number,
@@ -23,6 +94,53 @@ function formatCm(
     : centimetres.toFixed(
         1,
       )
+}
+
+function scaledMillimetres(
+  millimetres: number,
+  scalePercent: number,
+): number {
+  return (
+    millimetres *
+    scalePercent /
+    100
+  )
+}
+
+function modelScaleValue(
+  scalePercent: number,
+): string {
+  const scale =
+    scalePercent /
+    100
+
+  return `${scale} ${scale} ${scale}`
+}
+
+function isArStatus(
+  value: string,
+): value is ArStatus {
+  return (
+    value ===
+      'not-presenting' ||
+    value ===
+      'session-started' ||
+    value ===
+      'object-placed' ||
+    value ===
+      'failed'
+  )
+}
+
+function isArTracking(
+  value: string,
+): value is ArTracking {
+  return (
+    value ===
+      'tracking' ||
+    value ===
+      'not-tracking'
+  )
 }
 
 interface ArtworkArViewerProps {
@@ -42,331 +160,144 @@ export function ArtworkArViewer({
     )
 
   const viewer =
-    useRef<ModelViewerElement | null>(
+    useRef<
+      ModelViewerElement |
+      null
+    >(
       null,
+    )
+
+  const arSizePanel =
+    useRef<HTMLDivElement | null>(
+      null,
+    )
+
+  const arSizeReadout =
+    useRef<HTMLDivElement | null>(
+      null,
+    )
+
+  const arScaleReadout =
+    useRef<HTMLSpanElement | null>(
+      null,
+    )
+
+  const arScaleSlider =
+    useRef<HTMLInputElement | null>(
+      null,
+    )
+
+  const [
+    selectedFrame,
+    setSelectedFrame,
+  ] =
+    useState<
+      ArFrameStyle
+    >(
+      proof.defaultFrame,
+    )
+
+  const [
+    scalePercent,
+    setScalePercent,
+  ] =
+    useState(
+      100,
     )
 
   const [
     loaded,
     setLoaded,
   ] =
-    useState(false)
+    useState(
+      false,
+    )
 
   const [
     capable,
     setCapable,
   ] =
-    useState(false)
+    useState(
+      false,
+    )
 
   const [
     error,
     setError,
   ] =
     useState<
-      string | null
-    >(null)
+      string |
+      null
+    >(
+      null,
+    )
 
   const [
-    session,
-    setSession,
+    arStatus,
+    setArStatus,
   ] =
-    useState(false)
+    useState<
+      ArStatus
+    >(
+      'not-presenting',
+    )
+
+  const [
+    tracking,
+    setTracking,
+  ] =
+    useState<
+      ArTracking |
+      null
+    >(
+      null,
+    )
 
   const [
     attempt,
     setAttempt,
   ] =
-    useState(0)
+    useState(
+      0,
+    )
 
-  useEffect(() => {
-    setLoaded(false)
-    setCapable(false)
-    setSession(false)
-    setError(null)
-
-    let disposed = false
-    let clean = () => {}
-
-    void loadViewer()
-      .then(
-        (adapter) => {
-          if (
-            disposed ||
-            !host.current
-          ) {
-            return
-          }
-
-          const element =
-            document.createElement(
-              'model-viewer',
-            ) as ModelViewerElement
-
-          viewer.current =
-            element
-
-          element.setAttribute(
-            'alt',
-            `${title} — framed artwork AR preview`,
-          )
-
-          element.setAttribute(
-            'camera-controls',
-            '',
-          )
-
-          element.setAttribute(
-            'touch-action',
-            'pan-y',
-          )
-
-          element.setAttribute(
-            'ar',
-            '',
-          )
-
-          // Android:
-          // WebXR is attempted first.
-          // Scene Viewer remains the
-          // fallback.
-          element.setAttribute(
-            'ar-modes',
-            'webxr scene-viewer',
-          )
-
-          element.setAttribute(
-            'ar-placement',
-            'wall',
-          )
-
-          // Keep the selected ArtVault
-          // display size fixed instead of
-          // allowing arbitrary scaling.
-          element.setAttribute(
-            'ar-scale',
-            'fixed',
-          )
-
-          element.setAttribute(
-            'loading',
-            'eager',
-          )
-
-          element.setAttribute(
-            'reveal',
-            'auto',
-          )
-
-          element.style.cssText =
-            'display:block;width:100%;height:26rem;max-height:65vh;min-height:16rem'
-
-          if (poster) {
-            element.setAttribute(
-              'poster',
-              poster,
-            )
-          }
-
-          // Hide model-viewer's own AR
-          // launch control. ArtVault uses
-          // the button below so capability
-          // and errors remain explicit.
-          const slot =
-            document.createElement(
-              'span',
-            )
-
-          slot.slot =
-            'ar-button'
-
-          element.append(slot)
-
-          const sync = () => {
-            if (!disposed) {
-              setCapable(
-                element.loaded &&
-                  element.canActivateAR,
-              )
-            }
-          }
-
-          const onLoad =
-            () => {
-              setLoaded(
-                true,
-              )
-
-              setError(
-                null,
-              )
-
-              sync()
-            }
-
-          const onError =
-            () => {
-              setLoaded(
-                false,
-              )
-
-              setCapable(
-                false,
-              )
-
-              setError(
-                'The 3D model could not be loaded. The artwork image remains available.',
-              )
-            }
-
-          const onStatus =
-            (
-              event: Event,
-            ) => {
-              const status =
-                (
-                  event as CustomEvent<{
-                    status: string
-                  }>
-                ).detail
-                  .status
-
-              setSession(
-                status ===
-                  'session-started' ||
-                  status ===
-                    'object-placed',
-              )
-
-              if (
-                status ===
-                'failed'
-              ) {
-                setError(
-                  'AR could not start. Check device support and camera permission, or use the 3D preview.',
-                )
-              }
-
-              sync()
-            }
-
-          element.addEventListener(
-            'load',
-            onLoad,
-          )
-
-          element.addEventListener(
-            'error',
-            onError,
-          )
-
-          element.addEventListener(
-            'ar-status',
-            onStatus,
-          )
-
-          element.setAttribute(
-            'src',
-            proof.modelUrl,
-          )
-
-          host.current.append(
-            element,
-          )
-
-          const capabilityTimer =
-            window.setInterval(
-              sync,
-              500,
-            )
-
-          const loadTimer =
-            window.setTimeout(
-              () => {
-                if (
-                  !element.loaded
-                ) {
-                  onError()
-                }
-              },
-              30000,
-            )
-
-          clean = () => {
-            window.clearInterval(
-              capabilityTimer,
-            )
-
-            window.clearTimeout(
-              loadTimer,
-            )
-
-            element.removeEventListener(
-              'load',
-              onLoad,
-            )
-
-            element.removeEventListener(
-              'error',
-              onError,
-            )
-
-            element.removeEventListener(
-              'ar-status',
-              onStatus,
-            )
-
-            adapter.release(
-              element,
-            )
-
-            viewer.current =
-              null
-          }
-        },
+  useEffect(
+    () => {
+      setSelectedFrame(
+        proof.defaultFrame,
       )
-      .catch(() => {
-        if (!disposed) {
-          setError(
-            'The 3D viewer could not load. You can still view the artwork image.',
-          )
-        }
-      })
 
-    return () => {
-      disposed = true
-      clean()
-    }
-  }, [
-    proof.modelUrl,
-    title,
-    poster,
-    attempt,
-  ])
-
-  const launch = () => {
-    const element =
-      viewer.current
-
-    if (
-      !element?.loaded ||
-      !element.canActivateAR
-    ) {
-      return
-    }
-
-    setError(null)
-
-    // Must happen directly inside the
-    // user click for browser/native AR
-    // activation.
-    void element
-      .activateAR()
-      .catch(() =>
-        setError(
-          'AR could not start. Check device support and camera permission, or use the 3D preview.',
-        ),
+      setScalePercent(
+        100,
       )
-  }
+    },
+    [
+      proof.version,
+      proof.defaultFrame,
+    ],
+  )
+
+  const selectedVariant =
+    proof.frames[
+      selectedFrame
+    ]
+
+  const selectedFrameLabel =
+    AR_FRAME_LABELS[
+      selectedFrame
+    ]
+
+  const scaledWidthMm =
+    scaledMillimetres(
+      proof.widthMm,
+      scalePercent,
+    )
+
+  const scaledHeightMm =
+    scaledMillimetres(
+      proof.heightMm,
+      scalePercent,
+    )
 
   const displayWidth =
     formatCm(
@@ -378,10 +309,998 @@ export function ArtworkArViewer({
       proof.heightMm,
     )
 
+  const scaledDisplayWidth =
+    formatCm(
+      scaledWidthMm,
+    )
+
+  const scaledDisplayHeight =
+    formatCm(
+      scaledHeightMm,
+    )
+
   const frameWidth =
     formatCm(
       proof.frameMm,
     )
+
+  const updateScale =
+    (
+      requestedPercent:
+        number,
+    ) => {
+      setScalePercent(
+        clampScalePercent(
+          requestedPercent,
+        ),
+      )
+    }
+
+  /*
+   * Keep both the normal preview and
+   * the active WebXR scene synchronized
+   * with ArtVault's exact scale.
+   */
+  useEffect(
+    () => {
+      const element =
+        viewer.current
+
+      if (
+        element
+      ) {
+        element.setAttribute(
+          'scale',
+          modelScaleValue(
+            scalePercent,
+          ),
+        )
+      }
+
+      if (
+        arSizeReadout.current
+      ) {
+        arSizeReadout.current
+          .textContent =
+          `${scaledDisplayWidth} × ${scaledDisplayHeight} cm`
+      }
+
+      if (
+        arScaleReadout.current
+      ) {
+        arScaleReadout.current
+          .textContent =
+          `${scalePercent}%`
+      }
+
+      if (
+        arScaleSlider.current
+      ) {
+        arScaleSlider.current
+          .value =
+          String(
+            scalePercent,
+          )
+      }
+    },
+    [
+      scalePercent,
+      scaledDisplayWidth,
+      scaledDisplayHeight,
+    ],
+  )
+
+  useEffect(
+    () => {
+      setLoaded(
+        false,
+      )
+
+      setCapable(
+        false,
+      )
+
+      setError(
+        null,
+      )
+
+      setArStatus(
+        'not-presenting',
+      )
+
+      setTracking(
+        null,
+      )
+
+      let disposed =
+        false
+
+      let clean =
+        () => {}
+
+      void loadViewer()
+        .then(
+          (
+            adapter,
+          ) => {
+            if (
+              disposed ||
+              !host.current
+            ) {
+              return
+            }
+
+            const element =
+              document
+                .createElement(
+                  'model-viewer',
+                ) as
+                ModelViewerElement
+
+            viewer.current =
+              element
+
+            element.setAttribute(
+              'alt',
+              `${title} - ${selectedFrameLabel.toLowerCase()} framed artwork AR preview`,
+            )
+
+            element.setAttribute(
+              'camera-controls',
+              '',
+            )
+
+            element.setAttribute(
+              'touch-action',
+              'pan-y',
+            )
+
+            element.setAttribute(
+              'ar',
+              '',
+            )
+
+            /*
+             * Preserve the physically
+             * proven AR path.
+             */
+            element.setAttribute(
+              'ar-modes',
+              'webxr scene-viewer',
+            )
+
+            element.setAttribute(
+              'ar-placement',
+              'wall',
+            )
+
+            /*
+             * ArtVault now owns scaling.
+             *
+             * Native pinch is disabled so
+             * the percentage and cm values
+             * can never drift away from
+             * the actual WebXR model size.
+             */
+            element.setAttribute(
+              'ar-scale',
+              'fixed',
+            )
+
+            element.setAttribute(
+              'scale',
+              modelScaleValue(
+                scalePercent,
+              ),
+            )
+
+            element.setAttribute(
+              'loading',
+              'eager',
+            )
+
+            element.setAttribute(
+              'reveal',
+              'auto',
+            )
+
+            element.style.cssText =
+              'display:block;width:100%;height:26rem;max-height:65vh;min-height:16rem'
+
+            if (
+              poster
+            ) {
+              element.setAttribute(
+                'poster',
+                poster,
+              )
+            }
+
+            const arButtonSlot =
+              document.createElement(
+                'span',
+              )
+
+            arButtonSlot.slot =
+              'ar-button'
+
+            element.append(
+              arButtonSlot,
+            )
+
+            /*
+             * AR placement/tracking hint.
+             */
+            const arHint =
+              document.createElement(
+                'div',
+              )
+
+            arHint.setAttribute(
+              'data-artvault-ar-hint',
+              '',
+            )
+
+            arHint.setAttribute(
+              'role',
+              'status',
+            )
+
+            arHint.setAttribute(
+              'aria-live',
+              'polite',
+            )
+
+            arHint.style.cssText = [
+              'display:none',
+              'position:absolute',
+              'left:1rem',
+              'right:1rem',
+              'top:1rem',
+              'z-index:10',
+              'padding:.75rem 1rem',
+              'border-radius:.75rem',
+              'background:rgba(0,0,0,.72)',
+              'color:#fff',
+              'font:500 14px/1.4 system-ui,sans-serif',
+              'text-align:center',
+              'pointer-events:none',
+            ].join(';')
+
+            element.append(
+              arHint,
+            )
+
+            /*
+             * Custom ArtVault WebXR
+             * size controller.
+             */
+            const sizePanel =
+              document.createElement(
+                'div',
+              )
+
+            sizePanel.setAttribute(
+              'data-artvault-size-controls',
+              '',
+            )
+
+            sizePanel.style.cssText = [
+              'display:none',
+              'position:absolute',
+              'left:1rem',
+              'right:1rem',
+              'bottom:1rem',
+              'z-index:20',
+              'padding:.85rem 1rem',
+              'border:1px solid rgba(255,255,255,.18)',
+              'border-radius:1rem',
+              'background:rgba(3,7,18,.82)',
+              'backdrop-filter:blur(12px)',
+              'color:#fff',
+              'font:500 14px/1.4 system-ui,sans-serif',
+              'pointer-events:auto',
+            ].join(';')
+
+            const sizeTitle =
+              document.createElement(
+                'div',
+              )
+
+            sizeTitle.textContent =
+              'Estimated display size'
+
+            sizeTitle.style.cssText =
+              'font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.62)'
+
+            const sizeValue =
+              document.createElement(
+                'div',
+              )
+
+            sizeValue.textContent =
+              `${scaledDisplayWidth} × ${scaledDisplayHeight} cm`
+
+            sizeValue.style.cssText =
+              'margin-top:.15rem;font-size:20px;font-weight:750;color:#a5f3fc'
+
+            arSizeReadout.current =
+              sizeValue
+
+            const scaleRow =
+              document.createElement(
+                'div',
+              )
+
+            scaleRow.style.cssText =
+              'display:flex;align-items:center;justify-content:space-between;margin-top:.5rem'
+
+            const scaleLabel =
+              document.createElement(
+                'span',
+              )
+
+            scaleLabel.textContent =
+              'Scale'
+
+            scaleLabel.style.cssText =
+              'font-size:12px;color:rgba(255,255,255,.68)'
+
+            const scaleValue =
+              document.createElement(
+                'span',
+              )
+
+            scaleValue.textContent =
+              `${scalePercent}%`
+
+            scaleValue.style.cssText =
+              'font-size:15px;font-weight:700;color:#a5f3fc'
+
+            arScaleReadout.current =
+              scaleValue
+
+            scaleRow.append(
+              scaleLabel,
+              scaleValue,
+            )
+
+            const slider =
+              document.createElement(
+                'input',
+              )
+
+            slider.type =
+              'range'
+
+            slider.min =
+              String(
+                MIN_SCALE_PERCENT,
+              )
+
+            slider.max =
+              String(
+                MAX_SCALE_PERCENT,
+              )
+
+            slider.step =
+              String(
+                SCALE_STEP_PERCENT,
+              )
+
+            slider.value =
+              String(
+                scalePercent,
+              )
+
+            slider.setAttribute(
+              'aria-label',
+              'Artwork size',
+            )
+
+            slider.style.cssText =
+              'display:block;width:100%;margin:.7rem 0;accent-color:#67e8f9;touch-action:none'
+
+            arScaleSlider.current =
+              slider
+
+            const buttonRow =
+              document.createElement(
+                'div',
+              )
+
+            buttonRow.style.cssText =
+              'display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem'
+
+            const createControlButton =
+              (
+                label: string,
+                ariaLabel: string,
+                onClick:
+                  () => void,
+              ) => {
+                const button =
+                  document.createElement(
+                    'button',
+                  )
+
+                button.type =
+                  'button'
+
+                button.textContent =
+                  label
+
+                button.setAttribute(
+                  'aria-label',
+                  ariaLabel,
+                )
+
+                button.style.cssText = [
+                  'min-height:42px',
+                  'border:1px solid rgba(255,255,255,.2)',
+                  'border-radius:.7rem',
+                  'background:rgba(255,255,255,.1)',
+                  'color:#fff',
+                  'font:700 15px system-ui,sans-serif',
+                  'touch-action:manipulation',
+                ].join(';')
+
+                button.addEventListener(
+                  'click',
+                  onClick,
+                )
+
+                return button
+              }
+
+            const decrease =
+              createControlButton(
+                '−',
+                'Decrease artwork size',
+                () => {
+                  setScalePercent(
+                    (
+                      current,
+                    ) =>
+                      clampScalePercent(
+                        current -
+                          SCALE_STEP_PERCENT,
+                      ),
+                  )
+                },
+              )
+
+            const reset =
+              createControlButton(
+                '100%',
+                'Reset artwork size',
+                () => {
+                  setScalePercent(
+                    100,
+                  )
+                },
+              )
+
+            const increase =
+              createControlButton(
+                '+',
+                'Increase artwork size',
+                () => {
+                  setScalePercent(
+                    (
+                      current,
+                    ) =>
+                      clampScalePercent(
+                        current +
+                          SCALE_STEP_PERCENT,
+                      ),
+                  )
+                },
+              )
+
+            buttonRow.append(
+              decrease,
+              reset,
+              increase,
+            )
+
+            sizePanel.append(
+              sizeTitle,
+              sizeValue,
+              scaleRow,
+              slider,
+              buttonRow,
+            )
+
+            /*
+             * Stop interaction with the
+             * slider/buttons from also
+             * moving the AR object.
+             */
+            const preventXrSelect =
+              (
+                event:
+                  Event,
+              ) => {
+                event.preventDefault()
+              }
+
+            sizePanel.addEventListener(
+              'beforexrselect',
+              preventXrSelect,
+            )
+
+            const onSlider =
+              () => {
+                const next =
+                  Number(
+                    slider.value,
+                  )
+
+                setScalePercent(
+                  clampScalePercent(
+                    next,
+                  ),
+                )
+              }
+
+            slider.addEventListener(
+              'input',
+              onSlider,
+            )
+
+            element.append(
+              sizePanel,
+            )
+
+            arSizePanel.current =
+              sizePanel
+
+            let currentStatus:
+              ArStatus =
+                'not-presenting'
+
+            const setArHint =
+              (
+                message:
+                  | string
+                  | null,
+              ) => {
+                if (
+                  !message
+                ) {
+                  arHint.textContent =
+                    ''
+
+                  arHint.style.display =
+                    'none'
+
+                  return
+                }
+
+                arHint.textContent =
+                  message
+
+                arHint.style.display =
+                  'block'
+              }
+
+            const setSizePanelVisible =
+              (
+                visible:
+                  boolean,
+              ) => {
+                sizePanel.style.display =
+                  visible
+                    ? 'block'
+                    : 'none'
+              }
+
+            const showHintForStatus =
+              () => {
+                if (
+                  currentStatus ===
+                    'session-started'
+                ) {
+                  setArHint(
+                    `Scan the wall slowly. ${selectedFrameLabel} frame · ${scalePercent}% size.`,
+                  )
+
+                  return
+                }
+
+                if (
+                  currentStatus ===
+                    'object-placed'
+                ) {
+                  setArHint(
+                    'Artwork placed. Drag it to reposition. Use the ArtVault size controls below to resize it.',
+                  )
+
+                  return
+                }
+
+                setArHint(
+                  null,
+                )
+              }
+
+            const sync =
+              () => {
+                if (
+                  !disposed
+                ) {
+                  setCapable(
+                    element.loaded &&
+                      element.canActivateAR,
+                  )
+                }
+              }
+
+            const onLoad =
+              () => {
+                setLoaded(
+                  true,
+                )
+
+                setError(
+                  null,
+                )
+
+                sync()
+              }
+
+            const onError =
+              () => {
+                setLoaded(
+                  false,
+                )
+
+                setCapable(
+                  false,
+                )
+
+                setArHint(
+                  null,
+                )
+
+                setSizePanelVisible(
+                  false,
+                )
+
+                setError(
+                  'The selected framed 3D model could not be loaded. The artwork image remains available.',
+                )
+              }
+
+            const onStatus =
+              (
+                event:
+                  Event,
+              ) => {
+                const value =
+                  (
+                    event as
+                      CustomEvent<{
+                        status?: string
+                      }>
+                  ).detail
+                    ?.status
+
+                if (
+                  !value ||
+                  !isArStatus(
+                    value,
+                  )
+                ) {
+                  return
+                }
+
+                currentStatus =
+                  value
+
+                setArStatus(
+                  value,
+                )
+
+                if (
+                  value ===
+                    'not-presenting'
+                ) {
+                  setTracking(
+                    null,
+                  )
+
+                  setArHint(
+                    null,
+                  )
+
+                  setSizePanelVisible(
+                    false,
+                  )
+                } else if (
+                  value ===
+                    'session-started'
+                ) {
+                  setSizePanelVisible(
+                    true,
+                  )
+
+                  showHintForStatus()
+                } else if (
+                  value ===
+                    'object-placed'
+                ) {
+                  setSizePanelVisible(
+                    true,
+                  )
+
+                  showHintForStatus()
+                } else if (
+                  value ===
+                    'failed'
+                ) {
+                  setTracking(
+                    null,
+                  )
+
+                  setArHint(
+                    null,
+                  )
+
+                  setSizePanelVisible(
+                    false,
+                  )
+
+                  setError(
+                    'AR could not start. Check device support and camera permission, or use the 3D preview.',
+                  )
+                }
+
+                sync()
+              }
+
+            const onTracking =
+              (
+                event:
+                  Event,
+              ) => {
+                const value =
+                  (
+                    event as
+                      CustomEvent<{
+                        status?: string
+                      }>
+                  ).detail
+                    ?.status
+
+                if (
+                  !value ||
+                  !isArTracking(
+                    value,
+                  )
+                ) {
+                  return
+                }
+
+                setTracking(
+                  value,
+                )
+
+                if (
+                  value ===
+                    'not-tracking'
+                ) {
+                  setArHint(
+                    'AR tracking is unstable. Point the camera at visible wall edges or texture and move the phone slowly.',
+                  )
+
+                  return
+                }
+
+                showHintForStatus()
+              }
+
+            element.addEventListener(
+              'load',
+              onLoad,
+            )
+
+            element.addEventListener(
+              'error',
+              onError,
+            )
+
+            element.addEventListener(
+              'ar-status',
+              onStatus,
+            )
+
+            element.addEventListener(
+              'ar-tracking',
+              onTracking,
+            )
+
+            element.setAttribute(
+              'src',
+              selectedVariant
+                .modelUrl,
+            )
+
+            host.current.append(
+              element,
+            )
+
+            const capabilityTimer =
+              window.setInterval(
+                sync,
+                500,
+              )
+
+            const loadTimer =
+              window.setTimeout(
+                () => {
+                  if (
+                    !element.loaded
+                  ) {
+                    onError()
+                  }
+                },
+                30000,
+              )
+
+            clean =
+              () => {
+                window.clearInterval(
+                  capabilityTimer,
+                )
+
+                window.clearTimeout(
+                  loadTimer,
+                )
+
+                slider.removeEventListener(
+                  'input',
+                  onSlider,
+                )
+
+                sizePanel.removeEventListener(
+                  'beforexrselect',
+                  preventXrSelect,
+                )
+
+                element.removeEventListener(
+                  'load',
+                  onLoad,
+                )
+
+                element.removeEventListener(
+                  'error',
+                  onError,
+                )
+
+                element.removeEventListener(
+                  'ar-status',
+                  onStatus,
+                )
+
+                element.removeEventListener(
+                  'ar-tracking',
+                  onTracking,
+                )
+
+                if (
+                  arSizePanel.current ===
+                    sizePanel
+                ) {
+                  arSizePanel.current =
+                    null
+                }
+
+                if (
+                  arSizeReadout.current ===
+                    sizeValue
+                ) {
+                  arSizeReadout.current =
+                    null
+                }
+
+                if (
+                  arScaleReadout.current ===
+                    scaleValue
+                ) {
+                  arScaleReadout.current =
+                    null
+                }
+
+                if (
+                  arScaleSlider.current ===
+                    slider
+                ) {
+                  arScaleSlider.current =
+                    null
+                }
+
+                adapter.release(
+                  element,
+                )
+
+                viewer.current =
+                  null
+              }
+          },
+        )
+        .catch(
+          () => {
+            if (
+              !disposed
+            ) {
+              setError(
+                'The 3D viewer could not load. You can still view the artwork image.',
+              )
+            }
+          },
+        )
+
+      return () => {
+        disposed =
+          true
+
+        clean()
+      }
+    },
+    [
+      selectedVariant
+        .modelUrl,
+
+      selectedFrameLabel,
+
+      title,
+      poster,
+      attempt,
+    ],
+  )
+
+  const launch =
+    () => {
+      const element =
+        viewer.current
+
+      if (
+        !element?.loaded ||
+        !element.canActivateAR
+      ) {
+        return
+      }
+
+      setError(
+        null,
+      )
+
+      setTracking(
+        null,
+      )
+
+      void element
+        .activateAR()
+        .catch(
+          () => {
+            setArStatus(
+              'failed',
+            )
+
+            setError(
+              'AR could not start. Check device support and camera permission, or use the 3D preview.',
+            )
+          },
+        )
+    }
+
+  const frameSelectionLocked =
+    arStatus ===
+      'session-started' ||
+    arStatus ===
+      'object-placed'
 
   return (
     <section
@@ -393,52 +1312,257 @@ export function ArtworkArViewer({
       </h2>
 
       <p className="text-sm text-text-secondary">
-        Estimated display size:{' '}
-        {displayWidth} ×{' '}
+        Estimated base display
+        size:{' '}
+        {displayWidth}{' '}
+        {'\u00d7'}{' '}
         {displayHeight} cm,
         including a{' '}
         {frameWidth} cm frame.
-        The size is automatically
-        selected from the artwork's
-        aspect ratio because verified
-        seller measurements are not
-        available.
       </p>
 
       <p className="text-xs text-text-muted">
-        This is a visualization
-        estimate, not a verified
-        measurement of the physical
-        artwork. Placement accuracy
-        also depends on the phone's
-        AR tracking.
+        This is an estimated
+        visualization size, not a
+        verified physical
+        measurement.
       </p>
 
+      <fieldset
+        className="rounded-xl border border-border bg-surface-elevated p-3"
+        disabled={
+          frameSelectionLocked
+        }
+      >
+        <legend className="px-1 text-sm font-semibold">
+          Choose frame
+        </legend>
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {AR_FRAME_STYLES.map(
+            (
+              style,
+            ) => {
+              const selected =
+                style ===
+                  selectedFrame
+
+              return (
+                <button
+                  key={
+                    style
+                  }
+                  type="button"
+                  aria-pressed={
+                    selected
+                  }
+                  onClick={() => {
+                    setSelectedFrame(
+                      style,
+                    )
+                  }}
+                  className={`flex min-h-12 items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
+                    selected
+                      ? 'border-info bg-info/10 font-semibold'
+                      : 'border-border bg-surface hover:border-text-muted'
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="h-7 w-7 shrink-0 rounded-md border border-black/20 shadow-inner"
+                    style={{
+                      background:
+                        FRAME_SWATCHES[
+                          style
+                        ],
+                    }}
+                  />
+
+                  <span>
+                    {
+                      AR_FRAME_LABELS[
+                        style
+                      ]
+                    }
+                  </span>
+                </button>
+              )
+            },
+          )}
+        </div>
+
+        <p className="mt-2 text-xs text-text-muted">
+          Selected frame:{' '}
+          <strong>
+            {
+              selectedFrameLabel
+            }
+          </strong>
+        </p>
+      </fieldset>
+
+      <section
+        className="rounded-xl border border-border bg-surface-elevated p-4"
+        aria-label="Artwork size"
+      >
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-text-muted">
+              Estimated display size
+            </p>
+
+            <p className="mt-1 text-xl font-semibold">
+              {scaledDisplayWidth}{' '}
+              {'\u00d7'}{' '}
+              {scaledDisplayHeight} cm
+            </p>
+          </div>
+
+          <p className="text-lg font-semibold">
+            {scalePercent}%
+          </p>
+        </div>
+
+        <input
+          type="range"
+          min={
+            MIN_SCALE_PERCENT
+          }
+          max={
+            MAX_SCALE_PERCENT
+          }
+          step={
+            SCALE_STEP_PERCENT
+          }
+          value={
+            scalePercent
+          }
+          aria-label="Artwork size"
+          onChange={(
+            event,
+          ) => {
+            updateScale(
+              Number(
+                event.target
+                  .value,
+              ),
+            )
+          }}
+          className="mt-4 w-full"
+        />
+
+        <div className="mt-1 flex justify-between text-xs text-text-muted">
+          <span>
+            {MIN_SCALE_PERCENT}%
+          </span>
+
+          <span>
+            {MAX_SCALE_PERCENT}%
+          </span>
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            aria-label="Decrease artwork size"
+            onClick={() => {
+              updateScale(
+                scalePercent -
+                  SCALE_STEP_PERCENT,
+              )
+            }}
+            className="rounded-lg border border-border px-3 py-2 font-semibold"
+          >
+            −
+          </button>
+
+          <button
+            type="button"
+            aria-label="Reset artwork size"
+            onClick={() => {
+              updateScale(
+                100,
+              )
+            }}
+            className="rounded-lg border border-border px-3 py-2 font-semibold"
+          >
+            Reset
+          </button>
+
+          <button
+            type="button"
+            aria-label="Increase artwork size"
+            onClick={() => {
+              updateScale(
+                scalePercent +
+                  SCALE_STEP_PERCENT,
+              )
+            }}
+            className="rounded-lg border border-border px-3 py-2 font-semibold"
+          >
+            +
+          </button>
+        </div>
+
+        <p className="mt-3 text-xs text-text-muted">
+          The same size controls
+          are available during
+          WebXR camera AR. ArtVault
+          controls the scale so the
+          centimetre measurement
+          stays synchronized.
+        </p>
+      </section>
+
       <div
-        ref={host}
+        ref={
+          host
+        }
         className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface-elevated"
       />
 
       {!loaded &&
         !error && (
           <p role="status">
-            Loading framed 3D
-            preview…
+            Loading{' '}
+            {selectedFrameLabel.toLowerCase()}{' '}
+            framed 3D preview...
           </p>
         )}
 
       {error && (
         <div role="alert">
-          <p>{error}</p>
+          <p>
+            {error}
+          </p>
 
           {!loaded && (
             <Button
               onClick={() => {
-                setError(null)
-                setLoaded(false)
-                setCapable(false)
+                setError(
+                  null,
+                )
+
+                setLoaded(
+                  false,
+                )
+
+                setCapable(
+                  false,
+                )
+
+                setArStatus(
+                  'not-presenting',
+                )
+
+                setTracking(
+                  null,
+                )
+
                 setAttempt(
-                  (value) =>
+                  (
+                    value,
+                  ) =>
                     value + 1,
                 )
               }}
@@ -453,7 +1577,9 @@ export function ArtworkArViewer({
         loaded && (
           <Button
             variant="info"
-            onClick={launch}
+            onClick={
+              launch
+            }
           >
             View in your space
           </Button>
@@ -473,20 +1599,49 @@ export function ArtworkArViewer({
           </p>
         )}
 
-      {session && (
-        <p role="status">
-          Move the phone slowly
-          so AR can detect the wall.
-          Use the AR viewer's exit
-          control to return to
-          ArtVault.
-        </p>
-      )}
+      {arStatus ===
+        'session-started' && (
+          <p role="status">
+            Scan the wall slowly.
+            ArtVault size controls
+            are available in the
+            WebXR camera view.
+          </p>
+        )}
+
+      {arStatus ===
+        'object-placed' && (
+          <p role="status">
+            The artwork is placed.
+            Drag it to reposition
+            it. Use the ArtVault
+            size controls to resize
+            it while keeping the
+            displayed dimensions
+            synchronized.
+          </p>
+        )}
+
+      {tracking ===
+        'not-tracking' && (
+          <p role="alert">
+            AR tracking is
+            temporarily unstable.
+            Keep the camera pointed
+            at visible wall edges,
+            texture, or nearby
+            features and move the
+            phone slowly until
+            tracking recovers.
+          </p>
+        )}
 
       {poster && (
         <img
-          src={poster}
-          alt={`${title} — artwork image fallback`}
+          src={
+            poster
+          }
+          alt={`${title} - artwork image fallback`}
           className="max-h-64 w-full object-contain"
         />
       )}

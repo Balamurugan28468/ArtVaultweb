@@ -12,27 +12,38 @@ import {
   it,
   vi,
 } from 'vitest'
-import type { ArProof } from '../proof'
-import { ArtworkArViewer } from './ArtworkArViewer'
+import type {
+  ArProof,
+} from '../proof'
+import {
+  ArtworkArViewer,
+} from './ArtworkArViewer'
 
 const {
   release,
   activateAR,
   loadViewer,
-} = vi.hoisted(() => ({
-  release: vi.fn(
-    (element: HTMLElement) =>
-      element.remove(),
-  ),
+} =
+  vi.hoisted(() => ({
+    release:
+      vi.fn(
+        (
+          element:
+            HTMLElement,
+        ) =>
+          element.remove(),
+      ),
 
-  activateAR: vi
-    .fn()
-    .mockResolvedValue(
-      undefined,
-    ),
+    activateAR:
+      vi
+        .fn()
+        .mockResolvedValue(
+          undefined,
+        ),
 
-  loadViewer: vi.fn(),
-}))
+    loadViewer:
+      vi.fn(),
+  }))
 
 vi.mock(
   '../loadViewer',
@@ -44,7 +55,10 @@ vi.mock(
 class FakeViewer
   extends HTMLElement {
   loaded = false
-  canActivateAR = false
+
+  canActivateAR =
+    false
+
   activateAR =
     activateAR
 }
@@ -60,34 +74,102 @@ if (
   )
 }
 
-const version =
+const blackVersion =
   'a'.repeat(64)
 
-const proof: ArProof = {
-  artworkId: 'a1',
-  imageId: 'front.jpg',
+const walnutVersion =
+  'b'.repeat(64)
 
-  sizingMode:
-    'ESTIMATED_STANDARD_DISPLAY',
+const whiteVersion =
+  'c'.repeat(64)
 
-  artworkWidthMm:
-    1000,
+const goldVersion =
+  'd'.repeat(64)
 
-  artworkHeightMm:
-    500,
+const proof:
+  ArProof = {
+    artworkId:
+      'a1',
 
-  frameMm: 30,
+    imageId:
+      'front.jpg',
 
-  widthMm: 1060,
-  heightMm: 560,
+    sizingMode:
+      'ESTIMATED_STANDARD_DISPLAY',
 
-  includesFrame: true,
+    artworkWidthMm:
+      1000,
 
-  version,
+    artworkHeightMm:
+      500,
 
-  modelUrl:
-    `/__ar-proof/model/${version}.glb`,
-}
+    frameMm:
+      30,
+
+    widthMm:
+      1060,
+
+    heightMm:
+      560,
+
+    includesFrame:
+      true,
+
+    defaultFrame:
+      'black',
+
+    frames: {
+      black: {
+        label:
+          'Black',
+
+        version:
+          blackVersion,
+
+        modelUrl:
+          `/__ar-proof/model/a1/${blackVersion}.glb`,
+      },
+
+      walnut: {
+        label:
+          'Walnut',
+
+        version:
+          walnutVersion,
+
+        modelUrl:
+          `/__ar-proof/model/a1/${walnutVersion}.glb`,
+      },
+
+      white: {
+        label:
+          'White',
+
+        version:
+          whiteVersion,
+
+        modelUrl:
+          `/__ar-proof/model/a1/${whiteVersion}.glb`,
+      },
+
+      gold: {
+        label:
+          'Gold',
+
+        version:
+          goldVersion,
+
+        modelUrl:
+          `/__ar-proof/model/a1/${goldVersion}.glb`,
+      },
+    },
+
+    version:
+      blackVersion,
+
+    modelUrl:
+      `/__ar-proof/model/a1/${blackVersion}.glb`,
+  }
 
 async function setup() {
   const rendered =
@@ -102,7 +184,8 @@ async function setup() {
   await waitFor(
     () =>
       expect(
-        rendered.container
+        rendered
+          .container
           .querySelector(
             'model-viewer',
           ),
@@ -113,23 +196,27 @@ async function setup() {
     ...rendered,
 
     element:
-      rendered.container
+      rendered
+        .container
         .querySelector(
           'model-viewer',
-        ) as unknown as FakeViewer,
+        ) as unknown as
+        FakeViewer,
   }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
 
-  loadViewer.mockResolvedValue({
-    release,
-  })
+  loadViewer
+    .mockResolvedValue({
+      release,
+    })
 
-  activateAR.mockResolvedValue(
-    undefined,
-  )
+  activateAR
+    .mockResolvedValue(
+      undefined,
+    )
 })
 
 describe(
@@ -142,7 +229,7 @@ describe(
 
         expect(
           screen.getByText(
-            /Estimated display size:/,
+            /Estimated base display size:/,
           ),
         ).toHaveTextContent(
           '106 × 56 cm',
@@ -150,7 +237,7 @@ describe(
 
         expect(
           screen.getByText(
-            /Estimated display size:/,
+            /Estimated base display size:/,
           ),
         ).toHaveTextContent(
           '3 cm frame',
@@ -158,14 +245,134 @@ describe(
 
         expect(
           screen.getByText(
-            /visualization estimate/i,
+            /estimated visualization size/i,
           ),
         ).toBeInTheDocument()
       },
     )
 
     it(
-      'loads on demand and never enables an action before capability and model readiness',
+      'starts with the default black frame',
+      async () => {
+        const {
+          element,
+        } =
+          await setup()
+
+        expect(
+          screen.getByText(
+            /Selected frame:/i,
+          ),
+        ).toHaveTextContent(
+          'Black',
+        )
+
+        expect(
+          screen.getByRole(
+            'button',
+            {
+              name:
+                'Black',
+            },
+          ),
+        ).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        )
+
+        expect(
+          element.getAttribute(
+            'src',
+          ),
+        ).toBe(
+          proof
+            .frames
+            .black
+            .modelUrl,
+        )
+      },
+    )
+
+    it(
+      'switches the actual GLB when another frame is selected',
+      async () => {
+        const {
+          container,
+          element,
+        } =
+          await setup()
+
+        fireEvent.click(
+          screen.getByRole(
+            'button',
+            {
+              name:
+                'Walnut',
+            },
+          ),
+        )
+
+        await waitFor(
+          () =>
+            expect(
+              container
+                .querySelector(
+                  'model-viewer',
+                ),
+            ).not.toBe(
+              element,
+            ),
+        )
+
+        expect(
+          release,
+        ).toHaveBeenCalledWith(
+          element,
+        )
+
+        const replacement =
+          container
+            .querySelector(
+              'model-viewer',
+            ) as unknown as
+            FakeViewer
+
+        expect(
+          replacement.getAttribute(
+            'src',
+          ),
+        ).toBe(
+          proof
+            .frames
+            .walnut
+            .modelUrl,
+        )
+
+        expect(
+          screen.getByText(
+            /Selected frame:/i,
+          ),
+        ).toHaveTextContent(
+          'Walnut',
+        )
+
+        expect(
+          screen.getByRole(
+            'button',
+            {
+              name:
+                'Walnut',
+            },
+          ),
+        ).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        )
+      },
+    )
+
+    it(
+      'keeps wall placement and uses ArtVault-controlled fixed AR scaling',
       async () => {
         const {
           element,
@@ -181,21 +388,19 @@ describe(
         )
 
         expect(
-          screen.queryByRole(
-            'button',
-            {
-              name:
-                'View in your space',
-            },
-          ),
-        ).not.toBeInTheDocument()
-
-        expect(
           element.getAttribute(
             'ar-scale',
           ),
         ).toBe(
           'fixed',
+        )
+
+        expect(
+          element.getAttribute(
+            'scale',
+          ),
+        ).toBe(
+          '1 1 1',
         )
 
         expect(
@@ -231,6 +436,143 @@ describe(
           ),
         ).toHaveTextContent(
           '3D preview, not camera placement',
+        )
+      },
+    )
+
+    it(
+      'updates exact model scale and live estimated dimensions',
+      async () => {
+        const {
+          element,
+        } =
+          await setup()
+
+        const sizeRegion =
+          screen.getByRole(
+            'region',
+            {
+              name:
+                'Artwork size',
+            },
+          )
+
+        expect(
+          sizeRegion,
+        ).toHaveTextContent(
+          '106 × 56 cm',
+        )
+
+        expect(
+          sizeRegion,
+        ).toHaveTextContent(
+          '100%',
+        )
+
+        fireEvent.click(
+          screen.getByRole(
+            'button',
+            {
+              name:
+                'Increase artwork size',
+            },
+          ),
+        )
+
+        await waitFor(
+          () =>
+            expect(
+              element.getAttribute(
+                'scale',
+              ),
+            ).toBe(
+              '1.05 1.05 1.05',
+            ),
+        )
+
+        expect(
+          sizeRegion,
+        ).toHaveTextContent(
+          '111.3 × 58.8 cm',
+        )
+
+        expect(
+          sizeRegion,
+        ).toHaveTextContent(
+          '105%',
+        )
+      },
+    )
+
+    it(
+      'supports slider scaling and reset',
+      async () => {
+        const {
+          element,
+        } =
+          await setup()
+
+        const slider =
+          screen.getByRole(
+            'slider',
+            {
+              name:
+                'Artwork size',
+            },
+          )
+
+        fireEvent.change(
+          slider,
+          {
+            target: {
+              value:
+                '125',
+            },
+          },
+        )
+
+        await waitFor(
+          () =>
+            expect(
+              element.getAttribute(
+                'scale',
+              ),
+            ).toBe(
+              '1.25 1.25 1.25',
+            ),
+        )
+
+        expect(
+          screen.getByRole(
+            'region',
+            {
+              name:
+                'Artwork size',
+            },
+          ),
+        ).toHaveTextContent(
+          '132.5 × 70 cm',
+        )
+
+        fireEvent.click(
+          screen.getByRole(
+            'button',
+            {
+              name:
+                'Reset artwork size',
+            },
+          ),
+        )
+
+        await waitFor(
+          () =>
+            expect(
+              element.getAttribute(
+                'scale',
+              ),
+            ).toBe(
+              '1 1 1',
+            ),
         )
       },
     )
@@ -278,7 +620,269 @@ describe(
     )
 
     it(
-      'keeps a real image fallback after model failure and releases the element on unmount',
+      'reports scanning and placed states from real AR status events',
+      async () => {
+        const {
+          element,
+        } =
+          await setup()
+
+        act(() => {
+          element.dispatchEvent(
+            new CustomEvent(
+              'ar-status',
+              {
+                detail: {
+                  status:
+                    'session-started',
+                },
+              },
+            ),
+          )
+        })
+
+        expect(
+          screen.getByText(
+            /Scan the wall slowly\. ArtVault size controls/i,
+          ),
+        ).toBeInTheDocument()
+
+        const hint =
+          element.querySelector(
+            '[data-artvault-ar-hint]',
+          ) as HTMLDivElement
+
+        expect(
+          hint,
+        ).not.toBeNull()
+
+        expect(
+          hint.textContent,
+        ).toContain(
+          'Scan the wall slowly',
+        )
+
+        expect(
+          hint.textContent,
+        ).toContain(
+          'Black frame',
+        )
+
+        expect(
+          hint.textContent,
+        ).toContain(
+          '100% size',
+        )
+
+        expect(
+          hint.style.display,
+        ).toBe(
+          'block',
+        )
+
+        const sizePanel =
+          element.querySelector(
+            '[data-artvault-size-controls]',
+          ) as HTMLDivElement
+
+        expect(
+          sizePanel,
+        ).not.toBeNull()
+
+        expect(
+          sizePanel.style.display,
+        ).toBe(
+          'block',
+        )
+
+        act(() => {
+          element.dispatchEvent(
+            new CustomEvent(
+              'ar-status',
+              {
+                detail: {
+                  status:
+                    'object-placed',
+                },
+              },
+            ),
+          )
+        })
+
+        expect(
+          screen.getByText(
+            /The artwork is placed/i,
+          ),
+        ).toBeInTheDocument()
+
+        expect(
+          hint.textContent,
+        ).toContain(
+          'Drag it to reposition',
+        )
+
+        expect(
+          hint.textContent,
+        ).toContain(
+          'ArtVault size controls',
+        )
+      },
+    )
+
+    it(
+      'updates the WebXR size controls with the selected percentage',
+      async () => {
+        const {
+          element,
+        } =
+          await setup()
+
+        act(() => {
+          element.dispatchEvent(
+            new CustomEvent(
+              'ar-status',
+              {
+                detail: {
+                  status:
+                    'object-placed',
+                },
+              },
+            ),
+          )
+        })
+
+        const arPanel =
+          element.querySelector(
+            '[data-artvault-size-controls]',
+          ) as HTMLDivElement
+
+        expect(
+          arPanel,
+        ).not.toBeNull()
+
+        const arIncrease =
+          arPanel.querySelector(
+            '[aria-label="Increase artwork size"]',
+          ) as HTMLButtonElement
+
+        fireEvent.click(
+          arIncrease,
+        )
+
+        await waitFor(
+          () =>
+            expect(
+              element.getAttribute(
+                'scale',
+              ),
+            ).toBe(
+              '1.05 1.05 1.05',
+            ),
+        )
+
+        expect(
+          arPanel.textContent,
+        ).toContain(
+          '111.3 × 58.8 cm',
+        )
+
+        expect(
+          arPanel.textContent,
+        ).toContain(
+          '105%',
+        )
+      },
+    )
+
+    it(
+      'reports AR tracking loss and restores placed guidance when tracking returns',
+      async () => {
+        const {
+          element,
+        } =
+          await setup()
+
+        act(() => {
+          element.dispatchEvent(
+            new CustomEvent(
+              'ar-status',
+              {
+                detail: {
+                  status:
+                    'object-placed',
+                },
+              },
+            ),
+          )
+
+          element.dispatchEvent(
+            new CustomEvent(
+              'ar-tracking',
+              {
+                detail: {
+                  status:
+                    'not-tracking',
+                },
+              },
+            ),
+          )
+        })
+
+        expect(
+          screen.getByRole(
+            'alert',
+          ),
+        ).toHaveTextContent(
+          'tracking is temporarily unstable',
+        )
+
+        const hint =
+          element.querySelector(
+            '[data-artvault-ar-hint]',
+          ) as HTMLDivElement
+
+        expect(
+          hint.textContent,
+        ).toContain(
+          'AR tracking is unstable',
+        )
+
+        act(() => {
+          element.dispatchEvent(
+            new CustomEvent(
+              'ar-tracking',
+              {
+                detail: {
+                  status:
+                    'tracking',
+                },
+              },
+            ),
+          )
+        })
+
+        expect(
+          screen.queryByText(
+            /tracking is temporarily unstable/i,
+          ),
+        ).not.toBeInTheDocument()
+
+        expect(
+          hint.textContent,
+        ).toContain(
+          'Drag it to reposition',
+        )
+
+        expect(
+          hint.textContent,
+        ).toContain(
+          'size controls',
+        )
+      },
+    )
+
+    it(
+      'keeps an image fallback after model failure and releases the viewer',
       async () => {
         const {
           element,
@@ -286,13 +890,13 @@ describe(
         } =
           await setup()
 
-        act(() =>
+        act(() => {
           element.dispatchEvent(
             new Event(
               'error',
             ),
-          ),
-        )
+          )
+        })
 
         expect(
           screen.getByRole(
@@ -332,7 +936,7 @@ describe(
     )
 
     it(
-      'reports launch rejection rather than reporting successful placement',
+      'reports launch rejection instead of reporting successful placement',
       async () => {
         const {
           element,
@@ -424,7 +1028,7 @@ describe(
     )
 
     it(
-      'retries a model failure with a fresh viewer and releases the failed instance',
+      'retries a model failure with a fresh viewer',
       async () => {
         const {
           element,
@@ -432,13 +1036,13 @@ describe(
         } =
           await setup()
 
-        act(() =>
+        act(() => {
           element.dispatchEvent(
             new Event(
               'error',
             ),
-          ),
-        )
+          )
+        })
 
         fireEvent.click(
           screen.getByRole(
@@ -453,9 +1057,10 @@ describe(
         await waitFor(
           () =>
             expect(
-              container.querySelector(
-                'model-viewer',
-              ),
+              container
+                .querySelector(
+                  'model-viewer',
+                ),
             ).not.toBe(
               element,
             ),
@@ -468,9 +1073,11 @@ describe(
         )
 
         const replacement =
-          container.querySelector(
-            'model-viewer',
-          ) as unknown as FakeViewer
+          container
+            .querySelector(
+              'model-viewer',
+            ) as unknown as
+            FakeViewer
 
         act(() => {
           replacement.loaded =
@@ -488,14 +1095,6 @@ describe(
             'alert',
           ),
         ).not.toBeInTheDocument()
-
-        expect(
-          screen.getByRole(
-            'status',
-          ),
-        ).toHaveTextContent(
-          '3D preview, not camera placement',
-        )
       },
     )
 
@@ -532,9 +1131,10 @@ describe(
         await waitFor(
           () =>
             expect(
-              container.querySelector(
-                'model-viewer',
-              ),
+              container
+                .querySelector(
+                  'model-viewer',
+                ),
             ).not.toBeNull(),
         )
 
@@ -547,19 +1147,22 @@ describe(
     )
 
     it(
-      'does not attach a viewer when lazy loading finishes after unmount',
+      'does not attach a viewer if lazy loading finishes after unmount',
       async () => {
         let resolve!: (
           value: {
             release:
               typeof release
           },
-        ) => void
+        ) =>
+          void
 
         loadViewer
           .mockReturnValueOnce(
             new Promise(
-              (done) => {
+              (
+                done,
+              ) => {
                 resolve =
                   done
               },

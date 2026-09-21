@@ -53,3 +53,6 @@ emulator-export-*/
 *.njsproj
 *.sln
 *.sw?
+
+ar-physical-test-audit.txt
+ar-selection.json

@@ -3,6 +3,7 @@ import type {
 } from '@google/model-viewer'
 
 type AnchorLockStatus =
+  | 'unlocked'
   | 'locking'
   | 'anchored'
   | 'local-lock'
@@ -123,12 +124,6 @@ interface InternalRenderer {
     InternalArRenderer
 }
 
-interface AnchorCapableHit
-  extends XRHitTestResult {
-  createAnchor?():
-    Promise<XRAnchor>
-}
-
 interface AnchorCapableFrame
   extends XRFrame {
   createAnchor?(
@@ -146,14 +141,17 @@ interface StableRendererState {
   anchorPending:
     boolean
 
-  nativeAnchor:
+  locked:
     boolean
 
-  locked:
+  nativeAnchor:
     boolean
 
   lost:
     boolean
+
+  session:
+    XRSession | null
 
   position: {
     x: number
@@ -164,8 +162,8 @@ interface StableRendererState {
   yaw:
     number
 
-  session:
-    XRSession | null
+  lockRequested:
+    boolean
 }
 
 const patchedPrototypes =
@@ -210,7 +208,8 @@ function dispatchAnchorState(
 function updateArtVaultHint(
   element:
     HTMLElement | undefined,
-  message: string,
+  message:
+    string,
 ) {
   if (!element) {
     return
@@ -254,7 +253,8 @@ function deleteAnchor(
   try {
     anchor.delete()
   } catch {
-    // Session may already have ended.
+    // The XR session may already
+    // have ended.
   }
 }
 
@@ -270,6 +270,9 @@ function resetAnchorState(
     false
 
   state.locked =
+    false
+
+  state.nativeAnchor =
     false
 
   state.lost =
@@ -289,49 +292,9 @@ function resetAnchorState(
 
   state.yaw =
     0
-}
 
-function isValidWallPose(
-  pose:
-    XRPose,
-): boolean {
-  const matrix =
-    pose.transform
-      .matrix
-
-  /*
-   * This deliberately mirrors
-   * model-viewer 4.3.1's wall
-   * hit-test rule.
-   *
-   * For floor placement it accepts
-   * a normal with Y > .75.
-   *
-   * For wall placement it accepts
-   * the opposite case.
-   */
-  return (
-    matrix[5] <=
-    0.75
-  )
-}
-
-function wallYawFromPose(
-  pose:
-    XRPose,
-): number {
-  const matrix =
-    pose.transform
-      .matrix
-
-  /*
-   * Same wall-yaw calculation used
-   * by model-viewer 4.3.1.
-   */
-  return Math.atan2(
-    matrix[4],
-    matrix[6],
-  )
+  state.lockRequested =
+    false
 }
 
 function applyYaw(
@@ -353,34 +316,6 @@ function applyYaw(
       half,
     ),
   )
-}
-
-function disableNativeRepositioning(
-  ar:
-    InternalArRenderer,
-) {
-  const transient =
-    ar.transientHitTestSource
-
-  if (transient) {
-    try {
-      transient.cancel()
-    } catch {
-      // Already cancelled.
-    }
-  }
-
-  ar.transientHitTestSource =
-    null
-
-  ar.isTranslating =
-    false
-
-  ar.isRotating =
-    false
-
-  ar.isTwoHandInteraction =
-    false
 }
 
 function lockRendererToPosition(
@@ -441,22 +376,189 @@ function lockRendererToPosition(
   )
 }
 
-function softwareLockFromPose(
+function disableNativeRepositioning(
+  ar:
+    InternalArRenderer,
+) {
+  const transient =
+    ar.transientHitTestSource
+
+  if (transient) {
+    try {
+      transient.cancel()
+    } catch {
+      // Already cancelled.
+    }
+  }
+
+  ar.transientHitTestSource =
+    null
+
+  ar.isTranslating =
+    false
+
+  ar.isRotating =
+    false
+
+  ar.isTwoHandInteraction =
+    false
+}
+
+function restoreNativeRepositioning(
   ar:
     InternalArRenderer,
   state:
     StableRendererState,
-  pose:
-    XRPose,
 ) {
+  const session =
+    state.session
+
+  if (
+    !session ||
+    ar.currentSession !==
+      session
+  ) {
+    return
+  }
+
+  if (
+    ar.transientHitTestSource
+  ) {
+    return
+  }
+
+  /*
+   * TypeScript must narrow the
+   * optional WebXR method before
+   * we bind it.
+   */
+  const requestTransientHitTestForSession =
+    session
+      .requestHitTestSourceForTransientInput
+
+  if (
+    typeof requestTransientHitTestForSession !==
+      'function'
+  ) {
+    return
+  }
+
+const requestTransientHitTest =
+  requestTransientHitTestForSession as
+    (
+      options: {
+        profile:
+          string
+      },
+    ) =>
+      Promise<XRTransientInputHitTestSource>
+
+void requestTransientHitTest.call(
+  session,
+  {
+    profile:
+      'generic-touchscreen',
+  },
+)
+    .then(
+      (
+        hitTestSource,
+      ) => {
+        /*
+         * The asynchronous request
+         * may finish after the XR
+         * session ended or after the
+         * artwork was locked again.
+         */
+        if (
+          !state.session ||
+          state.session !==
+            session ||
+          ar.currentSession !==
+            session ||
+          state.locked
+        ) {
+          try {
+            hitTestSource.cancel()
+          } catch {
+            // Ignore stale source.
+          }
+
+          return
+        }
+
+        const existing =
+          ar.transientHitTestSource
+
+        if (existing) {
+          try {
+            hitTestSource.cancel()
+          } catch {
+            // Ignore duplicate source.
+          }
+
+          return
+        }
+
+        ar.transientHitTestSource =
+          hitTestSource
+      },
+    )
+    .catch(
+      () => {
+        /*
+         * Unlock still succeeds if
+         * this WebXR runtime does not
+         * support transient input hit
+         * testing.
+         */
+      },
+    )
+}
+
+function captureCurrentPlacement(
+  ar:
+    InternalArRenderer,
+  state:
+    StableRendererState,
+): boolean {
+  const scene =
+    ar.presentedScene
+
+  if (!scene) {
+    return false
+  }
+
   const position =
-    pose.transform
+    scene.scenePivot
       .position
 
-  const yaw =
-    wallYawFromPose(
-      pose,
-    )
+  state.position.x =
+    position.x
+
+  state.position.y =
+    position.y
+
+  state.position.z =
+    position.z
+
+  state.yaw =
+    ar.goalYaw
+
+  return true
+}
+
+function useLocalLock(
+  ar:
+    InternalArRenderer,
+  state:
+    StableRendererState,
+) {
+  state.anchorPending =
+    false
+
+  state.lockRequested =
+    false
 
   state.locked =
     true
@@ -464,17 +566,17 @@ function softwareLockFromPose(
   state.nativeAnchor =
     false
 
+  disableNativeRepositioning(
+    ar,
+  )
+
   lockRendererToPosition(
     ar,
     state,
-    position.x,
-    position.y,
-    position.z,
-    yaw,
-  )
-
-  disableNativeRepositioning(
-    ar,
+    state.position.x,
+    state.position.y,
+    state.position.z,
+    state.yaw,
   )
 
   dispatchAnchorState(
@@ -486,55 +588,65 @@ function softwareLockFromPose(
   updateArtVaultHint(
     ar.presentedScene
       ?.element,
-    'Wall position locked. Native XR anchoring is unavailable, so ArtVault is using its fixed local placement fallback.',
+    'Position locked ✓ Native XR anchoring is unavailable, so ArtVault is keeping the current placement fixed locally.',
   )
 }
 
-async function createBestAnchor(
+async function createAnchorAtCurrentPlacement(
   ar:
     InternalArRenderer,
   state:
     StableRendererState,
   frame:
     XRFrame,
-  hit:
-    AnchorCapableHit,
-  hitPose:
-    XRPose,
 ) {
   if (
-    state.anchorPending ||
-    state.anchor ||
-    state.locked
+    state.locked ||
+    state.anchorPending
   ) {
+    state.lockRequested =
+      false
+
     return
   }
+
+  if (
+    !captureCurrentPlacement(
+      ar,
+      state,
+    )
+  ) {
+    state.lockRequested =
+      false
+
+    return
+  }
+
+  state.lockRequested =
+    false
 
   state.anchorPending =
     true
 
-  const position =
-    hitPose.transform
-      .position
-
-  const yaw =
-    wallYawFromPose(
-      hitPose,
-    )
-
   /*
-   * Lock the visual position
-   * immediately. We do not wait
-   * for the asynchronous native
-   * anchor to finish materialising.
+   * Freeze the current placement
+   * immediately while native anchor
+   * creation is pending.
    */
+  state.locked =
+    true
+
+  disableNativeRepositioning(
+    ar,
+  )
+
   lockRendererToPosition(
     ar,
     state,
-    position.x,
-    position.y,
-    position.z,
-    yaw,
+    state.position.x,
+    state.position.y,
+    state.position.z,
+    state.yaw,
   )
 
   dispatchAnchorState(
@@ -546,88 +658,63 @@ async function createBestAnchor(
   updateArtVaultHint(
     ar.presentedScene
       ?.element,
-    'Wall detected. Locking artwork to this physical position…',
+    'Locking the artwork at its current wall position…',
   )
+
+  const referenceSpace =
+    ar.threeRenderer
+      .xr
+      .getReferenceSpace()
+
+  const anchorFrame =
+    frame as
+      AnchorCapableFrame
+
+  if (
+    !referenceSpace ||
+    typeof anchorFrame
+      .createAnchor !==
+      'function'
+  ) {
+    useLocalLock(
+      ar,
+      state,
+    )
+
+    return
+  }
 
   let anchor:
     XRAnchor | null =
       null
 
-  let usedHitAnchor =
-    false
-
   try {
-    /*
-     * Best option:
-     *
-     * anchor directly from the
-     * wall hit. The WebXR Anchors
-     * specification allows this
-     * anchor to remain associated
-     * with the real-world entity
-     * that produced the hit.
-     */
-    if (
-      typeof hit
-        .createAnchor ===
-        'function'
-    ) {
-      anchor =
-        await hit
-          .createAnchor()
+    const transform =
+      new XRRigidTransform(
+        {
+          x:
+            state.position.x,
 
-      usedHitAnchor =
-        true
-    } else {
-      /*
-       * Second-best native option:
-       *
-       * create a free anchor at the
-       * wall hit position.
-       */
-      const referenceSpace =
-        ar.threeRenderer
-          .xr
-          .getReferenceSpace()
+          y:
+            state.position.y,
 
-      const anchorFrame =
-        frame as
-          AnchorCapableFrame
+          z:
+            state.position.z,
+        },
+        {
+          x: 0,
+          y: 0,
+          z: 0,
+          w: 1,
+        },
+      )
 
-      if (
-        referenceSpace &&
-        typeof anchorFrame
-          .createAnchor ===
-          'function'
-      ) {
-        const transform =
-          new XRRigidTransform(
-            {
-              x:
-                position.x,
-
-              y:
-                position.y,
-
-              z:
-                position.z,
-            },
-            {
-              x: 0,
-              y: 0,
-              z: 0,
-              w: 1,
-            },
-          )
-
-        anchor =
-          await anchorFrame
-            .createAnchor(
-              transform,
-              referenceSpace,
-            )
-      }
-    }
+    anchor =
+      await anchorFrame
+        .createAnchor(
+          transform,
+          referenceSpace,
+        )
   } catch {
     anchor =
       null
@@ -637,29 +724,29 @@ async function createBestAnchor(
     false
 
   /*
-   * The AR session may have ended
-   * while anchor creation was
-   * pending.
+   * The asynchronous anchor request
+   * may complete after the session
+   * ended or after Unlock was used.
    */
   if (
     !state.session ||
     ar.currentSession !==
-      state.session
+      state.session ||
+    !state.locked
   ) {
     try {
       anchor?.delete()
     } catch {
-      // Ignore stale-session cleanup.
+      // Ignore stale anchor.
     }
 
     return
   }
 
   if (!anchor) {
-    softwareLockFromPose(
+    useLocalLock(
       ar,
       state,
-      hitPose,
     )
 
     return
@@ -678,42 +765,9 @@ async function createBestAnchor(
   state.locked =
     true
 
-  /*
-   * Store the original yaw.
-   * A free anchor has identity
-   * orientation, while a hit-test
-   * anchor contains wall-oriented
-   * axes.
-   */
-  state.yaw =
-    yaw
-
-  ;(
-    state as
-      StableRendererState & {
-        hitOrientedAnchor?:
-          boolean
-      }
-  ).hitOrientedAnchor =
-    usedHitAnchor
-
   disableNativeRepositioning(
     ar,
   )
-
-  const initial =
-    ar.initialHitSource
-
-  if (initial) {
-    try {
-      initial.cancel()
-    } catch {
-      // Already cancelled by model-viewer.
-    }
-  }
-
-  ar.initialHitSource =
-    null
 
   dispatchAnchorState(
     ar.presentedScene
@@ -724,7 +778,7 @@ async function createBestAnchor(
   updateArtVaultHint(
     ar.presentedScene
       ?.element,
-    'Position locked to wall ✓ Move the phone to inspect the artwork. Size controls remain available.',
+    'Position locked to wall ✓ Move the phone to inspect the artwork. Tap Unlock position whenever you want to reposition it.',
   )
 }
 
@@ -751,13 +805,7 @@ function applyAnchorPose(
 
   if (!anchor) {
     /*
-     * Local fallback.
-     *
-     * This blocks accidental
-     * repositioning, but cannot
-     * correct an ARCore world-map
-     * relocalisation the way a
-     * native anchor can.
+     * Local fallback lock.
      */
     lockRendererToPosition(
       ar,
@@ -802,14 +850,14 @@ function applyAnchorPose(
       updateArtVaultHint(
         ar.presentedScene
           ?.element,
-        'Anchor tracking temporarily lost. Keep the phone pointed at the wall and nearby edges until tracking recovers.',
+        'Anchor tracking temporarily lost. Keep the phone pointed at the wall and nearby visual features until tracking recovers.',
       )
     }
 
     /*
-     * Do not choose another wall
-     * hit or move the artwork to a
-     * new position.
+     * Do not select a different wall
+     * while tracking is temporarily
+     * unavailable.
      */
     return
   }
@@ -818,30 +866,13 @@ function applyAnchorPose(
     pose.transform
       .position
 
-  const hitOriented =
-    (
-      state as
-        StableRendererState & {
-          hitOrientedAnchor?:
-            boolean
-        }
-    ).hitOrientedAnchor ===
-      true
-
-  const yaw =
-    hitOriented
-      ? wallYawFromPose(
-          pose,
-        )
-      : state.yaw
-
   lockRendererToPosition(
     ar,
     state,
     position.x,
     position.y,
     position.z,
-    yaw,
+    state.yaw,
   )
 
   if (
@@ -864,79 +895,90 @@ function applyAnchorPose(
   }
 }
 
-function findWallHit(
+function unlockRenderer(
   ar:
     InternalArRenderer,
-  frame:
-    XRFrame,
-): {
-  hit:
-    AnchorCapableHit
+  state:
+    StableRendererState,
+) {
+  state.lockRequested =
+    false
 
-  pose:
-    XRPose
-} | null {
+  state.anchorPending =
+    false
+
+  state.locked =
+    false
+
+  state.lost =
+    false
+
+  deleteAnchor(
+    state,
+  )
+
+  ar.isTranslating =
+    false
+
+  ar.isRotating =
+    false
+
+  ar.isTwoHandInteraction =
+    false
+
+  restoreNativeRepositioning(
+    ar,
+    state,
+  )
+
+  dispatchAnchorState(
+    ar.presentedScene
+      ?.element,
+    'unlocked',
+  )
+
+  updateArtVaultHint(
+    ar.presentedScene
+      ?.element,
+    'Position unlocked. Drag the artwork to reposition it, then tap Lock position when you are satisfied.',
+  )
+}
+
+function requestRendererLock(
+  ar:
+    InternalArRenderer,
+  state:
+    StableRendererState,
+) {
   if (
-    !ar.placeOnWall
+    state.locked ||
+    state.anchorPending
   ) {
-    return null
+    return
   }
-
-  const source =
-    ar.initialHitSource
-
-  const referenceSpace =
-    ar.threeRenderer
-      .xr
-      .getReferenceSpace()
 
   if (
-    !source ||
-    !referenceSpace
+    !state.session ||
+    ar.currentSession !==
+      state.session
   ) {
-    return null
+    return
   }
 
-  let hits:
-    XRHitTestResult[]
+  state.lockRequested =
+    true
 
-  try {
-    hits =
-      frame.getHitTestResults(
-        source,
-      )
-  } catch {
-    return null
-  }
+  dispatchAnchorState(
+    ar.presentedScene
+      ?.element,
+    'locking',
+  )
 
-  for (
-    const candidate
-    of hits
-  ) {
-    const pose =
-      candidate.getPose(
-        referenceSpace,
-      )
-
-    if (
-      !pose ||
-      !isValidWallPose(
-        pose,
-      )
-    ) {
-      continue
-    }
-
-    return {
-      hit:
-        candidate as
-          AnchorCapableHit,
-
-      pose,
-    }
-  }
-
-  return null
+  updateArtVaultHint(
+    ar.presentedScene
+      ?.element,
+    'Lock requested. Holding the current artwork position…',
+  )
 }
 
 function patchStableWallRenderer(
@@ -963,14 +1005,17 @@ function patchStableWallRenderer(
       anchorPending:
         false,
 
-      nativeAnchor:
+      locked:
         false,
 
-      locked:
+      nativeAnchor:
         false,
 
       lost:
         false,
+
+      session:
+        null,
 
       position: {
         x: 0,
@@ -981,8 +1026,8 @@ function patchStableWallRenderer(
       yaw:
         0,
 
-      session:
-        null,
+      lockRequested:
+        false,
     }
 
   rendererStates.set(
@@ -1003,12 +1048,9 @@ function patchStableWallRenderer(
       )
 
   /*
-   * Keep model-viewer's existing
-   * WebXR session architecture.
-   *
-   * The only session-level change
-   * is requesting "anchors" as an
-   * optional feature.
+   * Preserve model-viewer's WebXR
+   * pipeline while requesting native
+   * anchors as an optional feature.
    */
   ar.resolveARSession =
     async () => {
@@ -1086,11 +1128,13 @@ function patchStableWallRenderer(
     }
 
   /*
-   * Add native wall anchoring while
-   * preserving model-viewer's own
-   * rendering, hit testing, frame
-   * styling, DOM overlay and size
-   * controls.
+   * There is deliberately NO
+   * automatic wall anchoring here.
+   *
+   * model-viewer remains responsible
+   * for normal wall placement and
+   * touchscreen repositioning while
+   * ArtVault is unlocked.
    */
   ar.onWebXRFrame =
     (
@@ -1100,62 +1144,50 @@ function patchStableWallRenderer(
         XRFrame,
     ) => {
       /*
-       * Acquire the first valid
-       * vertical-wall hit before
-       * model-viewer consumes and
-       * cancels its initial hit
-       * source.
+       * Run model-viewer's original
+       * frame first so the current
+       * scenePivot contains the newest
+       * placement after dragging.
        */
-      if (
-        !state.locked &&
-        !state.anchorPending
-      ) {
-        const wallHit =
-          findWallHit(
-            ar,
-            frame,
-          )
-
-        if (
-          wallHit
-        ) {
-          /*
-           * Calling the async
-           * function starts
-           * createAnchor() while
-           * this XRFrame is still
-           * active.
-           */
-          void createBestAnchor(
-            ar,
-            state,
-            frame,
-            wallHit.hit,
-            wallHit.pose,
-          )
-      }
-      }
-
-      /*
-       * Once locked, push the
-       * anchor pose into the same
-       * scenePivot and goal values
-       * model-viewer already uses.
-       *
-       * This avoids replacing its
-       * renderer or creating a
-       * second AR engine.
-       */
-      applyAnchorPose(
-        ar,
-        state,
-        frame,
-      )
-
       originalFrame(
         time,
         frame,
       )
+
+      /*
+       * Create/freeze the anchor only
+       * after an explicit user Lock
+       * request.
+       */
+      if (
+        state.lockRequested &&
+        !state.locked &&
+        !state.anchorPending
+      ) {
+        void createAnchorAtCurrentPlacement(
+          ar,
+          state,
+          frame,
+        )
+
+        return
+      }
+
+      /*
+       * Once locked, enforce the
+       * stored/native anchor position
+       * after model-viewer's own frame
+       * processing.
+       */
+      if (
+        state.locked
+      ) {
+        applyAnchorPose(
+          ar,
+          state,
+          frame,
+        )
+      }
     }
 }
 
@@ -1196,30 +1228,76 @@ function patchModelViewerPrototype(
       this:
         ModelViewerElement,
     ) {
+      const element =
+        this
+
       const internal =
         (
-          this as
+          element as
             unknown as
             Record<
               symbol,
-              InternalRenderer
+              InternalRenderer | undefined
             >
         )[
           rendererSymbol
         ]
 
-      if (
+      const ar =
         internal?.arRenderer
-      ) {
+
+      if (ar) {
         patchStableWallRenderer(
-          internal
-            .arRenderer,
+          ar,
         )
+
+        const state =
+          rendererStates.get(
+            ar as object,
+          )
+
+        if (state) {
+          const eventElement =
+            element as
+              ModelViewerElement & {
+                __artVaultAnchorControlsInstalled?:
+                  boolean
+              }
+
+          if (
+            !eventElement
+              .__artVaultAnchorControlsInstalled
+          ) {
+            eventElement
+              .__artVaultAnchorControlsInstalled =
+              true
+
+            element.addEventListener(
+              'artvault-lock-position',
+              () => {
+                requestRendererLock(
+                  ar,
+                  state,
+                )
+              },
+            )
+
+            element.addEventListener(
+              'artvault-unlock-position',
+              () => {
+                unlockRenderer(
+                  ar,
+                  state,
+                )
+              },
+            )
+          }
+        }
       }
 
       return originalActivateAR
         .call(
-          this,
+          element,
         )
     }
 }
@@ -1229,10 +1307,11 @@ function patchModelViewerPrototype(
  * integration seam.
  *
  * ArtVault keeps model-viewer's
- * working WebXR / Scene Viewer
- * pipeline, but augments WebXR
- * with optional native anchors for
- * more stable wall placement.
+ * proven WebXR / Scene Viewer path.
+ *
+ * Wall placement remains movable
+ * until the user explicitly requests
+ * Lock position.
  */
 export async function loadViewer() {
   const {
@@ -1270,20 +1349,23 @@ export async function loadViewer() {
       element:
         ModelViewerElement,
     ) {
-      const renderer =
+      const internal =
         (
           element as
             unknown as
             Record<
               symbol,
-              InternalRenderer
+              InternalRenderer | undefined
             >
         )[
           $renderer
         ]
-          .arRenderer
+
+      const renderer =
+        internal?.arRenderer
 
       if (
+        renderer &&
         renderer
           .presentedScene
           ?.element ===
@@ -1298,10 +1380,10 @@ export async function loadViewer() {
       }
 
       /*
-       * 4.3.1 retains an empty GLTF
-       * after a failed fetch.
-       * Evict that source only so a
-       * retry actually downloads it.
+       * model-viewer 4.3.1 retains an
+       * empty GLTF after a failed
+       * fetch. Evict only that source
+       * so Retry downloads it again.
        */
       if (
         !element.loaded &&

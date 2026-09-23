@@ -29,6 +29,33 @@ type ArTracking =
   | 'tracking'
   | 'not-tracking'
 
+type AnchorLockStatus =
+  | 'unlocked'
+  | 'locking'
+  | 'anchored'
+  | 'local-lock'
+  | 'lost'
+  | 'recovered'
+
+function isAnchorLockStatus(
+  value: string,
+): value is AnchorLockStatus {
+  return (
+    value ===
+      'unlocked' ||
+    value ===
+      'locking' ||
+    value ===
+      'anchored' ||
+    value ===
+      'local-lock' ||
+    value ===
+      'lost' ||
+    value ===
+      'recovered'
+  )
+}
+
 const MIN_SCALE_PERCENT =
   35
 
@@ -254,6 +281,16 @@ export function ArtworkArViewer({
     )
 
   const [
+    anchorStatus,
+    setAnchorStatus,
+  ] =
+    useState<
+      AnchorLockStatus
+    >(
+      'unlocked',
+    )
+
+  const [
     attempt,
     setAttempt,
   ] =
@@ -410,6 +447,10 @@ export function ArtworkArViewer({
 
       setTracking(
         null,
+      )
+
+      setAnchorStatus(
+        'unlocked',
       )
 
       let disposed =
@@ -804,12 +845,136 @@ export function ArtworkArViewer({
               increase,
             )
 
+            /*
+             * Manual placement lock.
+             *
+             * The renderer remains fully
+             * movable until the user asks
+             * ArtVault to lock it.
+             */
+            const lockButton =
+              document.createElement(
+                'button',
+              )
+
+            lockButton.type =
+              'button'
+
+            lockButton.textContent =
+              '🔒 Lock position'
+
+            lockButton.setAttribute(
+              'aria-label',
+              'Lock artwork position',
+            )
+
+            lockButton.style.cssText = [
+              'display:block',
+              'width:100%',
+              'min-height:44px',
+              'margin-top:.65rem',
+              'border:1px solid rgba(103,232,249,.45)',
+              'border-radius:.75rem',
+              'background:rgba(103,232,249,.16)',
+              'color:#cffafe',
+              'font:750 14px system-ui,sans-serif',
+              'touch-action:manipulation',
+            ].join(';')
+
+            let currentAnchorStatus:
+              AnchorLockStatus =
+                'unlocked'
+
+            const syncLockButton =
+              (
+                status:
+                  AnchorLockStatus,
+              ) => {
+                currentAnchorStatus =
+                  status
+
+                const locked =
+                  status ===
+                    'anchored' ||
+                  status ===
+                    'local-lock' ||
+                  status ===
+                    'lost' ||
+                  status ===
+                    'recovered'
+
+                const locking =
+                  status ===
+                    'locking'
+
+                lockButton.disabled =
+                  locking
+
+                lockButton.textContent =
+                  locking
+                    ? 'Locking position…'
+                    : locked
+                      ? '🔓 Unlock position'
+                      : '🔒 Lock position'
+
+                lockButton.setAttribute(
+                  'aria-label',
+                  locked
+                    ? 'Unlock artwork position'
+                    : 'Lock artwork position',
+                )
+
+                lockButton.style.opacity =
+                  locking
+                    ? '.65'
+                    : '1'
+
+                lockButton.style.cursor =
+                  locking
+                    ? 'wait'
+                    : 'pointer'
+              }
+
+            const onLockButton =
+              () => {
+                const locked =
+                  currentAnchorStatus ===
+                    'anchored' ||
+                  currentAnchorStatus ===
+                    'local-lock' ||
+                  currentAnchorStatus ===
+                    'lost' ||
+                  currentAnchorStatus ===
+                    'recovered'
+
+                if (
+                  currentAnchorStatus ===
+                    'locking'
+                ) {
+                  return
+                }
+
+                element.dispatchEvent(
+                  new CustomEvent(
+                    locked
+                      ? 'artvault-unlock-position'
+                      : 'artvault-lock-position',
+                  ),
+                )
+              }
+
+            lockButton.addEventListener(
+              'click',
+              onLockButton,
+            )
+
             sizePanel.append(
               sizeTitle,
               sizeValue,
               scaleRow,
               slider,
               buttonRow,
+              lockButton,
             )
 
             /*
@@ -913,9 +1078,14 @@ export function ArtworkArViewer({
                   currentStatus ===
                     'object-placed'
                 ) {
-                  setArHint(
-                    'Artwork placed. Drag it to reposition. Use the ArtVault size controls below to resize it.',
-                  )
+                  if (
+                    currentAnchorStatus ===
+                      'unlocked'
+                  ) {
+                    setArHint(
+                      'Artwork placed and unlocked. Drag it to reposition, adjust the size, then tap Lock position when ready.',
+                    )
+                  }
 
                   return
                 }
@@ -1060,6 +1230,100 @@ export function ArtworkArViewer({
                 sync()
               }
 
+            const onAnchorState =
+              (
+                event:
+                  Event,
+              ) => {
+                const value =
+                  (
+                    event as
+                      CustomEvent<{
+                        status?: string
+                      }>
+                  ).detail
+                    ?.status
+
+                if (
+                  !value ||
+                  !isAnchorLockStatus(
+                    value,
+                  )
+                ) {
+                  return
+                }
+
+                setAnchorStatus(
+                  value,
+                )
+
+                syncLockButton(
+                  value,
+                )
+
+                if (
+                  value ===
+                    'unlocked'
+                ) {
+                  setArHint(
+                    currentStatus ===
+                      'object-placed'
+                      ? 'Position unlocked. Drag the artwork to reposition it, then tap Lock position when ready.'
+                      : 'Position unlocked. Place the artwork on the wall, then tap Lock position when ready.',
+                  )
+
+                  return
+                }
+
+                if (
+                  value ===
+                    'locking'
+                ) {
+                  setArHint(
+                    'Locking the current wall position…',
+                  )
+
+                  return
+                }
+
+                if (
+                  value ===
+                    'anchored'
+                ) {
+                  setArHint(
+                    'Position locked to the wall ✓ Move the phone to inspect the artwork. Tap Unlock position to move it again.',
+                  )
+
+                  return
+                }
+
+                if (
+                  value ===
+                    'local-lock'
+                ) {
+                  setArHint(
+                    'Position locked for this AR session. Tap Unlock position to move the artwork again.',
+                  )
+
+                  return
+                }
+
+                if (
+                  value ===
+                    'lost'
+                ) {
+                  setArHint(
+                    'Anchor tracking is temporarily lost. Keep the camera pointed at the wall and nearby edges. You can still tap Unlock position.',
+                  )
+
+                  return
+                }
+
+                setArHint(
+                  'Wall anchor recovered ✓ Position remains locked. Tap Unlock position to move it again.',
+                )
+              }
+
             const onTracking =
               (
                 event:
@@ -1121,6 +1385,11 @@ export function ArtworkArViewer({
               onTracking,
             )
 
+            element.addEventListener(
+              'artvault-anchor-state',
+              onAnchorState,
+            )
+
             element.setAttribute(
               'src',
               selectedVariant
@@ -1169,6 +1438,11 @@ export function ArtworkArViewer({
                   preventXrSelect,
                 )
 
+                lockButton.removeEventListener(
+                  'click',
+                  onLockButton,
+                )
+
                 element.removeEventListener(
                   'load',
                   onLoad,
@@ -1187,6 +1461,11 @@ export function ArtworkArViewer({
                 element.removeEventListener(
                   'ar-tracking',
                   onTracking,
+                )
+
+                element.removeEventListener(
+                  'artvault-anchor-state',
+                  onAnchorState,
                 )
 
                 if (
@@ -1279,6 +1558,10 @@ export function ArtworkArViewer({
 
       setTracking(
         null,
+      )
+
+      setAnchorStatus(
+        'unlocked',
       )
 
       void element
@@ -1613,12 +1896,40 @@ export function ArtworkArViewer({
         'object-placed' && (
           <p role="status">
             The artwork is placed.
-            Drag it to reposition
-            it. Use the ArtVault
-            size controls to resize
-            it while keeping the
-            displayed dimensions
-            synchronized.
+            Keep it unlocked while
+            repositioning or resizing
+            it, then use Lock position
+            in the AR controls when
+            you are satisfied.
+          </p>
+        )}
+
+      {arStatus ===
+        'object-placed' &&
+        anchorStatus ===
+          'locking' && (
+          <p role="status">
+            Locking the current
+            artwork position…
+          </p>
+        )}
+
+      {arStatus ===
+        'object-placed' &&
+        (
+          anchorStatus ===
+            'anchored' ||
+          anchorStatus ===
+            'local-lock' ||
+          anchorStatus ===
+            'recovered'
+        ) && (
+          <p role="status">
+            The artwork position is
+            locked. Use Unlock
+            position in the AR
+            controls before moving
+            it again.
           </p>
         )}
 

@@ -66,6 +66,7 @@ describe('useCartLines', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false))
     expect(result.current.lines.map((line) => line.artwork.id)).toEqual(['a1'])
     expect(result.current.unavailableCount).toBe(1)
+    expect(result.current.unavailableIds).toEqual(['gone'])
     expect(result.current.subtotal).toBe(100000)
   })
 
@@ -81,5 +82,6 @@ describe('useCartLines', () => {
     useCart.mockReturnValue({ quantities: new Map(), status: 'loading' })
     const { result } = renderHook(() => useCartLines(), { wrapper })
     expect(result.current.isLoading).toBe(true)
+    expect(result.current.unavailableIds).toEqual([])
   })
 })

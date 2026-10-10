@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -70,6 +70,18 @@ function renderPage() {
 }
 
 describe('CartPage', () => {
+  it('lets the buyer remove an unavailable entry without needing its private artwork data', async () => {
+    const removeItem = vi.fn().mockResolvedValue(false)
+    useCart.mockReturnValue({ mode: 'account', status: 'ready', setQuantity: vi.fn(), removeItem })
+    useCartLines.mockReturnValue({ lines: [], unavailableIds: ['unpublished-id'], unavailableCount: 1, subtotal: 0, isLoading: false })
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove unavailable item 1' }))
+    expect(removeItem).toHaveBeenCalledExactlyOnceWith('unpublished-id')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove unavailable item 1' })).toBeEnabled())
+    // A failed mutation must leave the entry available for another attempt.
+    expect(screen.getByText('Unavailable cart item 1')).toBeInTheDocument()
+  })
+
   it('shows a loading state', () => {
     useCart.mockReturnValue({ mode: 'account', status: 'ready', setQuantity: vi.fn(), removeItem: vi.fn() })
     useCartLines.mockReturnValue({ lines: [], unavailableCount: 0, subtotal: 0, isLoading: true })

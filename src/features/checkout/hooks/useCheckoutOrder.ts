@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { createCheckoutOrder, type CheckoutRequest } from '../api/checkoutOrder'
+import { CheckoutRejectedError, createCheckoutOrder, type CheckoutRequest } from '../api/checkoutOrder'
 
 const keyFor = (uid: string) => `artvault:pending-checkout:${uid}`
 function read(uid: string | undefined): CheckoutRequest | null {
@@ -24,9 +24,10 @@ export function useCheckoutOrder(uid: string | undefined) {
   const submit = async (artworkIds: string[], addressId: string) => {
     if (!uid || busy.current) return
     busy.current = true; setPending(true); setError(null)
+    const previous = read(uid)
     try {
       // Fail before making a request if retry identity cannot be retained.
-      const input = read(uid) ?? { artworkIds: [...artworkIds].sort(), addressId, idempotencyKey: crypto.randomUUID() }
+      const input = previous ?? { artworkIds: [...artworkIds].sort(), addressId, idempotencyKey: crypto.randomUUID() }
       try { sessionStorage.setItem(keyFor(uid), JSON.stringify(input)) } catch {
         setError('Enable browser session storage before creating an order so interrupted requests can be recovered safely.')
         return
@@ -35,8 +36,8 @@ export function useCheckoutOrder(uid: string | undefined) {
       clear(uid)
       navigate(`/checkout/confirmation/${receipt.orderId}`)
     } catch (cause) {
-      const code = typeof cause === 'object' && cause !== null && 'code' in cause ? String(cause.code) : ''
-      const definite = ['functions/invalid-argument', 'functions/permission-denied', 'functions/unauthenticated', 'functions/failed-precondition', 'functions/not-found'].includes(code)
+      // An auth rejection during recovery cannot rule out an earlier commit.
+      const definite = cause instanceof CheckoutRejectedError && (!previous || cause.previousOrderExcluded)
       if (definite) clear(uid)
       setError(definite && typeof cause === 'object' && cause !== null && 'message' in cause && typeof cause.message === 'string' ? cause.message : 'Order creation could not be confirmed. Retry the same checkout to recover its result; do not start another request.')
     } finally { busy.current = false; setPending(false); setRevision((value) => value + 1) }

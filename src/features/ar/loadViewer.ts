@@ -548,7 +548,7 @@ function captureCurrentPlacement(
   return true
 }
 
-function useLocalLock(
+function applyLocalLock(
   ar:
     InternalArRenderer,
   state:
@@ -676,7 +676,7 @@ async function createAnchorAtCurrentPlacement(
       .createAnchor !==
       'function'
   ) {
-    useLocalLock(
+    applyLocalLock(
       ar,
       state,
     )
@@ -744,7 +744,7 @@ async function createAnchorAtCurrentPlacement(
   }
 
   if (!anchor) {
-    useLocalLock(
+    applyLocalLock(
       ar,
       state,
     )

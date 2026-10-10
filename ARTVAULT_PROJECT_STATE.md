@@ -1,6 +1,36 @@
 # ArtVault — Project State
 
-_Current AR Phase 1 checkpoint (2026-09-17): UI-07 is complete, owner-approved,
+## Current continuation — 2026-10-10
+
+The application now runs on Supabase. Development resumed from a clean
+`supabase-full-cutover` branch at `0559e84`; the Firebase migration and subsequent
+Android AR work are already committed. The owner reports working physical wall
+placement, frame selection, resizing, and manual lock/unlock. AR dimensions are
+estimated display dimensions, not camera measurements. Older phase narratives
+below are historical and do not describe the current runtime.
+
+Module 1 (Cart & Checkout) already has persisted guest/account carts, saved
+address management and the transactional `create_checkout_order` RPC. This
+continuation fixes Supabase checkout rejection/recovery handling and adds removal
+of unavailable cart entries. Uncertain responses retain the original request key;
+malformed receipts cannot become local successes. Orders remain unpaid with
+reserved inventory. Payment providers, shipping charges and tax calculation are
+not connected. No database migration or hosted data mutation was performed.
+
+Local verification: the complete frontend suite passed (161 files, 1,399 tests),
+including the cart/checkout/address and AR regressions. The final focused checkout
+rerun passed 29 tests. All 58 SQL/RLS tests and 33 script tests passed. Typecheck,
+production build and lint passed (57 existing lint warnings). The initial fork
+test runner stalled; successful frontend runs used one thread worker. Browser
+retesting and real PostgreSQL multi-connection contention testing remain separate
+from these mocked/in-memory checks. Payment provider selection is pending.
+
+Regression review also identified pre-existing AR lint/test drift. The private
+non-React helper `useLocalLock` was renamed to `applyLocalLock` only; event names
+and AR behavior are unchanged. AR test fixtures/guidance now match the existing
+estimated, framed, per-artwork manifest and manual locking implementation.
+
+_Historical AR Phase 1 checkpoint (2026-09-17): UI-07 is complete, owner-approved,
 committed and pushed as `6f5ff05`. AR implementation is complete locally and
 desktop/browser verification is complete on Chrome 152.0.7977.83. One explicitly
 labelled development calibration print is prepared at an assigned 300 x 200 mm,

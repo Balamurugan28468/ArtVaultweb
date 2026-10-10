@@ -50,12 +50,21 @@ const version =
 const manifest = {
   artworkId: 'a1',
   imageId: 'front.jpg',
-  widthMm: 400,
-  heightMm: 200,
-  includesFrame: false,
+  sizingMode: 'ESTIMATED_STANDARD_DISPLAY',
+  artworkWidthMm: 400,
+  artworkHeightMm: 200,
+  frameMm: 30,
+  widthMm: 460,
+  heightMm: 260,
+  includesFrame: true,
+  defaultFrame: 'black',
+  frames: Object.fromEntries(['black', 'walnut', 'white', 'gold'].map((style) => [style, {
+    label: style[0].toUpperCase() + style.slice(1), version,
+    modelUrl: `/__ar-proof/model/a1/${version}.glb`,
+  }])),
   version,
   modelUrl:
-    `/__ar-proof/model/${version}.glb`,
+    `/__ar-proof/model/a1/${version}.glb`,
 }
 
 const artwork = {

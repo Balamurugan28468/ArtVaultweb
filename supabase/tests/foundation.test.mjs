@@ -108,6 +108,28 @@ test('checkout rejects another buyer address without consuming cart', async()=>{
  })
  assert.equal((await rows('select quantity from public.cart_items where cart_id=$1',[otherCart]))[0].quantity,1)
 })
+
+test('checkout denies signed-out and admin callers', async () => {
+  for (const [uid, role] of [[null, 'anon'], [admin, 'authenticated']]) {
+    await session(uid, () => denied('select public.create_checkout_order($1::uuid[],$2::uuid,$3)',
+      [[art], address, 'unauthorized-checkout-key']), role)
+  }
+})
+
+test('an unavailable cart entry remains removable by its buyer only', async () => {
+  await db.exec('begin')
+  try {
+    await db.query("update public.artworks set status='SUSPENDED' where id=$1", [art])
+    await db.exec('set local role authenticated')
+    await db.query("select set_config('request.jwt.claim.sub',$1,true)", [other])
+    assert.equal((await rows('delete from public.cart_items where cart_id=$1 returning id', [cart])).length, 0)
+    await db.query("select set_config('request.jwt.claim.sub',$1,true)", [buyer])
+    assert.equal((await rows('delete from public.cart_items where cart_id=$1 returning id', [cart])).length, 1)
+  } finally { await db.exec('rollback') }
+})
+
+test('duplicate artwork entries cannot be inserted into a buyer cart', () => session(buyer, () =>
+  denied('insert into public.cart_items(cart_id,artwork_id,quantity) values ($1,$2,1)', [cart, art])))
 test('unsigned and customer moderation are denied even with forged metadata',async()=>{
  await session(null,()=>denied("select public.moderate_artwork($1,'PUBLISHED')",[draft]),'anon')
  await session(buyer,()=>denied("select public.moderate_artwork($1,'PUBLISHED')",[draft]),'authenticated',{role:'SUPER_ADMIN'})

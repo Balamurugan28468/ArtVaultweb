@@ -724,7 +724,7 @@ describe(
         expect(
           hint.textContent,
         ).toContain(
-          'ArtVault size controls',
+          'adjust the size, then tap Lock position',
         )
       },
     )
@@ -876,7 +876,7 @@ describe(
         expect(
           hint.textContent,
         ).toContain(
-          'size controls',
+          'adjust the size, then tap Lock position',
         )
       },
     )

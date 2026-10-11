@@ -1,3 +1,4 @@
+import { OrderShipments } from '@/features/orders/components/OrderShipments'
 import { ImageOff } from 'lucide-react'
 import { useReducer } from 'react'
 import { TestPaymentPanel } from '@/features/payments/components/TestPaymentPanel'
@@ -5,7 +6,7 @@ import { Link, useParams } from 'react-router'
 import { OrderStatusBadge, OrderStatusTimeline, useOrder } from '@/features/orders'
 import { useArtistDisplayNames } from '@/features/marketplace'
 import { ReservationNotice } from '@/features/orders/components/ReservationNotice'
-import { Card, Container, EmptyState, ErrorState, PageHeader, Skeleton, buttonClassName } from '@/shared/ui'
+import { Button, Card, Container, EmptyState, ErrorState, PageHeader, Skeleton, buttonClassName } from '@/shared/ui'
 
 const PAYMENT_STATE_LABEL: Record<string, string> = {
   PENDING: 'Payment pending',
@@ -38,6 +39,7 @@ export function OrderDetailsPage() {
     <Container>
       <section className="flex flex-col gap-6">
         <PageHeader title="Order Details" />
+        <Button variant="secondary" onClick={refresh}>Refresh order</Button>
 
         {state.status === 'loading' && (
           <div aria-busy="true" aria-label="Loading order" className="flex flex-col gap-3">
@@ -149,10 +151,7 @@ export function OrderDetailsPage() {
                 <p className="text-sm text-text-secondary">
                   Payment: <span className="text-text-primary">{state.order.paymentState ? PAYMENT_STATE_LABEL[state.order.paymentState] : 'Payment status unavailable'}</span>
                 </p>
-                <p className="text-sm text-text-secondary">
-                  Tracking:{' '}
-                  <span className="text-text-primary">{state.order.trackingState ?? 'Not available yet'}</span>
-                </p>
+                <OrderShipments key={`${state.order.id}-${revision}`} orderId={state.order.id} test={state.order.paymentMode === 'TEST'} />
               </Card>
             </div>
           </>

@@ -1,3 +1,4 @@
+vi.mock('@/features/orders/api/fulfillmentRepository', () => ({ getOrderShipments: vi.fn().mockResolvedValue([]) }))
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { Timestamp } from '@/lib/supabase/timestamp'

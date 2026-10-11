@@ -103,6 +103,86 @@ before(async () => {
 })
 after(async () => { await db.close() })
 
+// Isolated live-shaped fixtures only: no provider request or hosted data mutation.
+async function fulfillmentSession(run) {
+  return session(seller, async () => {
+    await db.exec('reset role')
+    await db.query("update public.orders set status='PAID',payment_state='PAID' where id=$1", [order])
+    await db.query("insert into public.payments(order_id,provider,idempotency_key,amount_minor,currency,status) values($1,'ISOLATED_LIVE_FIXTURE','fulfillment-fixture',20000,'INR','SUCCEEDED')", [order])
+    await db.exec('set local role authenticated')
+    const asUser = uid => db.query("select set_config('request.jwt.claim.sub',$1,true)", [uid])
+    const advance = (action, carrier = null, tracking = null) => rows('select public.advance_seller_fulfillment($1,$2,$3,$4) as status', [order,action,carrier,tracking])
+    return run({ advance, asUser })
+  })
+}
+test('multi-seller fulfillment progresses conservatively, retries once, and never changes stock', () => fulfillmentSession(async ({ advance, asUser }) => {
+  const stock = await rows('select * from public.inventory order by artwork_id')
+  await advance('PROCESS'); await advance('PROCESS')
+  assert.equal((await advance('SHIP','Manual Carrier','ABC-123'))[0].status,'PROCESSING')
+  await advance('SHIP','Manual Carrier','ABC-123')
+  assert.equal((await rows('select count(*)::int as n from public.shipments'))[0].n,1)
+  await asUser(seller2); await advance('PROCESS')
+  assert.equal((await advance('SHIP','Second Carrier','DEF-456'))[0].status,'SHIPPED')
+  assert.equal((await advance('DELIVER'))[0].status,'SHIPPED')
+  await asUser(seller)
+  assert.equal((await advance('DELIVER'))[0].status,'DELIVERED')
+  await advance('DELIVER')
+  await asUser(buyer)
+  assert.equal((await rows("select count(*)::int as n from public.order_events where order_id=$1 and event_type='DELIVERED'",[order]))[0].n,1)
+  await asUser(seller)
+  assert.deepEqual(await rows('select * from public.inventory order by artwork_id'),stock)
+}))
+test('seller fulfillment projection contains only own items and shipping snapshot, no payment internals', () => fulfillmentSession(async () => {
+  const data=(await rows('select public.get_seller_fulfillment_orders() as data'))[0].data
+  assert.equal(data.length,1); assert.equal(data[0].items.length,1)
+  assert.equal(data[0].items[0].id,item); assert.equal(data[0].address.fullName,'Private Buyer')
+  assert.equal(data[0].canFulfill,true)
+  assert.equal(JSON.stringify(data).includes('provider_payment_id'),false)
+}))
+for(const uid of [buyer,other,admin]) test(`non-seller ${uid} cannot fulfill`, () => fulfillmentSession(async ({ advance,asUser }) => {
+  await asUser(uid); await assert.rejects(advance('PROCESS'),{code:'42501'})
+}))
+test('seller cannot fulfill an order without their items', () => fulfillmentSession(async () => {
+  await db.exec('reset role')
+  const foreignOrder=id(901)
+  await db.query("insert into public.orders(id,buyer_id,subtotal_minor,total_minor) values($1,$2,10000,10000)",[foreignOrder,other])
+  await db.query("insert into public.order_items(order_id,artwork_id,seller_id,title,unit_price_minor,quantity) values($1,$2,$3,'Other seller only',10000,1)",[foreignOrder,art2,seller2])
+  await db.exec('set local role authenticated')
+  await assert.rejects(db.query("select public.advance_seller_fulfillment($1,'PROCESS')",[foreignOrder]),{code:'42501'})
+}))
+for(const [action,carrier,tracking] of [['SHIP','Carrier','ABC'],['DELIVER',null,null],['PAID',null,null]])
+ test(`rejects invalid initial fulfillment transition ${action}`, () => fulfillmentSession(async ({advance}) => {
+  await assert.rejects(advance(action,carrier,tracking),{code:'22023'})
+ }))
+test('tracking validates server-side', () => fulfillmentSession(async ({advance}) => {
+  await advance('PROCESS'); await assert.rejects(advance('SHIP','X','<script>'),{code:'22023'})
+}))
+test('seller cannot overwrite shipped tracking', () => fulfillmentSession(async ({advance}) => {
+  await advance('PROCESS'); await advance('SHIP','Carrier','ABC')
+  await assert.rejects(advance('SHIP','Carrier','DIFFERENT'),{code:'22023'})
+}))
+test('TEST paid orders remain visible but cannot expose shipping or enter real fulfillment', () => fulfillmentSession(async ({advance}) => {
+  await db.exec('reset role'); await db.query("update public.orders set payment_mode='TEST' where id=$1",[order]); await db.exec('set local role authenticated')
+  const data=(await rows('select public.get_seller_fulfillment_orders() as data'))[0].data
+  assert.equal(data[0].test,true); assert.equal(data[0].canFulfill,false); assert.equal(data[0].address,null)
+  await assert.rejects(advance('PROCESS'),{code:'22023'})
+}))
+test('buyer and unrelated buyer shipment privacy and direct-write denial', () => fulfillmentSession(async ({advance,asUser}) => {
+  await advance('PROCESS'); await asUser(other)
+  assert.equal((await rows('select * from public.shipments')).length,0)
+  await asUser(buyer); assert.equal((await rows('select * from public.shipments')).length,1)
+  await denied("update public.shipments set status='DELIVERED'")
+}))
+test('unpaid orders cannot be fulfilled', () => fulfillmentSession(async ({advance}) => {
+  await db.exec('reset role'); await db.query("update public.orders set payment_state='PENDING',status='PAYMENT_PENDING' where id=$1",[order]); await db.exec('set local role authenticated')
+  await assert.rejects(advance('PROCESS'),{code:'22023'})
+}))
+test('refund review prevents fulfillment without automatic restocking', () => fulfillmentSession(async ({advance}) => {
+  await db.exec('reset role'); await db.query("update public.payments set gateway_phase='REVIEW' where order_id=$1",[order]); await db.exec('set local role authenticated')
+  await assert.rejects(advance('PROCESS'),{code:'22023'})
+}))
+test('anonymous callers cannot execute fulfillment RPC', () => session(null,() => denied("select public.advance_seller_fulfillment($1,'PROCESS')",[order]),'anon'))
+
 test('Cron registers one active bounded minute job using the shared private worker', async () => {
   assert.deepEqual(await rows('select * from cron.job'), [{
     jobname: 'artvault-expire-checkout-reservations', schedule: '* * * * *',

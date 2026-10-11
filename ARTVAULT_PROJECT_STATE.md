@@ -1,5 +1,29 @@
 # ArtVault — Project State
 
+## Module 3 owner-approved checkpoint — 2026-10-11
+
+Module 2 was committed/pushed as `2e2900f` to `origin/supabase-full-cutover` after
+owner-approved TEST payment verification. The owner accepted Module 3 for its
+implemented scope and approved its commit/push after manual Seller Studio review.
+Migration `20261011082427_manual_order_fulfillment.sql` was reviewed, dry-run and
+applied to the linked ArtVault project. It extends existing shipments with one
+seller/order constraint and trusted seller fulfillment projection/transition RPCs.
+Seller Studio shows owned paid items; buyer details show manual shipment facts.
+Live fulfillment progresses PROCESSING → SHIPPED → DELIVERED conservatively
+across all sellers. TEST orders are read-only and cannot be dispatched; the genuine
+paid TEST order/payment/inventory remain unchanged. No AR, UPI/QR or Module 4 work.
+
+Verification: SQL/RLS 105 passed; targeted frontend 185 passed; scripts 33 passed;
+typecheck/build passed; lint 57 existing warnings, zero errors. Hosted seller
+projection and TEST dispatch rejection verified without changing business data.
+Owner manual review confirmed order #4c0ef8b5, PAID status, the correct artwork,
+quantity 1, INR 5,500, thumbnail and TEST warning, with no real dispatch controls.
+Live fulfillment is covered by isolated SQL fixtures/UI mocks. Full end-to-end
+manual verification of PAID → PROCESSING → SHIPPED → DELIVERED remains required
+when a genuine non-TEST payment environment/order is available. The existing TEST
+order must not be modified to bypass the safeguard. Module 4 has not started.
+See `docs/MANUAL_ORDER_FULFILLMENT.md` for scope, limits and owner review steps.
+
 ## Current continuation — 2026-10-10
 
 ### Module 2 — Razorpay TEST integration, local implementation

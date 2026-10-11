@@ -2,6 +2,79 @@
 
 ## Current continuation — 2026-10-10
 
+### Module 2 — Razorpay TEST integration, local implementation
+
+Owner-approved Module 1 and the verified AR changes were committed and pushed to
+`origin/supabase-full-cutover` as `d80d49e`. Neither `ar-physical-test-audit.txt` nor
+`ar-selection.json` was included. The working AR engine and lock/unlock events
+have not been changed during Module 2.
+
+Razorpay **TEST MODE** is the selected provider. The current uncommitted work
+extends the existing order/payment tables with protected test-payment RPCs, an
+Edge handler, signed callback/webhook verification, provider-state reconciliation,
+and a lazy-loaded test checkout on the order pages. Successful verified test
+captures atomically consume reserved inventory. Orders/history explicitly label
+test payments; real payment methods remain disabled. Shipping/tax pricing is not
+finalized and is not fabricated for sandbox orders.
+
+The migration also corrects a PL/pgSQL alias collision in reservation expiry and
+protects captures with order-row locking. Unknown creation/capture outcomes fail
+closed for reconciliation. With explicit owner approval, migration
+`20261010141111` and Edge Function `razorpay-test` version 1 were deployed to
+`fqxhjijxgdjfthmfokqk` on 2026-10-10. The dry run listed only that migration.
+Hosted readiness reports enabled TEST mode; unsigned webhooks, unauthenticated
+buyer calls and unapproved origins are denied. All four payment RPCs remain
+service-only and every public table has RLS. Counts before/after: 14 artworks,
+18 physical units, zero orders/payments/reservations, zero reserved units.
+No payment was initiated or captured. The ignored local TEST UI flag is enabled.
+Credential values found in the local payment guide were removed; they appeared
+in inspection output, so rotate test API/webhook secrets before manual payment.
+The following deployment counts and test totals describe earlier checkpoints.
+The owner subsequently confirmed the controlled browser TEST payment; see the
+accepted verification below. Multi-connection stress testing remains a limitation.
+See `docs/RAZORPAY_TEST_PAYMENTS.md` for architecture, configuration, recovery and
+the required owner test checklist.
+
+Local Module 2 verification: full frontend suite 163 files / 1,423 tests passed;
+Edge handler 36 tests passed; SQL/RLS 76 tests passed; script suite 33 tests
+passed. Typecheck and production build passed. Lint has zero errors and 57
+existing warnings. No provider credentials or hosted payment calls were used.
+The final refund guard was verified with the Edge and SQL suites after the full
+frontend run; frontend files were unchanged by that server-only correction.
+
+### Module 2 automatic expiry checkpoint — 2026-10-11
+
+Owner-approved migration `20261011075254_automatic_reservation_expiry.sql` was
+dry-run reviewed and applied only to `fqxhjijxgdjfthmfokqk`. Supabase pg_cron 1.6.4
+runs `artvault-expire-checkout-reservations` every minute as postgres, calling the
+private shared expiry worker with batch size 100. The public operator wrapper
+retains protected administrator authorization. No secrets or HTTP/Edge jobs were
+added. Browser roles cannot execute the worker or access Cron management.
+Actual hosted scheduled execution succeeded; existing capture/review locking and
+idempotent release logic are preserved.
+
+The owner's previous order `59d622ec-0387-42f5-af52-cbad4eae4751` remains
+CANCELLED / RESERVATION_EXPIRED with its RELEASED reservation retained. Its
+artwork has physical/reserved/available quantities 1/0/1, and payment rows remain
+zero. Earlier zero-order counts above are historical pre-test observations.
+Owner confirmed credential rotation and the first unpaid checkout in subsequent
+manual testing. No new checkout or payment was created during scheduler work.
+This paragraph records the pre-payment scheduler checkpoint.
+
+### Module 2 accepted payment verification ? 2026-10-11
+
+Owner approved checkpointing Module 2 after order
+`4c0ef8b5-bbae-47fd-818c-8f6f807f1129` completed its controlled ?5,500 TEST payment.
+Read-only hosted verification confirmed PAID, one SUCCEEDED/SETTLED TEST payment,
+550000 paise INR, one CONSUMED reservation, physical/reserved/available 0/0/0,
+two verified webhook events plus callback verification, and one PAID transition.
+Subsequent Cron runs preserved the paid order. The earlier CANCELLED order remains
+history. The order image mapper now signs the immutable image_path snapshot.
+No live payment, UPI/QR enablement, real fulfillment, refund or restock was added.
+Module 3 is approved next, with TEST transactions excluded from real fulfillment.
+
+### Module 1 checkpoint and earlier historical verification
+
 The application now runs on Supabase. Development resumed from a clean
 `supabase-full-cutover` branch at `0559e84`; the Firebase migration and subsequent
 Android AR work are already committed. The owner reports working physical wall
@@ -23,7 +96,8 @@ rerun passed 29 tests. All 58 SQL/RLS tests and 33 script tests passed. Typechec
 production build and lint passed (57 existing lint warnings). The initial fork
 test runner stalled; successful frontend runs used one thread worker. Browser
 retesting and real PostgreSQL multi-connection contention testing remain separate
-from these mocked/in-memory checks. Payment provider selection is pending.
+from these mocked/in-memory checks. Provider selection was pending at this
+checkpoint; the owner subsequently selected Razorpay test mode above.
 
 Regression review also identified pre-existing AR lint/test drift. The private
 non-React helper `useLocalLock` was renamed to `applyLocalLock` only; event names

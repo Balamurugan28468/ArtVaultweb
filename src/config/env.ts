@@ -6,6 +6,8 @@ const booleanFromString = z
   .default(true)
 
 const envSchema = z.object({
+  /** UI opt-in only; Edge configuration and test-key checks are authoritative. */
+  VITE_ENABLE_RAZORPAY_TEST: booleanFromString.default(false),
   /** Explicitly opt in to the local operator AR proof route. */
   VITE_ENABLE_DEVELOPMENT_AR_PROOF: booleanFromString.default(false),
 })

@@ -13,6 +13,6 @@ describe('PaymentSection', () => {
 
   it('states plainly that no real payment can be taken yet', () => {
     render(<PaymentSection />)
-    expect(screen.getByText(/cannot process payment yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/Live payment methods are unavailable/i)).toBeInTheDocument()
   })
 })

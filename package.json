@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.payments.json",
     "lint": "oxlint",
     "test": "vitest",
     "test:scripts": "vitest run --config vitest.scripts.config.ts",
+    "test:payments": "vitest run --config vitest.payments.config.ts --maxWorkers=1 --fileParallelism=false",
     "test:supabase": "node --test --test-concurrency=1 supabase/tests/foundation.test.mjs supabase/tests/owner-bootstrap.test.mjs",
     "preview": "vite preview",
     "ar:prepare": "node scripts/prepare-ar-proof.mjs"

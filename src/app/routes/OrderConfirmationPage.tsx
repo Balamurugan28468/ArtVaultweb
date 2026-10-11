@@ -1,5 +1,7 @@
 import { CheckCircle2, Clock, RotateCcw, XCircle } from 'lucide-react'
 import type { ComponentType } from 'react'
+import { useReducer } from 'react'
+import { TestPaymentPanel } from '@/features/payments/components/TestPaymentPanel'
 import { Link, useParams } from 'react-router'
 import { useOrder } from '@/features/orders'
 import { OrderStatusBadge } from '@/features/orders/components/OrderStatusBadge'
@@ -46,7 +48,8 @@ const PAYMENT_STATE_PRESENTATION: Record<
 /** Read-only presentation of an existing order; never creates or confirms a payment. */
 export function OrderConfirmationPage() {
   const { orderId } = useParams()
-  const state = useOrder(orderId)
+  const [revision, refresh] = useReducer(value => value + 1, 0)
+  const state = useOrder(orderId, revision)
 
   return (
     <Container>
@@ -100,6 +103,7 @@ export function OrderConfirmationPage() {
                 <OrderStatusBadge status={order.status} />
                 <p className="font-display text-2xl font-medium text-accent-gold">₹{order.total / 100}</p>
                 <ReservationNotice order={order} />
+                <TestPaymentPanel order={order} onConfirmed={refresh} />
 
                 {order.shippingAddress && (
                   <div className="text-sm text-text-secondary">

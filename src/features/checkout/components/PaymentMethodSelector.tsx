@@ -8,8 +8,8 @@ interface PaymentOption {
   reason: string
 }
 
-// Trusted unpaid orders exist, but no payment method or cash collection /
-// fulfillment workflow is connected. Keep every payment control disabled.
+// Live methods and cash collection remain unavailable. Configured Razorpay
+// TEST checkout opens separately after creating a trusted reserved order.
 const PAYMENT_OPTIONS: PaymentOption[] = [
   {
     id: 'card',

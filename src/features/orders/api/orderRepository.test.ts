@@ -27,6 +27,12 @@ const BASE_ORDER_DATA = {
 }
 
 describe('mapToOrder', () => {
+  it('preserves explicit test provenance, provider reference and consumed reservation without inventing them', () => {
+    expect(mapToOrder('o1', { ...BASE_ORDER_DATA, payment_mode: 'TEST', payment_reference: 'pay_verified', reservation_status: 'CONSUMED' }))
+      .toMatchObject({ paymentMode: 'TEST', paymentReference: 'pay_verified', reservationStatus: 'CONSUMED' })
+    expect(mapToOrder('o1', BASE_ORDER_DATA)).not.toHaveProperty('paymentMode')
+    expect(mapToOrder('o1', BASE_ORDER_DATA)).not.toHaveProperty('paymentReference')
+  })
   it('preserves trusted reservation and incomplete-pricing metadata without assuming it for legacy orders', () => {
     expect(mapToOrder('o1', { ...BASE_ORDER_DATA, currency: 'INR', pricing_state: 'ITEMS_ONLY', reservation_status: 'ACTIVE', reservation_expires_at: '2026-09-17T00:00:00.000Z' })).toMatchObject({ currency: 'INR', pricingState: 'ITEMS_ONLY', reservationStatus: 'ACTIVE', reservationExpiresAt: expect.anything() })
     expect(mapToOrder('o1', BASE_ORDER_DATA)).not.toHaveProperty('reservationStatus')
@@ -67,6 +73,12 @@ describe('mapToOrder', () => {
 })
 
 describe('getOrder', () => {
+  it('reads the buyer-protected provider reference for a stored test order', async () => {
+    result.mockResolvedValueOnce({ id: 'o1', ...BASE_ORDER_DATA, payment_mode: 'TEST' })
+    result.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(null).mockResolvedValueOnce([])
+    result.mockResolvedValueOnce({ provider_payment_id: 'pay_verified' })
+    expect(await getOrder('o1')).toMatchObject({ paymentMode: 'TEST', paymentReference: 'pay_verified' })
+  })
   it('returns null for a nonexistent order', async () => {
     result.mockResolvedValueOnce(null)
     expect(await getOrder('o1')).toBeNull()
@@ -97,6 +109,22 @@ describe('getOrder', () => {
 })
 
 describe('getOrderItems', () => {
+  it.each(['existing-order', 'future-order'])('signs the checkout image snapshot for %s', async (orderId) => {
+    result.mockResolvedValueOnce([{ id: 'i1', artwork_id: 'art1', title: 'Sunset', image_path: 'seller/art/image', image_url: 'obsolete-path' }])
+    signedImage.mockResolvedValueOnce('https://storage.example/signed-snapshot')
+    expect(await getOrderItems(orderId)).toEqual([expect.objectContaining({ imageUrl: 'https://storage.example/signed-snapshot' })])
+    expect(signedImage).toHaveBeenLastCalledWith('seller/art/image')
+  })
+
+  it('uses the same signed snapshot in order history previews', async () => {
+    result.mockResolvedValueOnce({ id: 'o1', ...BASE_ORDER_DATA })
+    result.mockResolvedValueOnce([{ id: 'i1' }])
+    result.mockResolvedValueOnce([{ id: 'i1', artwork_id: 'art1', title: 'Sunset', image_path: 'seller/art/image', quantity: 1 }])
+    result.mockResolvedValueOnce(null).mockResolvedValueOnce([]).mockResolvedValueOnce([])
+    signedImage.mockResolvedValueOnce('https://storage.example/signed-snapshot')
+    expect((await getOrder('o1'))?.itemsPreview).toEqual([{ title: 'Sunset', imageUrl: 'https://storage.example/signed-snapshot', quantity: 1 }])
+  })
+
   it('returns the mapped items for an order', async () => {
     result.mockResolvedValueOnce([
       { id: 'i1', artwork_id: 'art1', title: 'Sunset', unit_price_minor: 100, quantity: 1, subtotal_minor: 100 },

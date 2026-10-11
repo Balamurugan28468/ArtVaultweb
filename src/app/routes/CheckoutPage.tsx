@@ -64,7 +64,7 @@ export function CheckoutPage() {
   return (
     <Container>
       <section className="flex flex-col gap-6">
-        <PageHeader title="Checkout" description="Create a secure unpaid order with a 30-minute stock reservation. Payment integration is the next step; no payment is taken here." />
+        <PageHeader title="Checkout" description="Create a secure unpaid order with a 30-minute stock reservation. Configured Razorpay test checkout is available on the order page; no payment is taken here." />
 
         {unavailableCount > 0 && <p role="status" className="text-sm text-text-secondary">Some cart items could not be loaded or are unavailable and are excluded from this review. <Link to="/cart" className="underline">Review Cart</Link></p>}
 

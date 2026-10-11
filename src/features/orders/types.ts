@@ -61,13 +61,16 @@ export interface Order {
   status: OrderStatus
   /** Null means missing/unrecognized stored data, never an assumed pending state. */
   paymentState: PaymentState | null
+  /** Explicit sandbox provenance; never present this as a real-money sale. */
+  paymentMode?: 'TEST'
+  paymentReference?: string
   subtotal: number
   shippingCost: number | null
   total: number
   currency?: string
   /** New unpaid orders contain merchandise only; legacy records remain readable. */
   pricingState?: 'ITEMS_ONLY'
-  reservationStatus?: 'ACTIVE' | 'RELEASED'
+  reservationStatus?: 'ACTIVE' | 'RELEASED' | 'CONSUMED'
   reservationExpiresAt?: Timestamp
   cancellationReason?: string
   shippingAddress: OrderShippingAddress | null

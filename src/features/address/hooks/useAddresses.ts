@@ -12,25 +12,26 @@ import type { AddressListState } from '../types'
  * inherently an authenticated-only feature — there is no guest mode here,
  * unlike Wishlist/Cart.
  */
-export function useAddresses(): AddressListState {
+export function useAddresses(refreshKey = 0): AddressListState {
   const { status, user } = useAuth()
+  const uid = user?.uid
   const [state, setState] = useState<AddressListState>({ status: 'loading' })
 
   useEffect(() => {
-    if (status !== 'authenticated' || !user) {
+    if (status !== 'authenticated' || !uid) {
       setState({ status: 'loading' })
       return
     }
 
     setState({ status: 'loading' })
     const unsubscribe = subscribeAddresses(
-      user.uid,
+      uid,
       (addresses) => setState({ status: 'loaded', addresses }),
       (error) => setState({ status: 'error', error }),
     )
 
     return unsubscribe
-  }, [status, user])
+  }, [status, uid, refreshKey])
 
   return state
 }

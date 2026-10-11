@@ -70,13 +70,15 @@ export function mapToOrder(id: string, data: Record<string, unknown>): Order | n
     id,
     buyerId,
     status: data.status,
+    ...(data.payment_mode === 'TEST' ? { paymentMode: 'TEST' as const } : {}),
+    ...(typeof data.payment_reference === 'string' ? { paymentReference: data.payment_reference } : {}),
     paymentState: typeof (data.payment_state ?? data.paymentState) === 'string' && ['PENDING', 'PAID', 'FAILED', 'REFUNDED'].includes(String(data.payment_state ?? data.paymentState)) ? (data.payment_state ?? data.paymentState) as Order['paymentState'] : null,
     subtotal: typeof (data.subtotal_minor ?? data.subtotal) === 'number' ? Number(data.subtotal_minor ?? data.subtotal) : 0,
     shippingCost: typeof (data.shipping_minor ?? data.shippingCost) === 'number' ? Number(data.shipping_minor ?? data.shippingCost) : null,
     total: typeof (data.total_minor ?? data.total) === 'number' ? Number(data.total_minor ?? data.total) : 0,
     ...(typeof data.currency === 'string' ? { currency: data.currency } : {}),
     ...(data.pricing_state === 'ITEMS_ONLY' || data.pricingState === 'ITEMS_ONLY' ? { pricingState: 'ITEMS_ONLY' as const } : {}),
-    ...(data.reservation_status === 'ACTIVE' || data.reservation_status === 'RELEASED' || data.reservationStatus === 'ACTIVE' || data.reservationStatus === 'RELEASED' ? { reservationStatus: (data.reservation_status ?? data.reservationStatus) as 'ACTIVE' | 'RELEASED' } : {}),
+    ...(['ACTIVE', 'RELEASED', 'CONSUMED'].includes(String(data.reservation_status ?? data.reservationStatus)) ? { reservationStatus: (data.reservation_status ?? data.reservationStatus) as Order['reservationStatus'] } : {}),
     ...(typeof data.reservation_expires_at === 'string' ? { reservationExpiresAt: timestamp(data.reservation_expires_at) } : data.reservationExpiresAt instanceof Timestamp ? { reservationExpiresAt: data.reservationExpiresAt } : {}),
     ...(typeof (data.cancellation_reason ?? data.cancellationReason) === 'string' ? { cancellationReason: String(data.cancellation_reason ?? data.cancellationReason) } : {}),
     shippingAddress: mapToShippingAddress(data.shippingAddress),
@@ -96,7 +98,9 @@ function mapToOrderItem(id: string, data: Record<string, unknown>): OrderItem | 
     artworkId,
     sellerId: typeof data.seller_id === 'string' ? data.seller_id : typeof data.sellerId === 'string' ? data.sellerId : '',
     title: data.title,
-    imageUrl: typeof data.image_url === 'string' ? data.image_url : typeof data.imageUrl === 'string' ? data.imageUrl : null,
+    // Checkout snapshots a private Storage object path, not an expiring signed URL.
+    // readItems resolves it using the same signer as marketplace artwork images.
+    imageUrl: typeof data.image_path === 'string' ? data.image_path : typeof data.image_url === 'string' ? data.image_url : typeof data.imageUrl === 'string' ? data.imageUrl : null,
     unitPrice: typeof (data.unit_price_minor ?? data.unitPrice) === 'number' ? Number(data.unit_price_minor ?? data.unitPrice) : 0,
     quantity: typeof data.quantity === 'number' ? data.quantity : 1,
     subtotal: typeof (data.subtotal_minor ?? data.subtotal) === 'number' ? Number(data.subtotal_minor ?? data.subtotal) : 0,
@@ -124,6 +128,9 @@ async function mapStoredOrder(row: Record<string, unknown>): Promise<Order | nul
       : Promise.resolve([]),
   ])
   const firstReservation = reservations?.[0]
+  const payment = row.payment_mode === 'TEST'
+    ? await result(createClient().from('payments').select('provider_payment_id').eq('order_id', row.id).eq('provider', 'RAZORPAY_TEST').eq('status', 'SUCCEEDED').maybeSingle())
+    : null
   return mapToOrder(String(row.id), {
     ...row,
     shippingAddress: address,
@@ -131,6 +138,7 @@ async function mapStoredOrder(row: Record<string, unknown>): Promise<Order | nul
     itemsPreview: items.map((item) => ({ title: item.title, imageUrl: item.imageUrl, quantity: item.quantity })),
     reservation_status: firstReservation?.status,
     reservation_expires_at: firstReservation?.expires_at,
+    payment_reference: payment?.provider_payment_id,
   })
 }
 

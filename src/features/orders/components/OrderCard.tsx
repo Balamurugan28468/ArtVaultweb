@@ -34,6 +34,7 @@ export function OrderCard({ order }: { order: Order }) {
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-medium text-text-primary">Order #{order.id.slice(0, 8).toUpperCase()}</p>
           <OrderStatusBadge status={order.status} />
+          {order.paymentMode === 'TEST' && <span className="text-xs text-accent-gold">TEST — no fulfillment</span>}
         </div>
         <p className="truncate text-sm text-text-secondary">
           {primary?.title ?? 'Order'}

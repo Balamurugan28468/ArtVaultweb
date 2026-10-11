@@ -69,6 +69,11 @@ function renderPage(orderId = 'order123456') {
 }
 
 describe('OrderDetailsPage', () => {
+  it('renders the resolved order-time thumbnail', () => {
+    useOrder.mockReturnValue({ status: 'loaded', order: buildOrder(), items: [buildItem({ imageUrl: 'https://storage.example/signed-snapshot' })] })
+    const { container } = renderPage()
+    expect(container.querySelector('img')).toHaveAttribute('src', 'https://storage.example/signed-snapshot')
+  })
   it('shows a loading state', () => {
     useOrder.mockReturnValue({ status: 'loading' })
     renderPage()

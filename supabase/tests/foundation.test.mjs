@@ -48,7 +48,20 @@ before(async () => {
   `)
   const directory = new URL('../migrations/', import.meta.url)
   for (const file of (await readdir(directory)).filter(name => name.endsWith('.sql')).sort()) {
-    await db.exec(await readFile(new URL(file, directory), 'utf8'))
+    let sql = await readFile(new URL(file, directory), 'utf8')
+    if (file === '20261011075254_automatic_reservation_expiry.sql') {
+      // PGlite cannot load background-worker extensions. Stub ONLY Cron registration;
+      // run the real worker, wrapper, grants and schedule SQL. Hosted runs prove scheduling.
+      assert.equal(sql.match(/create extension if not exists pg_cron with schema pg_catalog;/g)?.length, 1)
+      await db.exec(`create schema cron;
+        create table cron.job(jobname text primary key, schedule text, command text, active boolean default true);
+        create function cron.schedule(text,text,text) returns bigint language sql as $$
+          insert into cron.job(jobname,schedule,command) values ($1,$2,$3)
+          on conflict(jobname) do update set schedule=$2,command=$3 returning 1::bigint;
+        $$;`)
+      sql = sql.replace('create extension if not exists pg_cron with schema pg_catalog;', '')
+    }
+    await db.exec(sql)
   }
   for (const user of [buyer, other, seller, seller2, admin, superAdmin]) {
     await db.query("insert into auth.users(id,raw_user_meta_data) values ($1, '{\"role\":\"SUPER_ADMIN\"}')", [user])
@@ -89,6 +102,207 @@ before(async () => {
   `)
 })
 after(async () => { await db.close() })
+
+test('Cron registers one active bounded minute job using the shared private worker', async () => {
+  assert.deepEqual(await rows('select * from cron.job'), [{
+    jobname: 'artvault-expire-checkout-reservations', schedule: '* * * * *',
+    command: 'select private.expire_checkout_reservations(100);', active: true,
+  }])
+  assert.equal((await rows('select private.expire_checkout_reservations(100) as n'))[0].n, 0)
+  assert.equal((await rows('select private.expire_checkout_reservations(100) as n'))[0].n, 0)
+  await assert.rejects(db.query('select private.expire_checkout_reservations(501)'), { code: '22023' })
+})
+
+for (const role of ['anon', 'authenticated', 'service_role']) {
+  test(`${role} cannot execute the scheduler worker, even with forged admin claims`, () =>
+    session(buyer, () => denied('select private.expire_checkout_reservations(100)'), role, { role: 'SUPER_ADMIN' }))
+}
+
+// Each payment test rolls back its fresh checkout. No hosted/provider requests.
+async function paymentSession(run) {
+  return session(buyer, async () => {
+    const receipt = (await rows('select public.create_checkout_order($1::uuid[],$2::uuid,$3) as r', [[art], address, 'razorpay-test-checkout-key']))[0].r
+    await db.exec('set local role service_role')
+    const begin = async (uid = buyer) => (await rows('select public.begin_razorpay_test_payment($1,$2) as p', [receipt.orderId, uid]))[0].p
+    const p = await begin()
+    const attach = () => db.query("select public.attach_razorpay_test_order($1,'order_testProvider')", [p.id])
+    const claim = (amount = 10000, currency = 'INR', providerPayment = 'pay_testCaptured') => rows('select public.claim_razorpay_test_capture($1,$2,$3,$4) as claimed', [p.id, providerPayment, amount, currency])
+    const record = (state = 'captured', event = 'test-event-1', providerPayment = 'pay_testCaptured', hash = 'c'.repeat(64)) => rows('select public.record_razorpay_test_result($1,$2,10000,\'INR\',$3,$4,$5) as status', [p.id, providerPayment, state, event, hash])
+    const expire = async () => {
+      await db.exec('set local role authenticated')
+      await db.query("select set_config('request.jwt.claim.sub',$1,true)", [admin])
+      const result = (await rows('select public.expire_checkout_reservations() as n'))[0].n
+      await db.exec('set local role service_role')
+      return result
+    }
+    const elapse = () => db.query("update public.inventory_reservations set expires_at=now()-interval '1 minute' where order_item_id in (select id from public.order_items where order_id=$1)", [receipt.orderId])
+    return run({ receipt, p, begin, attach, claim, record, expire, elapse })
+  })
+}
+
+test('payment initiation is idempotent, test-labelled and uses the immutable order total', () => paymentSession(async ({ receipt, p, begin, attach }) => {
+  assert.equal(p.created, true)
+  assert.equal(p.mode, 'TEST')
+  assert.equal(p.amount_minor, 10000)
+  assert.equal(p.gateway_phase, 'CREATING')
+  const duplicate = await begin()
+  assert.equal(duplicate.id, p.id)
+  assert.equal(duplicate.created, false)
+  await attach(); await attach()
+  assert.equal((await begin()).provider_order_id, 'order_testProvider')
+  assert.equal((await rows('select payment_mode from public.orders where id=$1', [receipt.orderId]))[0].payment_mode, 'TEST')
+}))
+
+test('all payment transition RPCs deny browsers, signed-out users and forged admin metadata', async () => {
+  const calls = [
+    ['select public.begin_razorpay_test_payment($1,$2)', [order, buyer]],
+    ['select public.attach_razorpay_test_order($1,$2)', [order, 'order_forged']],
+    ['select public.claim_razorpay_test_capture($1,$2,$3,$4)', [order, 'pay_forged', 1, 'INR']],
+    ['select public.record_razorpay_test_result($1,$2,$3,$4,$5,$6,$7)', [order, 'pay_forged', 1, 'INR', 'captured', 'forged', 'a'.repeat(64)]],
+  ]
+  for (const [uid, role] of [[null, 'anon'], [buyer, 'authenticated'], [seller, 'authenticated'], [admin, 'authenticated']]) {
+    for (const [sql, params] of calls) await session(uid, () => denied(sql, params), role, { role: 'SUPER_ADMIN' })
+  }
+})
+
+test('payment initiation rejects another buyer even through the trusted server boundary', () => paymentSession(async ({ begin }) => {
+  await assert.rejects(begin(other), e => e.code === '42501')
+}))
+
+test('provider order assignment cannot be replaced by a second provider order', () => paymentSession(async ({ p, attach }) => {
+  await attach()
+  await assert.rejects(db.query("select public.attach_razorpay_test_order($1,'order_second')", [p.id]), e => e.code === '22023')
+}))
+
+for (const [name, amount, currency] of [['amount', 1, 'INR'], ['currency', 10000, 'USD']]) {
+  test(`capture rejects mismatched ${name}`, () => paymentSession(async ({ attach, claim }) => {
+    await attach()
+    await assert.rejects(claim(amount, currency), e => e.code === '22023')
+  }))
+}
+
+test('capture claim has one winner and captured settlement consumes stock exactly once', () => paymentSession(async ({ receipt, p, attach, claim, record }) => {
+  await attach()
+  assert.equal((await claim())[0].claimed, true)
+  assert.equal((await claim())[0].claimed, false)
+  assert.equal((await record())[0].status, 'SUCCEEDED')
+  assert.equal((await record())[0].status, 'SUCCEEDED')
+  assert.equal((await record('captured', 'second-valid-event'))[0].status, 'SUCCEEDED')
+  assert.deepEqual((await rows('select physical_quantity,reserved_quantity from public.inventory where artwork_id=$1', [art]))[0], { physical_quantity: 1, reserved_quantity: 1 })
+  assert.deepEqual((await rows('select status,payment_state,payment_mode from public.orders where id=$1', [receipt.orderId]))[0], { status: 'PAID', payment_state: 'PAID', payment_mode: 'TEST' })
+  assert.equal((await rows("select count(*)::int as n from public.order_events where order_id=$1 and event_type='PAID'", [receipt.orderId]))[0].n, 1)
+  assert.equal((await rows('select gateway_phase from public.payments where id=$1', [p.id]))[0].gateway_phase, 'SETTLED')
+}))
+
+test('different payment IDs cannot share an active capture claim', () => paymentSession(async ({ attach, claim }) => {
+  await attach(); await claim()
+  await assert.rejects(claim(10000, 'INR', 'pay_other'), e => e.code === '22023')
+}))
+
+test('moderation withdrawal after checkout prevents payment capture', () => paymentSession(async ({ attach, claim }) => {
+  await attach()
+  await db.query("update public.artworks set status='SUSPENDED' where id=$1", [art])
+  await assert.rejects(claim(), e => e.code === '22023')
+}))
+
+test('seller approval withdrawal after checkout prevents payment initiation', () => paymentSession(async ({ begin }) => {
+  await db.query("update public.seller_profiles set status='PENDING',reviewed_at=null,reviewed_by=null where id=$1", [seller])
+  await assert.rejects(begin(), e => e.code === '22023')
+}))
+
+test('expiry wins before capture: no stock is consumed and repeated release is safe', () => paymentSession(async ({ receipt, attach, elapse, expire, claim }) => {
+  await attach(); await elapse()
+  assert.equal(await expire(), 1)
+  assert.equal(await expire(), 0)
+  assert.deepEqual((await rows('select physical_quantity,reserved_quantity from public.inventory where artwork_id=$1', [art]))[0], { physical_quantity: 2, reserved_quantity: 1 })
+  assert.equal((await rows('select status from public.orders where id=$1', [receipt.orderId]))[0].status, 'CANCELLED')
+  await assert.rejects(claim(), e => e.code === '22023')
+}))
+
+test('capture wins before expiry: pending capture holds inventory and later settlement is safe', () => paymentSession(async ({ attach, claim, elapse, expire, record }) => {
+  await attach(); await claim(); await elapse()
+  assert.equal(await expire(), 0)
+  assert.equal((await record())[0].status, 'SUCCEEDED')
+  assert.equal(await expire(), 0)
+}))
+
+test('a verified terminal capture failure removes the hold so expiry can release once', () => paymentSession(async ({ attach, claim, elapse, expire, record }) => {
+  await attach(); await claim(); await elapse()
+  assert.equal((await record('failed', 'capture-failed'))[0].status, 'FAILED')
+  assert.equal(await expire(), 1)
+  assert.equal(await expire(), 0)
+}))
+
+test('late captured payment is flagged for review and never resurrects expired inventory', () => paymentSession(async ({ receipt, attach, elapse, expire, record }) => {
+  await attach(); await elapse(); await expire()
+  assert.equal((await record())[0].status, 'REVIEW')
+  assert.equal((await rows('select status from public.orders where id=$1', [receipt.orderId]))[0].status, 'CANCELLED')
+  assert.equal((await rows('select physical_quantity from public.inventory where artwork_id=$1', [art]))[0].physical_quantity, 2)
+}))
+
+test('trusted expiry preserves cancelled history, rejects new payment and cannot release twice', () => paymentSession(async ({ receipt, elapse, expire, begin }) => {
+  const before = (await rows('select physical_quantity,reserved_quantity from public.inventory where artwork_id=$1', [art]))[0]
+  await elapse()
+  assert.equal(await expire(), 1)
+  assert.equal(await expire(), 0)
+  assert.equal((await rows('select status,cancellation_reason from public.orders where id=$1', [receipt.orderId]))[0].status, 'CANCELLED')
+  const after = (await rows('select physical_quantity,reserved_quantity from public.inventory where artwork_id=$1', [art]))[0]
+  assert.equal(after.reserved_quantity, before.reserved_quantity - 1)
+  assert.equal(after.physical_quantity, before.physical_quantity)
+  await assert.rejects(begin(), e => e.code === '22023')
+}))
+test('paid orders remain paid and consumed when expiry runs again', () => paymentSession(async ({ attach, claim, record, elapse, expire, receipt }) => {
+  await attach(); await claim(); await record(); await elapse()
+  assert.equal(await expire(), 0)
+  assert.equal((await rows('select status from public.orders where id=$1', [receipt.orderId]))[0].status, 'PAID')
+}))
+test('ordinary buyer cannot invoke privileged reservation expiry', () => session(buyer, () => denied('select public.expire_checkout_reservations(1)')))
+
+test('database-owner scheduler releases once without a user JWT and preserves history', () => paymentSession(async ({ receipt, elapse }) => {
+  await elapse()
+  await db.exec('reset role')
+  await db.query("select set_config('request.jwt.claim.sub','',true)")
+  assert.equal((await rows('select private.expire_checkout_reservations(100) as n'))[0].n, 1)
+  assert.equal((await rows('select private.expire_checkout_reservations(100) as n'))[0].n, 0)
+  assert.deepEqual((await rows('select physical_quantity,reserved_quantity from public.inventory where artwork_id=$1', [art]))[0], { physical_quantity: 2, reserved_quantity: 1 })
+  assert.equal((await rows('select status from public.orders where id=$1', [receipt.orderId]))[0].status, 'CANCELLED')
+  assert.equal((await rows("select actor_id from public.order_events where order_id=$1 and event_type='CANCELLED'", [receipt.orderId]))[0].actor_id, null)
+}))
+
+test('scheduler preserves REVIEW payment hold after the reservation deadline', () => paymentSession(async ({ p, elapse }) => {
+  await db.query("update public.payments set gateway_phase='REVIEW' where id=$1", [p.id])
+  await elapse()
+  await db.exec('reset role')
+  assert.equal((await rows('select private.expire_checkout_reservations(100) as n'))[0].n, 0)
+  assert.equal((await rows('select reserved_quantity from public.inventory where artwork_id=$1', [art]))[0].reserved_quantity, 2)
+}))
+
+test('failure can retry the same provider order; out-of-order failure cannot undo payment', () => paymentSession(async ({ attach, begin, claim, record }) => {
+  await attach()
+  assert.equal((await record('failed', 'failure-event', 'pay_failed'))[0].status, 'FAILED')
+  assert.equal((await rows("select provider_payment_id from public.payment_events where provider_event_id='failure-event'"))[0].provider_payment_id, 'pay_failed')
+  assert.equal((await begin()).provider_order_id, 'order_testProvider')
+  await claim(); await record()
+  assert.equal((await record('failed', 'late-failure-event', 'pay_failed'))[0].status, 'SUCCEEDED')
+}))
+
+test('webhook event ID collision with a different payload is rejected', () => paymentSession(async ({ attach, claim, record }) => {
+  await attach(); await claim(); await record()
+  await assert.rejects(record('captured', 'test-event-1', 'pay_testCaptured', 'd'.repeat(64)), e => e.code === '22023')
+}))
+
+test('repeated refund events retain review rather than reporting an earlier payment success', () => paymentSession(async ({ attach, claim, record }) => {
+  await attach(); await claim(); await record()
+  assert.equal((await record('refunded', 'refund-event'))[0].status, 'REVIEW')
+  assert.equal((await record('refunded', 'refund-event'))[0].status, 'REVIEW')
+}))
+
+test('buyer cannot forge a payment record or read another buyers test payment', () => paymentSession(async ({ p }) => {
+  await db.exec('set local role authenticated')
+  await db.query("select set_config('request.jwt.claim.sub',$1,true)", [other])
+  assert.equal((await rows('select id from public.payments where id=$1', [p.id])).length, 0)
+  await denied("update public.payments set status='SUCCEEDED' where id=$1", [p.id])
+}))
 
 test('checkout uses authoritative prices, reserves once and preserves an idempotent receipt', async () => {
  await session(buyer,async()=>{
@@ -217,6 +431,25 @@ for (const table of ['wishlist_items', 'likes']) {
   test(table + ' forged owner denied', () => session(buyer, () => denied('insert into public.' + table + '(user_id,artwork_id) values ($1,$2)', [other, art])))
 }
 test('follows cannot forge user identity', () => session(buyer, () => denied('insert into public.follows(user_id,artist_id) values ($1,$2)', [other, seller])))
+test('buyer history can read own reservation display fields and related snapshots', () => session(buyer, async () => {
+  assert.equal((await rows('select status,expires_at from public.inventory_reservations where order_item_id=$1', [item])).length, 1)
+  assert.equal((await rows('select * from public.orders where id=$1', [order])).length, 1)
+  assert.equal((await rows('select * from public.order_items where order_id=$1', [order])).length, 2)
+  assert.equal((await rows('select * from public.order_addresses where order_id=$1', [order])).length, 1)
+  await rows('select * from public.order_events where order_id=$1', [order])
+  await rows('select * from public.payments where order_id=$1', [order])
+}))
+test('other buyers and sellers cannot read buyer reservation facts', async () => {
+  for (const uid of [other, seller, admin]) await session(uid, async () => {
+    assert.equal((await rows('select status,expires_at from public.inventory_reservations')).length, 0)
+  })
+})
+test('anonymous callers cannot read private orders or reservations', async () => {
+  await session(null, () => denied('select * from public.orders'), 'anon')
+  await session(null, () => denied('select status,expires_at from public.inventory_reservations'), 'anon')
+})
+test('reservation display grants do not expose other reservation columns', () => session(buyer, () => denied('select * from public.inventory_reservations')))
+
 test('buyer order privacy; admin has no blanket private-order read', async () => {
   await session(buyer, async () => assert.equal((await rows('select * from public.orders')).length, 1))
   for (const uid of [other, seller, admin]) await session(uid, async () => assert.equal((await rows('select * from public.orders')).length, 0))

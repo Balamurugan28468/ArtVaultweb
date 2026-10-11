@@ -1,4 +1,6 @@
 import { ImageOff } from 'lucide-react'
+import { useReducer } from 'react'
+import { TestPaymentPanel } from '@/features/payments/components/TestPaymentPanel'
 import { Link, useParams } from 'react-router'
 import { OrderStatusBadge, OrderStatusTimeline, useOrder } from '@/features/orders'
 import { useArtistDisplayNames } from '@/features/marketplace'
@@ -27,7 +29,8 @@ function formatDate(value: { toDate?: () => Date } | undefined): string {
  */
 export function OrderDetailsPage() {
   const { orderId } = useParams()
-  const state = useOrder(orderId)
+  const [revision, refresh] = useReducer(value => value + 1, 0)
+  const state = useOrder(orderId, revision)
   const items = state.status === 'loaded' ? state.items : []
   const artistNames = useArtistDisplayNames(items.map((item) => item.sellerId).filter(Boolean))
 
@@ -70,6 +73,8 @@ export function OrderDetailsPage() {
                 <OrderStatusBadge status={state.order.status} />
               </div>
             </Card>
+
+            <TestPaymentPanel order={state.order} onConfirmed={refresh} />
 
             <Card className="flex flex-col gap-4 p-4 sm:p-5">
               <h2 className="font-display text-lg font-medium text-text-primary">Status</h2>

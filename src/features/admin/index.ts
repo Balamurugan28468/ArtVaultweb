@@ -24,6 +24,7 @@ export {
 } from './api/adminQueueRepository'
 
 export { AdminAuditLogsView } from './components/AdminAuditLogsView'
+export { AdminAuctionsView } from './components/AdminAuctionsView'
 export { AdminArtworksView } from './components/AdminArtworksView'
 export { AdminDashboardView } from './components/AdminDashboardView'
 export { AdminOrdersView } from './components/AdminOrdersView'

@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react'
+import { Crown, Gavel, ShieldCheck, Sparkles, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import {
@@ -122,6 +122,37 @@ export function AuctionsPage() {
           </div>
         </Card>
 
+        {/* Value propositions banner — matching reference design */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface/80 p-3.5 backdrop-blur-sm sm:p-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent-gold/15 text-accent-gold">
+              <Gavel aria-hidden="true" className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-text-primary">Unique Artworks</p>
+              <p className="text-xs text-text-muted">One-of-a-kind pieces</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface/80 p-3.5 backdrop-blur-sm sm:p-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent-gold/15 text-accent-gold">
+              <ShieldCheck aria-hidden="true" className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-text-primary">Secure Bidding</p>
+              <p className="text-xs text-text-muted">Safe & transparent</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface/80 p-3.5 backdrop-blur-sm sm:p-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent-gold/15 text-accent-gold">
+              <Users aria-hidden="true" className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-text-primary">Support Artists</p>
+              <p className="text-xs text-text-muted">Empowering creativity</p>
+            </div>
+          </div>
+        </div>
+
         {/* Segmented tab control — a filled gold pill for the active tab
             (matching the reference), rather than Chip's own bordered
             style, which stays unchanged for its other, unrelated callers
@@ -159,16 +190,32 @@ export function AuctionsPage() {
         )}
 
         {state.status === 'loaded' && activeAuctions.length > 0 && (
-          <ResponsiveGrid>
-            {activeAuctions.map((auction) => (
-              <AuctionCard
-                key={auction.id}
-                auction={auction}
-                artwork={artworks[auction.artworkId] ?? null}
-                artistDisplayName={artistNames[auction.sellerId]}
-              />
-            ))}
-          </ResponsiveGrid>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-text-primary">
+                {activeTab === 'SCHEDULED' ? 'Upcoming Auctions' : activeTab === 'LIVE' ? 'Live Now' : 'Past Auctions'}
+              </p>
+              {activeAuctions.length > 4 && (
+                <button
+                  type="button"
+                  onClick={() => {/* already showing all */}}
+                  className="text-sm font-medium text-brand-primary-on-dark hover:underline"
+                >
+                  View All →
+                </button>
+              )}
+            </div>
+            <ResponsiveGrid>
+              {activeAuctions.map((auction) => (
+                <AuctionCard
+                  key={auction.id}
+                  auction={auction}
+                  artwork={artworks[auction.artworkId] ?? null}
+                  artistDisplayName={artistNames[auction.sellerId]}
+                />
+              ))}
+            </ResponsiveGrid>
+          </div>
         )}
 
         {/* Honest "not connected yet" AI entry points, as polished
@@ -181,21 +228,35 @@ export function AuctionsPage() {
             background the base Card's own opaque bg-surface/border-border
             would otherwise have to fight at equal specificity. */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="flex items-center gap-3 rounded-xl border border-brand-primary/25 bg-gradient-to-br from-brand-primary/10 to-transparent p-4 shadow-card sm:p-5">
-            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand-primary/20 text-brand-primary-on-dark">
-              <Sparkles aria-hidden="true" className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="font-medium text-text-primary">Curated with AI</p>
-              <p className="text-xs text-text-secondary sm:text-sm">AI-curated auction picks aren't connected yet.</p>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-accent-gold/25 bg-gradient-to-br from-accent-gold/10 to-transparent p-4 shadow-card sm:p-5">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent-gold/20 text-accent-gold">
+                <Crown aria-hidden="true" className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="font-medium text-text-primary">Curated with AI</p>
+                <p className="text-xs text-text-secondary sm:text-sm">
+                  Automated artwork curation pipeline coming in Module 6.
+                </p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setAiModalOpen(true)}
+              className="text-xs font-medium text-accent-gold hover:underline whitespace-nowrap"
+            >
+              Learn More →
+            </button>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl border border-brand-primary/25 bg-gradient-to-br from-brand-primary/10 to-transparent p-4 shadow-card sm:p-5">
             <div className="flex items-center gap-3">
               <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand-primary/20 text-brand-primary-on-dark">
                 <Sparkles aria-hidden="true" className="h-5 w-5" />
               </span>
-              <p className="font-medium text-text-primary">Ask ArtVault AI</p>
+              <div>
+                <p className="font-medium text-text-primary">Ask ArtVault AI</p>
+                <p className="text-xs text-text-secondary sm:text-sm">AI auction assistant arriving in Module 7.</p>
+              </div>
             </div>
             <Button type="button" variant="primary" size="sm" onClick={() => setAiModalOpen(true)}>
               Ask
@@ -203,10 +264,9 @@ export function AuctionsPage() {
           </div>
         </div>
 
-        <Modal open={aiModalOpen} onClose={() => setAiModalOpen(false)} title="Ask ArtVault AI">
+        <Modal open={aiModalOpen} onClose={() => setAiModalOpen(false)} title="ArtVault AI (Coming in Module 6 & 7)">
           <p className="text-sm text-text-secondary">
-            AI-powered auction insights aren't connected yet. Once available, this will surface real, curated picks —
-            never a fabricated recommendation.
+            AI-powered auction insights aren't connected yet. AI selection will be introduced in Module 6, followed by the ArtVault AI Assistant in Module 7 — never generating fabricated recommendations.
           </p>
         </Modal>
       </section>

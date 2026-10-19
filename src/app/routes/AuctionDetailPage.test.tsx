@@ -97,10 +97,10 @@ describe('AuctionDetailPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Starry Reflections' })).toBeInTheDocument()
     expect(screen.getByText('A night sky in oil.')).toBeInTheDocument()
-    // ₹5000 (the starting bid) appears both in the Auction Details card and
-    // in CurrentBidPanel's own "current bid" display — both real, same value.
-    expect(screen.getAllByText('₹5000').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('₹100')).toBeInTheDocument() // bid increment
+    // ₹5,000 (the starting bid) appears in the Auction Details card,
+    // CurrentBidPanel's "current bid" display, and the right column stats
+    expect(screen.getAllByText('₹5,000').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('₹100').length).toBeGreaterThanOrEqual(1) // bid increment
     expect(screen.getByRole('link', { name: 'View full artwork listing →' })).toHaveAttribute('href', '/artworks/artwork-1')
   })
 
@@ -125,9 +125,9 @@ describe('AuctionDetailPage', () => {
       artwork: BASE_ARTWORK,
     })
     renderPage()
-    // ₹28400 (the winning bid) appears both in CurrentBidPanel's "Winning
+    // ₹28,400 (the winning bid) appears both in CurrentBidPanel's "Winning
     // bid" line and the Details tab's "Final bid" row — both real, same value.
-    expect(screen.getAllByText('₹28400').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('₹28,400').length).toBeGreaterThanOrEqual(2)
     // "Ended" appears both on the status badge and in the Details tab's
     // Status row — both real, same derived value.
     expect(screen.getAllByText('Ended').length).toBeGreaterThanOrEqual(2)
@@ -164,7 +164,7 @@ describe('AuctionDetailPage', () => {
       renderPage()
 
       expect(screen.getByText('Congratulations to the winner!')).toBeInTheDocument()
-      expect(screen.getAllByText('₹28400').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('₹28,400').length).toBeGreaterThanOrEqual(1)
     })
 
     it('shows the honest "Bid ranking unavailable" panel — never a fabricated leaderboard', () => {

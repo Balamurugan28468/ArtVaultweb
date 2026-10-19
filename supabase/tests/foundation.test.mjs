@@ -183,14 +183,25 @@ test('refund review prevents fulfillment without automatic restocking', () => fu
 }))
 test('anonymous callers cannot execute fulfillment RPC', () => session(null,() => denied("select public.advance_seller_fulfillment($1,'PROCESS')",[order]),'anon'))
 
-test('Cron registers one active bounded minute job using the shared private worker', async () => {
-  assert.deepEqual(await rows('select * from cron.job'), [{
-    jobname: 'artvault-expire-checkout-reservations', schedule: '* * * * *',
-    command: 'select private.expire_checkout_reservations(100);', active: true,
-  }])
+test('Cron registers two active bounded minute jobs using the shared private workers', async () => {
+  assert.deepEqual(await rows('select jobname,schedule,command,active from cron.job order by jobname'), [
+    {
+      active: true,
+      command: 'select private.close_auction_lots(50);',
+      jobname: 'artvault-close-auction-lots',
+      schedule: '* * * * *',
+    },
+    {
+      active: true,
+      command: 'select private.expire_checkout_reservations(100);',
+      jobname: 'artvault-expire-checkout-reservations',
+      schedule: '* * * * *',
+    },
+  ])
   assert.equal((await rows('select private.expire_checkout_reservations(100) as n'))[0].n, 0)
-  assert.equal((await rows('select private.expire_checkout_reservations(100) as n'))[0].n, 0)
+  assert.equal((await rows('select private.close_auction_lots(50) as n'))[0].n, 0)
   await assert.rejects(db.query('select private.expire_checkout_reservations(501)'), { code: '22023' })
+  await assert.rejects(db.query('select private.close_auction_lots(201)'), { code: '22023' })
 })
 
 for (const role of ['anon', 'authenticated', 'service_role']) {
@@ -738,4 +749,183 @@ test('Module 4: role assignment restricted to SUPER_ADMIN; prevents self-demotio
       assert.equal((await rows('select public.current_app_role() as role'))[0].role, 'ADMIN')
     })
   } finally { await db.exec('rollback') }
+})
+
+test('Module 5: admin can schedule, activate, and cancel auctions; non-admin denied', async () => {
+  const startsAt = new Date(Date.now() + 3600000).toISOString()
+  const endsAt = new Date(Date.now() + 7200000).toISOString()
+
+  // Non-admin cannot schedule
+  await session(buyer, () => denied(
+    'select public.schedule_auction_lot($1, $2, $3, $4, $5, $6)',
+    [art, startsAt, endsAt, 100000, 10000, 24]
+  ))
+
+  // Admin schedules
+  let lotId
+  let auctionId
+  try {
+    await session(admin, async () => {
+      const res = await rows(
+        'select public.schedule_auction_lot($1, $2, $3, $4, $5, $6) as id',
+        [art, startsAt, endsAt, 100000, 10000, 24]
+      )
+      lotId = res[0].id
+      assert.ok(lotId)
+
+      const [lotRow] = await rows('select auction_id from public.auction_items where id = $1', [lotId])
+      auctionId = lotRow.auction_id
+
+      // Admin activates
+      await db.query('select public.activate_auction($1)', [auctionId])
+      const [auction] = await rows('select status from public.auctions where id = $1', [auctionId])
+      assert.equal(auction.status, 'LIVE')
+    })
+  } finally {
+    if (lotId) await db.query('delete from public.auction_items where id = $1', [lotId])
+    if (auctionId) await db.query('delete from public.auctions where id = $1', [auctionId])
+  }
+})
+
+test('Module 5: place_bid enforces rules and protects integrity', async () => {
+  // Create live auction lot
+  const startsAt = new Date(Date.now() - 3600000).toISOString()
+  const endsAt = new Date(Date.now() + 3600000).toISOString()
+  const [auction] = await rows(
+    "insert into public.auctions(starts_at, ends_at, status) values ($1, $2, 'LIVE') returning id",
+    [startsAt, endsAt]
+  )
+  const [lot] = await rows(
+    'insert into public.auction_items(auction_id, artwork_id, seller_id, starting_bid_minor, bid_increment_minor) values ($1, $2, $3, $4, $5) returning id',
+    [auction.id, art, seller, 500000, 50000]
+  )
+
+  try {
+    // Anonymous cannot bid
+    await session(null, () => denied(
+      'select public.place_bid($1, $2, $3)',
+      [lot.id, 500000, 'anon-key']
+    ), 'anon')
+
+    // Seller cannot bid on own artwork
+    await session(seller, async () => {
+      const res = await rows('select public.place_bid($1, $2, $3) as r', [lot.id, 500000, 'seller-bid'])
+      assert.equal(res[0].r, 'seller_cannot_bid')
+    })
+
+    // Bid below starting bid is rejected
+    await session(buyer, async () => {
+      const res = await rows('select public.place_bid($1, $2, $3) as r', [lot.id, 400000, 'low-bid'])
+      assert.equal(res[0].r, 'bid_too_low')
+    })
+
+    // Valid starting bid is accepted, and duplicate idempotency key is rejected
+    await session(buyer, async () => {
+      const res1 = await rows('select public.place_bid($1, $2, $3) as r', [lot.id, 500000, 'bid-1'])
+      assert.equal(res1[0].r, 'ok')
+
+      const res2 = await rows('select public.place_bid($1, $2, $3) as r', [lot.id, 600000, 'bid-1'])
+      assert.equal(res2[0].r, 'duplicate_key')
+    })
+
+    // Insert buyer's starting bid so it persists for subsequent checks
+    await db.query(
+      'insert into public.bids(auction_item_id, bidder_id, amount_minor, idempotency_key) values ($1, $2, $3, $4)',
+      [lot.id, buyer, 500000, 'bid-persisted-1']
+    )
+
+    // Next bid must be at least current + increment (500000 + 50000 = 550000)
+    await session(other, async () => {
+      const low = await rows('select public.place_bid($1, $2, $3) as r', [lot.id, 520000, 'other-low'])
+      assert.equal(low[0].r, 'bid_too_low')
+
+      const valid = await rows('select public.place_bid($1, $2, $3) as r', [lot.id, 550000, 'other-valid'])
+      assert.equal(valid[0].r, 'ok')
+    })
+
+    // Insert other's bid so it persists for history check
+    await db.query(
+      'insert into public.bids(auction_item_id, bidder_id, amount_minor, idempotency_key) values ($1, $2, $3, $4)',
+      [lot.id, other, 550000, 'bid-persisted-2']
+    )
+
+    // Public bid history exposes amounts without identities
+    const history = await rows('select * from public.get_auction_bid_history($1)', [lot.id])
+    assert.equal(history.length, 2)
+    assert.equal(Number(history[0].amount_minor), 550000)
+    assert.equal(Number(history[1].amount_minor), 500000)
+    assert.ok(!('bidder_id' in history[0]))
+  } finally {
+    await db.query('delete from public.bids where auction_item_id = $1', [lot.id])
+    await db.query('delete from public.auction_items where id = $1', [lot.id])
+    await db.query('delete from public.auctions where id = $1', [auction.id])
+  }
+})
+
+test('Module 5: close_auction_lots and create_auction_winner_order lifecycle', async () => {
+  // Create auction that has just ended
+  const startsAt = new Date(Date.now() - 7200000).toISOString()
+  const endsAt = new Date(Date.now() - 3600000).toISOString()
+  const [auction] = await rows(
+    "insert into public.auctions(starts_at, ends_at, status) values ($1, $2, 'LIVE') returning id",
+    [startsAt, endsAt]
+  )
+  const [lot] = await rows(
+    'insert into public.auction_items(auction_id, artwork_id, seller_id, starting_bid_minor, bid_increment_minor) values ($1, $2, $3, $4, $5) returning id',
+    [auction.id, art, seller, 300000, 20000]
+  )
+
+  let createdOrderId
+  try {
+    // Place a bid directly to simulate prior bidding
+    await db.query(
+      'insert into public.bids(auction_item_id, bidder_id, amount_minor, idempotency_key) values ($1, $2, $3, $4)',
+      [lot.id, buyer, 350000, 'winning-bid-key']
+    )
+
+    // Run close_auction_lots
+    const closed = await rows('select private.close_auction_lots(50) as n')
+    assert.equal(closed[0].n, 1)
+
+    // Lot should be WINNER_PENDING and auction ENDED
+    const [updatedLot] = await rows('select lot_status, winner_bidder_id, winning_bid_minor from public.auction_items where id = $1', [lot.id])
+    assert.equal(updatedLot.lot_status, 'WINNER_PENDING')
+    assert.equal(updatedLot.winner_bidder_id, buyer)
+    assert.equal(Number(updatedLot.winning_bid_minor), 350000)
+
+    const [updatedAuction] = await rows('select status from public.auctions where id = $1', [auction.id])
+    assert.equal(updatedAuction.status, 'ENDED')
+
+    // Non-winner cannot create winner order
+    await session(other, () => denied(
+      'select public.create_auction_winner_order($1)',
+      [lot.id]
+    ))
+
+    // Winner creates winner order
+    await session(buyer, async () => {
+      const [orderRes] = await rows('select public.create_auction_winner_order($1) as id', [lot.id])
+      createdOrderId = orderRes.id
+      assert.ok(createdOrderId)
+
+      const [orderRow] = await rows('select status, total_minor, auction_item_id from public.orders where id = $1', [createdOrderId])
+      assert.equal(orderRow.status, 'CREATED')
+      assert.equal(Number(orderRow.total_minor), 350000)
+      assert.equal(orderRow.auction_item_id, lot.id)
+    })
+
+    // Inventory reservation was created (verified as superuser)
+    const [resRow] = await rows('select * from public.inventory_reservations where artwork_id = $1 and status = $2', [art, 'ACTIVE'])
+    assert.ok(resRow)
+  } finally {
+    if (createdOrderId) {
+      await db.query('delete from public.order_events where order_id = $1', [createdOrderId])
+      await db.query('delete from public.inventory_reservations where order_item_id in (select id from public.order_items where order_id = $1)', [createdOrderId])
+      await db.query('delete from public.order_items where order_id = $1', [createdOrderId])
+      await db.query('delete from public.orders where id = $1', [createdOrderId])
+    }
+    await db.query('delete from public.bids where auction_item_id = $1', [lot.id])
+    await db.query('delete from public.auction_items where id = $1', [lot.id])
+    await db.query('delete from public.auctions where id = $1', [auction.id])
+  }
 })

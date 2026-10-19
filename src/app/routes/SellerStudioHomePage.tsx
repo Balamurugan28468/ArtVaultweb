@@ -1,4 +1,5 @@
 import { SellerOrders } from '@/features/orders/components/SellerOrders'
+import { SellerAuctionLots } from '@/features/auctions'
 import { FileClock, ImageOff, Package, Plus, Wallet } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router'
@@ -269,7 +270,12 @@ export function SellerStudioHomePage() {
           </Card>
         </>
       )}
-      {statusState.status === 'approved' && <SellerOrders />}
+      {statusState.status === 'approved' && (
+        <>
+          <SellerOrders />
+          <SellerAuctionLots />
+        </>
+      )}
     </SellerStudioShell>
   )
 }

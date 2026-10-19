@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   AdminAuditLogsView,
   AdminArtworksView,
+  AdminAuctionsView,
   AdminDashboardView,
   AdminOrdersView,
   AdminPaymentsView,
@@ -18,6 +19,7 @@ type AdminTab =
   | 'sellers'
   | 'artworks'
   | 'dashboard'
+  | 'auctions'
   | 'users'
   | 'sellers-all'
   | 'artworks-all'
@@ -84,6 +86,17 @@ export function AdminPage() {
             onClick={() => setTab('dashboard')}
           >
             Dashboard
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="admin-tab-auctions"
+            aria-selected={tab === 'auctions'}
+            aria-controls="admin-panel-auctions"
+            className={TAB_CLASSNAME(tab === 'auctions')}
+            onClick={() => setTab('auctions')}
+          >
+            Auctions
           </button>
           <button
             type="button"
@@ -161,6 +174,9 @@ export function AdminPage() {
         </div>
         <div role="tabpanel" id="admin-panel-dashboard" aria-labelledby="admin-tab-dashboard" hidden={tab !== 'dashboard'}>
           {tab === 'dashboard' && AdminDashboardView && <AdminDashboardView onNavigateTab={setTab} />}
+        </div>
+        <div role="tabpanel" id="admin-panel-auctions" aria-labelledby="admin-tab-auctions" hidden={tab !== 'auctions'}>
+          {tab === 'auctions' && AdminAuctionsView && <AdminAuctionsView />}
         </div>
         <div role="tabpanel" id="admin-panel-users" aria-labelledby="admin-tab-users" hidden={tab !== 'users'}>
           {tab === 'users' && AdminUsersView && <AdminUsersView />}

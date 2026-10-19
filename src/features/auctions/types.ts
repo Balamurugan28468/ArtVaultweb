@@ -22,8 +22,11 @@ export const AUCTION_STATUSES = ['SCHEDULED', 'LIVE', 'ENDED'] as const
 
 export type AuctionStatus = (typeof AUCTION_STATUSES)[number]
 
+export type AuctionLotStatus = 'OPEN' | 'WINNER_PENDING' | 'SETTLED' | 'NO_BIDS' | 'PAYMENT_EXPIRED'
+
 export interface Auction {
   id: string
+  auctionItemId?: string
   artworkId: string
   sellerId: string
   startAt: Timestamp
@@ -34,13 +37,12 @@ export interface Auction {
   currentHighBid: number | null
   bidCount: number
   /**
-   * Set only by a future trusted finalize operation once the auction
-   * genuinely ends (see AUCTION_ARCHITECTURE.md's idempotent finalization
-   * design) — `null` until then, which is the real, honest state of every
-   * auction today since no such operation exists yet.
+   * Set when the lot closes with a winning bidder.
    */
   winnerUid: string | null
   winningBidAmount: number | null
+  lotStatus?: AuctionLotStatus
+  paymentWindowExpiresAt?: Timestamp | null
   createdAt: Timestamp
   updatedAt: Timestamp
 }
@@ -53,7 +55,7 @@ export function deriveAuctionStatus(auction: Pick<Auction, 'startAt' | 'endAt'>,
   return 'ENDED'
 }
 
-/** The minimum amount a next bid must meet — `startingBid` before any bid exists, otherwise the current high bid plus the increment. Display-only (see this file's header); a real bid still requires a trusted server-side operation that does not exist yet. */
+/** The minimum amount a next bid must meet — `startingBid` before any bid exists, otherwise the current high bid plus the increment. */
 export function minimumNextBid(auction: Pick<Auction, 'startingBid' | 'bidIncrement' | 'currentHighBid'>): number {
   return auction.currentHighBid == null ? auction.startingBid : auction.currentHighBid + auction.bidIncrement
 }
@@ -67,6 +69,56 @@ export interface AuctionError {
 
 export function isAuctionError(value: unknown): value is AuctionError {
   return typeof value === 'object' && value !== null && 'code' in value && 'message' in value
+}
+
+export interface BidHistoryItem {
+  bidId: string
+  amountMinor: number
+  placedAt: Timestamp
+  bidderName?: string | null
+}
+
+export type PlaceBidResult =
+  | { success: true }
+  | { success: false; error: 'auction_not_live' | 'lot_not_open' | 'bid_too_low' | 'seller_cannot_bid' | 'already_highest' | 'duplicate_key' | string }
+
+export interface SellerAuctionItem {
+  id: string
+  auctionId: string
+  artworkId: string
+  startsAt: Timestamp
+  endsAt: Timestamp
+  auctionStatus: string
+  lotStatus: AuctionLotStatus
+  startingBidMinor: number
+  bidIncrementMinor: number
+  currentHighBid: number
+  bidCount: number
+  winningBidMinor: number | null
+  paymentWindowExpiresAt: Timestamp | null
+  winnerOrderId: string | null
+  createdAt: Timestamp
+}
+
+export interface AdminAuctionRow {
+  auctionId: string
+  auctionItemId: string
+  artworkId: string
+  sellerId: string
+  startsAt: Timestamp
+  endsAt: Timestamp
+  auctionStatus: string
+  lotStatus: AuctionLotStatus
+  startingBidMinor: number
+  bidIncrementMinor: number
+  currentHighBid: number
+  bidCount: number
+  winnerBidderId: string | null
+  winningBidMinor: number | null
+  paymentWindowExpiresAt: Timestamp | null
+  winnerOrderId: string | null
+  createdAt: Timestamp
+  updatedAt: Timestamp
 }
 
 export type AuctionListState =

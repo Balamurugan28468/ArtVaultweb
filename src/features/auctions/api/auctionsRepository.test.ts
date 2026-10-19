@@ -7,7 +7,20 @@ vi.mock('@/lib/supabase/data', async (importOriginal) => ({
   rpc,
 }))
 
-const { fetchAllAuctions, getAuction, mapToAuction, toAuctionError } = await import('./auctionsRepository')
+const {
+  activateAuction,
+  cancelAuction,
+  createAuctionWinnerOrder,
+  fetchAllAuctions,
+  fetchAdminAuctions,
+  fetchAuctionBidHistory,
+  fetchSellerAuctionItems,
+  getAuction,
+  mapToAuction,
+  placeBid,
+  scheduleAuctionLot,
+  toAuctionError,
+} = await import('./auctionsRepository')
 
 const BASE_AUCTION_DATA = {
   artwork_id: 'artwork-1', seller_id: 'seller-1', starts_at: '2026-01-01T00:00:00.000Z',
@@ -108,5 +121,101 @@ describe('fetchAllAuctions', () => {
 describe('toAuctionError', () => {
   it('falls back to unknown for an unrecognized error', () => {
     expect(toAuctionError(new Error('boom'))).toEqual({ code: 'unknown', message: 'Something went wrong. Please try again.' })
+  })
+})
+
+describe('Module 5 auction functions', () => {
+  it('placeBid calls place_bid RPC and handles ok and error codes', async () => {
+    rpc.mockResolvedValueOnce('ok')
+    const res1 = await placeBid('lot-1', 500000, 'test-key')
+    expect(rpc).toHaveBeenCalledWith('place_bid', {
+      p_auction_item_id: 'lot-1',
+      p_amount_minor: 500000,
+      p_idempotency_key: 'test-key',
+    })
+    expect(res1).toEqual({ success: true })
+
+    rpc.mockResolvedValueOnce('bid_too_low')
+    const res2 = await placeBid('lot-1', 400000, 'test-key-2')
+    expect(res2).toEqual({ success: false, error: 'bid_too_low' })
+  })
+
+  it('fetchAuctionBidHistory calls get_auction_bid_history and maps rows', async () => {
+    rpc.mockResolvedValueOnce([
+      { bid_id: 'b1', amount_minor: 550000, placed_at: '2026-01-01T12:00:00.000Z' },
+    ])
+    const bids = await fetchAuctionBidHistory('lot-1')
+    expect(rpc).toHaveBeenCalledWith('get_auction_bid_history', { p_auction_item_id: 'lot-1' })
+    expect(bids).toHaveLength(1)
+    expect(bids[0].amountMinor).toBe(550000)
+    expect(bids[0].bidId).toBe('b1')
+  })
+
+  it('createAuctionWinnerOrder calls create_auction_winner_order RPC', async () => {
+    rpc.mockResolvedValueOnce('order-123')
+    const orderId = await createAuctionWinnerOrder('lot-1')
+    expect(rpc).toHaveBeenCalledWith('create_auction_winner_order', { p_auction_item_id: 'lot-1' })
+    expect(orderId).toBe('order-123')
+  })
+
+  it('fetchSellerAuctionItems calls get_seller_auction_items RPC', async () => {
+    rpc.mockResolvedValueOnce([
+      {
+        id: 'lot-1',
+        auction_id: 'a1',
+        artwork_id: 'art-1',
+        starts_at: '2026-01-01T00:00:00.000Z',
+        ends_at: '2026-01-02T00:00:00.000Z',
+        auction_status: 'LIVE',
+        lot_status: 'OPEN',
+        starting_bid_minor: 100000,
+        bid_increment_minor: 10000,
+        current_high_bid: 120000,
+        bid_count: 2,
+        winning_bid_minor: null,
+        payment_window_expires_at: null,
+        winner_order_id: null,
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+    ])
+    const items = await fetchSellerAuctionItems()
+    expect(rpc).toHaveBeenCalledWith('get_seller_auction_items')
+    expect(items).toHaveLength(1)
+    expect(items[0].lotStatus).toBe('OPEN')
+    expect(items[0].currentHighBid).toBe(120000)
+  })
+
+  it('fetchAdminAuctions calls get_admin_auctions RPC', async () => {
+    rpc.mockResolvedValueOnce([])
+    const rows = await fetchAdminAuctions()
+    expect(rpc).toHaveBeenCalledWith('get_admin_auctions')
+    expect(rows).toEqual([])
+  })
+
+  it('scheduleAuctionLot calls schedule_auction_lot RPC', async () => {
+    rpc.mockResolvedValueOnce('new-lot-id')
+    const lotId = await scheduleAuctionLot({
+      artworkId: 'art-1',
+      startsAt: '2026-01-01T00:00:00.000Z',
+      endsAt: '2026-01-02T00:00:00.000Z',
+      startingBidMinor: 100000,
+      bidIncrementMinor: 10000,
+      paymentWindowHours: 24,
+    })
+    expect(rpc).toHaveBeenCalledWith('schedule_auction_lot', expect.objectContaining({
+      p_artwork_id: 'art-1',
+      p_starting_bid_minor: 100000,
+    }))
+    expect(lotId).toBe('new-lot-id')
+  })
+
+  it('cancelAuction and activateAuction call respective admin RPCs', async () => {
+    rpc.mockResolvedValueOnce(null)
+    await cancelAuction('a1', 'test cancel')
+    expect(rpc).toHaveBeenCalledWith('cancel_auction', { p_auction_id: 'a1', p_reason: 'test cancel' })
+
+    rpc.mockResolvedValueOnce(null)
+    await activateAuction('a1')
+    expect(rpc).toHaveBeenCalledWith('activate_auction', { p_auction_id: 'a1' })
   })
 })

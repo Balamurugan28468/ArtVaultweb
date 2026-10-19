@@ -1,6 +1,6 @@
 import type { Timestamp } from '@/lib/supabase/timestamp'
 
-export const SELLER_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as const
+export const SELLER_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'] as const
 
 export type SellerStatus = (typeof SELLER_STATUSES)[number]
 
@@ -57,4 +57,5 @@ export type SellerApplicationState =
   | { status: 'pending'; application: SellerApplication }
   | { status: 'approved'; application: SellerApplication }
   | { status: 'rejected'; application: SellerApplication }
+  | { status: 'suspended'; application: SellerApplication }
   | { status: 'error'; error: SellerError }

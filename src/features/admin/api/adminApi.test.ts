@@ -21,8 +21,12 @@ const {
   approveSellerApplication,
   isAdminActionError,
   moderateArtwork,
+  moderateUser,
   rejectSellerApplication,
+  restoreArtwork,
+  setUserRole,
   suspendArtwork,
+  suspendSeller,
 } = await import('./adminApi')
 
 beforeEach(() => {
@@ -266,6 +270,72 @@ describe(
     })
   },
 )
+
+describe('adminApi — suspendSeller', () => {
+  it('calls review_seller RPC with SUSPENDED decision and reason', async () => {
+    rpc.mockResolvedValueOnce(undefined)
+
+    await suspendSeller('seller123', 'Repeated policy violations')
+
+    expect(rpc).toHaveBeenCalledWith('review_seller', {
+      target: 'seller123',
+      decision: 'SUSPENDED',
+      reason: 'Repeated policy violations',
+    })
+  })
+})
+
+describe('adminApi — restoreArtwork', () => {
+  it('calls moderate_artwork RPC with RESTORE decision', async () => {
+    rpc.mockResolvedValueOnce(undefined)
+
+    await restoreArtwork('art123')
+
+    expect(rpc).toHaveBeenCalledWith('moderate_artwork', {
+      target: 'art123',
+      decision: 'RESTORE',
+    })
+  })
+})
+
+describe('adminApi — moderateUser', () => {
+  it('calls moderate_user RPC with SUSPENDED decision and reason', async () => {
+    rpc.mockResolvedValueOnce(undefined)
+
+    await moderateUser('user123', 'SUSPENDED', 'Fraudulent chargeback activity')
+
+    expect(rpc).toHaveBeenCalledWith('moderate_user', {
+      target: 'user123',
+      decision: 'SUSPENDED',
+      reason: 'Fraudulent chargeback activity',
+    })
+  })
+
+  it('calls moderate_user RPC with ACTIVE decision to reactivate', async () => {
+    rpc.mockResolvedValueOnce(undefined)
+
+    await moderateUser('user123', 'ACTIVE')
+
+    expect(rpc).toHaveBeenCalledWith('moderate_user', {
+      target: 'user123',
+      decision: 'ACTIVE',
+      reason: null,
+    })
+  })
+})
+
+describe('adminApi — setUserRole', () => {
+  it('calls set_user_role RPC with target and new role', async () => {
+    rpc.mockResolvedValueOnce(undefined)
+
+    await setUserRole('user123', 'ADMIN')
+
+    expect(rpc).toHaveBeenCalledWith('set_user_role', {
+      target: 'user123',
+      new_role: 'ADMIN',
+    })
+  })
+})
 
 describe(
   'isAdminActionError',

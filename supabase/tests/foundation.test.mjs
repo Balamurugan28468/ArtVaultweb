@@ -610,3 +610,132 @@ test('checkout idempotency key is unique per buyer', async () => {
     await assert.rejects(db.query("insert into private.checkout_requests(buyer_id,idempotency_key,request_sha256,order_id) values ($1,'same-request-key-123',repeat('a',64),$2)", [buyer, secondOrder]), e => e.code === '23505' && e.constraint.includes('idempotency_key'))
   } finally { await db.exec('rollback') }
 })
+
+test('Module 4: buyer and seller cannot access admin dashboard metrics or oversight RPCs', async () => {
+  for (const uid of [buyer, seller]) {
+    await session(uid, () => denied('select public.get_admin_dashboard_metrics()'))
+    await session(uid, () => denied('select * from public.get_admin_users()'))
+    await session(uid, () => denied('select * from public.get_admin_orders()'))
+    await session(uid, () => denied('select * from public.get_admin_payments()'))
+    await session(uid, () => denied('select * from public.get_admin_logs()'))
+  }
+})
+
+test('Module 4: admin receives real dashboard metrics', () => session(admin, async () => {
+  const [metrics] = await rows('select public.get_admin_dashboard_metrics() as m')
+  assert.ok(metrics.m.totalUsers >= 2)
+  assert.ok(metrics.m.totalSellers >= 2)
+  assert.ok(metrics.m.totalArtworks >= 3)
+  assert.ok(metrics.m.publishedArtworks >= 2)
+}))
+
+test('Module 4: admin can inspect users, orders, payments, and audit logs', () => session(admin, async () => {
+  const users = await rows('select * from public.get_admin_users()')
+  assert.ok(users.length >= 2)
+  assert.ok(users.some(u => u.id === buyer && u.role === 'CUSTOMER'))
+  assert.ok(users.some(u => u.id === seller && u.role === 'SELLER'))
+
+  const orders = await rows('select * from public.get_admin_orders()')
+  assert.ok(orders.some(o => o.id === order && o.buyer_id === buyer))
+
+  const logs = await rows('select * from public.get_admin_logs()')
+  assert.ok(logs.length >= 1)
+}))
+
+test('Module 4: user moderation enforces security rules and records audit states', async () => {
+  await db.exec('begin')
+  try {
+    await session(buyer, () => denied("select public.moderate_user($1, 'SUSPENDED', 'Spam')", [other]))
+    await session(admin, () => denied("select public.moderate_user($1, 'SUSPENDED', 'Self')", [admin]))
+    await session(admin, () => denied("select public.moderate_user($1, 'SUSPENDED', 'Super')", [superAdmin]))
+
+    await session(admin, async () => {
+      await db.query("select public.moderate_user($1, 'SUSPENDED', 'Policy violation')", [other])
+      const [p] = await rows('select status, suspension_reason from public.profiles where id=$1', [other])
+      assert.equal(p.status, 'SUSPENDED')
+      assert.equal(p.suspension_reason, 'Policy violation')
+
+      const [log] = await rows("select * from public.admin_logs where target_id=$1 and action='USER_SUSPENDED' order by occurred_at desc limit 1", [other])
+      assert.equal(log.actor_id, admin)
+      assert.equal(log.previous_state, 'ACTIVE')
+      assert.equal(log.new_state, 'SUSPENDED')
+      assert.equal(log.reason, 'Policy violation')
+
+      await db.query("select public.moderate_user($1, 'ACTIVE')", [other])
+      const [restored] = await rows('select status, suspension_reason from public.profiles where id=$1', [other])
+      assert.equal(restored.status, 'ACTIVE')
+      assert.equal(restored.suspension_reason, null)
+    })
+  } finally { await db.exec('rollback') }
+})
+
+test('Module 4: seller suspension and reinstatement by admin', async () => {
+  await db.exec('begin')
+  try {
+    await session(buyer, () => denied("select public.review_seller($1, 'SUSPENDED', 'No reason')", [seller]))
+
+    await session(admin, async () => {
+      await db.query("select public.review_seller($1, 'SUSPENDED', 'Suspicious activity')", [seller])
+      const [s] = await rows('select status, rejection_reason from public.seller_profiles where id=$1', [seller])
+      assert.equal(s.status, 'SUSPENDED')
+      assert.equal(s.rejection_reason, 'Suspicious activity')
+
+      const [log] = await rows("select * from public.admin_logs where target_id=$1 and action='SELLER_SUSPENDED' order by occurred_at desc limit 1", [seller])
+      assert.equal(log.previous_state, 'APPROVED')
+      assert.equal(log.new_state, 'SUSPENDED')
+
+      const sellers = await rows('select * from public.seller_profiles')
+      assert.ok(sellers.length >= 2)
+
+      await db.query("select public.review_seller($1, 'APPROVED')", [seller])
+      const [reinstated] = await rows('select status from public.seller_profiles where id=$1', [seller])
+      assert.equal(reinstated.status, 'APPROVED')
+    })
+  } finally { await db.exec('rollback') }
+})
+
+test('Module 4: artwork suspension and restoration by admin', async () => {
+  await db.exec('begin')
+  try {
+    await session(buyer, () => denied("select public.moderate_artwork($1, 'SUSPENDED', 'Copyright')", [art]))
+
+    await session(admin, async () => {
+      await db.query("select public.moderate_artwork($1, 'SUSPENDED', 'DMCA notice')", [art])
+      const [a] = await rows('select status, rejection_reason from public.artworks where id=$1', [art])
+      assert.equal(a.status, 'SUSPENDED')
+      assert.equal(a.rejection_reason, 'DMCA notice')
+
+      const [log] = await rows("select * from public.admin_logs where target_id=$1 and action='ARTWORK_SUSPENDED' order by occurred_at desc limit 1", [art])
+      assert.equal(log.previous_state, 'PUBLISHED')
+      assert.equal(log.new_state, 'SUSPENDED')
+
+      await db.query("select public.moderate_artwork($1, 'RESTORE')", [art])
+      const [restored] = await rows('select status from public.artworks where id=$1', [art])
+      assert.equal(restored.status, 'PUBLISHED')
+
+      const [restoreLog] = await rows("select * from public.admin_logs where target_id=$1 and action='ARTWORK_RESTORE' order by occurred_at desc limit 1", [art])
+      assert.equal(restoreLog.previous_state, 'SUSPENDED')
+      assert.equal(restoreLog.new_state, 'PUBLISHED')
+    })
+  } finally { await db.exec('rollback') }
+})
+
+test('Module 4: role assignment restricted to SUPER_ADMIN; prevents self-demotion and escalation', async () => {
+  await db.exec('begin')
+  try {
+    await session(buyer, () => denied("select public.set_user_role($1, 'ADMIN')", [other]))
+    await session(admin, () => denied("select public.set_user_role($1, 'SUPER_ADMIN')", [admin]))
+    await session(superAdmin, () => denied("select public.set_user_role($1, 'CUSTOMER')", [superAdmin]))
+
+    await session(superAdmin, async () => {
+      await db.query("select public.set_user_role($1, 'ADMIN')", [other])
+      const [log] = await rows("select * from public.admin_logs where target_id=$1 and action='ROLE_CHANGE' order by occurred_at desc limit 1", [other])
+      assert.equal(log.actor_id, superAdmin)
+      assert.equal(log.previous_state, 'CUSTOMER')
+      assert.equal(log.new_state, 'ADMIN')
+
+      await db.query("select set_config('request.jwt.claim.sub', $1, true)", [other])
+      assert.equal((await rows('select public.current_app_role() as role'))[0].role, 'ADMIN')
+    })
+  } finally { await db.exec('rollback') }
+})

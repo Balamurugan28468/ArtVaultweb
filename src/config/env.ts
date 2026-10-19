@@ -6,13 +6,10 @@ const booleanFromString = z
   .default(true)
 
 const envSchema = z.object({
-  VITE_FIREBASE_API_KEY: z.string().min(1).default('demo-api-key'),
-  VITE_FIREBASE_AUTH_DOMAIN: z.string().min(1).default('localhost'),
-  VITE_FIREBASE_PROJECT_ID: z.string().min(1).default('demo-artvault'),
-  VITE_FIREBASE_STORAGE_BUCKET: z.string().min(1).default('demo-artvault.appspot.com'),
-  VITE_FIREBASE_MESSAGING_SENDER_ID: z.string().min(1).default('000000000000'),
-  VITE_FIREBASE_APP_ID: z.string().min(1).default('1:000000000000:web:0000000000000000000000'),
-  VITE_USE_FIREBASE_EMULATORS: booleanFromString,
+  /** UI opt-in only; Edge configuration and test-key checks are authoritative. */
+  VITE_ENABLE_RAZORPAY_TEST: booleanFromString.default(false),
+  /** Explicitly opt in to the local operator AR proof route. */
+  VITE_ENABLE_DEVELOPMENT_AR_PROOF: booleanFromString.default(false),
 })
 
 export type Env = z.infer<typeof envSchema>

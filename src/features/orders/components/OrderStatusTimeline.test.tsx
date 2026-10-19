@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { describe, expect, it } from 'vitest'
 import type { Order } from '../types'
 import { OrderStatusTimeline } from './OrderStatusTimeline'

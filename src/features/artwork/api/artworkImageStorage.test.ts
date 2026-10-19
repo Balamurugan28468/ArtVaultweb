@@ -1,17 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const { deleteObject, getDownloadURL, ref, uploadBytesResumable } = vi.hoisted(() => ({
-  deleteObject: vi.fn(),
-  getDownloadURL: vi.fn(),
-  ref: vi.fn((_storage: unknown, path: string) => ({ path })),
-  uploadBytesResumable: vi.fn(),
-}))
+const storage = {
+  upload: vi.fn(),
+  remove: vi.fn(),
+  createSignedUrl: vi.fn(),
+}
 
-vi.mock('firebase/storage', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/storage')>()
-  return { ...actual, deleteObject, getDownloadURL, ref, uploadBytesResumable }
-})
-vi.mock('@/lib/firebase/config', () => ({ storage: {} }))
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({ storage: { from: () => storage } }),
+}))
 
 const {
   artworkImagePath,
@@ -50,52 +47,58 @@ describe('validateImageFile', () => {
 })
 
 describe('artworkImagePath', () => {
-  it('builds an owner-scoped path from sellerId/artworkId/imageId', () => {
-    expect(artworkImagePath('alice', 'art1', 'img1.jpg')).toBe('artworks/alice/art1/img1.jpg')
+  it('builds a UUID-scoped private path from sellerId/artworkId/imageId', () => {
+    expect(artworkImagePath('seller', 'artwork', 'image')).toBe('seller/artwork/image')
   })
 })
 
 describe('newArtworkImageId', () => {
-  it('produces a unique id with the extension matching the content type', () => {
+  it('produces a UUID database identifier rather than a browser filename', () => {
     const a = newArtworkImageId('image/png')
     const b = newArtworkImageId('image/png')
-    expect(a).toMatch(/\.png$/)
+    expect(a).toMatch(/^[0-9a-f-]{36}$/i)
     expect(a).not.toBe(b)
   })
 })
 
 describe('startArtworkImageUpload', () => {
-  it('starts an upload at the owner-scoped path with the file content type', () => {
-    startArtworkImageUpload('alice', 'art1', 'img1.jpg', makeFile('a.jpg', 10, 'image/jpeg'))
-    expect(ref).toHaveBeenCalledWith({}, 'artworks/alice/art1/img1.jpg')
-    expect(uploadBytesResumable).toHaveBeenCalledWith({ path: 'artworks/alice/art1/img1.jpg' }, expect.anything(), {
-      contentType: 'image/jpeg',
-    })
+  it('uploads private bytes with the actual content type and reports completion', async () => {
+    storage.upload.mockResolvedValueOnce({ error: null })
+    const progress = vi.fn()
+    const complete = vi.fn()
+    startArtworkImageUpload('seller', 'artwork', 'image', makeFile('a.jpg', 10, 'image/jpeg')).on(
+      'state_changed', progress, undefined, complete,
+    )
+    await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(1))
+    expect(storage.upload).toHaveBeenCalledWith('seller/artwork/image', expect.any(File), expect.objectContaining({
+      contentType: 'image/jpeg', upsert: false,
+    }))
+    expect(progress).toHaveBeenLastCalledWith({ bytesTransferred: 10, totalBytes: 10 })
   })
 })
 
 describe('getArtworkImageDownloadURL', () => {
-  it('resolves the download URL for a given path', async () => {
-    getDownloadURL.mockResolvedValueOnce('https://example.test/img1.jpg')
-    await expect(getArtworkImageDownloadURL('artworks/alice/art1/img1.jpg')).resolves.toBe('https://example.test/img1.jpg')
-    expect(ref).toHaveBeenCalledWith({}, 'artworks/alice/art1/img1.jpg')
+  it('resolves a short-lived signed URL for a given private path', async () => {
+    storage.createSignedUrl.mockResolvedValueOnce({ data: { signedUrl: 'https://example.test/img1.jpg' }, error: null })
+    await expect(getArtworkImageDownloadURL('seller/artwork/image')).resolves.toBe('https://example.test/img1.jpg')
+    expect(storage.createSignedUrl).toHaveBeenCalledWith('seller/artwork/image', 300)
   })
 })
 
 describe('deleteArtworkImageObject', () => {
   it('deletes the object at the given path', async () => {
-    deleteObject.mockResolvedValueOnce(undefined)
-    await deleteArtworkImageObject('artworks/alice/art1/img1.jpg')
-    expect(deleteObject).toHaveBeenCalledTimes(1)
+    storage.remove.mockResolvedValueOnce({ error: null })
+    await deleteArtworkImageObject('seller/artwork/image')
+    expect(storage.remove).toHaveBeenCalledWith(['seller/artwork/image'])
   })
 
   it('treats an already-missing object as success rather than throwing', async () => {
-    deleteObject.mockRejectedValueOnce({ code: 'storage/object-not-found' })
-    await expect(deleteArtworkImageObject('artworks/alice/art1/img1.jpg')).resolves.toBeUndefined()
+    storage.remove.mockResolvedValueOnce({ error: { statusCode: '404' } })
+    await expect(deleteArtworkImageObject('seller/artwork/image')).resolves.toBeUndefined()
   })
 
   it('rethrows any other error', async () => {
-    deleteObject.mockRejectedValueOnce({ code: 'storage/unauthorized' })
-    await expect(deleteArtworkImageObject('artworks/alice/art1/img1.jpg')).rejects.toEqual({ code: 'storage/unauthorized' })
+    storage.remove.mockResolvedValueOnce({ error: { statusCode: '403' } })
+    await expect(deleteArtworkImageObject('seller/artwork/image')).rejects.toEqual({ statusCode: '403' })
   })
 })

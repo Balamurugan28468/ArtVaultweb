@@ -6,10 +6,7 @@ import { AuthProvider } from '@/app/providers/AuthProvider'
 import { router } from '@/app/routes/router'
 import { CartProvider } from '@/features/cart'
 import { WishlistProvider } from '@/features/wishlist'
-import { connectFirebaseEmulators } from '@/lib/firebase/config'
 import './index.css'
-
-connectFirebaseEmulators()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

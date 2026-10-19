@@ -1,23 +1,48 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } = vi.hoisted(() => ({
-  collection: vi.fn(() => ({ path: 'carts/alice/items' })),
-  deleteDoc: vi.fn(),
-  doc: vi.fn(() => ({ path: 'carts/alice/items/a1' })),
-  onSnapshot: vi.fn(),
-  serverTimestamp: vi.fn(() => 'SERVER_TIMESTAMP'),
-  setDoc: vi.fn(),
-  updateDoc: vi.fn(),
-}))
-
-vi.mock('firebase/firestore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc }
+const mocks = vi.hoisted(() => {
+  const cartLookup = { eq: vi.fn(), maybeSingle: vi.fn() }
+  cartLookup.eq.mockReturnValue(cartLookup)
+  cartLookup.maybeSingle.mockReturnValue(cartLookup)
+  const cartInsertResult = { single: vi.fn() }
+  const cartInsert = { select: vi.fn() }
+  cartInsert.select.mockReturnValue(cartInsertResult)
+  const carts = { select: vi.fn(), insert: vi.fn() }
+  carts.select.mockReturnValue(cartLookup)
+  carts.insert.mockReturnValue(cartInsert)
+  const cartItems = { insert: vi.fn(), update: vi.fn(), delete: vi.fn(), eq: vi.fn(), select: vi.fn() }
+  cartItems.insert.mockReturnValue(cartItems)
+  cartItems.update.mockReturnValue(cartItems)
+  cartItems.delete.mockReturnValue(cartItems)
+  cartItems.eq.mockReturnValue(cartItems)
+  cartItems.select.mockReturnValue(cartItems)
+  const from = vi.fn((table: string) => table === 'carts' ? carts : cartItems)
+  return {
+    createClient: vi.fn(() => ({ from })), from, observe: vi.fn(), requireIdentity: vi.fn(), result: vi.fn(),
+    carts, cartItems, cartInsertResult,
+  }
 })
-vi.mock('@/lib/firebase/config', () => ({ db: {} }))
+
+vi.mock('@/lib/supabase/client', () => ({ createClient: mocks.createClient }))
+vi.mock('@/lib/supabase/data', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/supabase/data')>()),
+  observe: mocks.observe, requireIdentity: mocks.requireIdentity, result: mocks.result,
+}))
 
 const { clampCartQuantity, createCartItem, removeCartItem, subscribeCartQuantities, toCartError, updateCartItemQuantity } =
   await import('./cartRepository')
+
+beforeEach(() => {
+  mocks.observe.mockReset()
+  mocks.requireIdentity.mockReset().mockResolvedValue(undefined)
+  mocks.result.mockReset()
+  mocks.from.mockClear()
+  mocks.carts.insert.mockClear()
+  mocks.cartItems.insert.mockClear()
+  mocks.cartItems.update.mockClear()
+  mocks.cartItems.delete.mockClear()
+  mocks.cartInsertResult.single.mockReset().mockResolvedValue({ data: { id: 'cart-1' }, error: null })
+})
 
 describe('clampCartQuantity', () => {
   it('clamps to at least 1', () => {
@@ -40,14 +65,15 @@ describe('clampCartQuantity', () => {
 
 describe('createCartItem', () => {
   it('writes quantity (clamped) and a server addedAt, using the artworkId as the document id', async () => {
-    setDoc.mockResolvedValueOnce(undefined)
+    mocks.result.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
     await createCartItem('alice', 'a1', 200)
-    expect(doc).toHaveBeenCalledWith(expect.anything(), 'carts', 'alice', 'items', 'a1')
-    expect(setDoc).toHaveBeenCalledWith(expect.anything(), { quantity: 99, addedAt: 'SERVER_TIMESTAMP' })
+    expect(mocks.requireIdentity).toHaveBeenCalledWith('alice')
+    expect(mocks.carts.insert).toHaveBeenCalledWith({ user_id: 'alice' })
+    expect(mocks.cartItems.insert).toHaveBeenCalledWith({ cart_id: 'cart-1', artwork_id: 'a1', quantity: 99 })
   })
 
   it('throws a typed error when denied', async () => {
-    setDoc.mockRejectedValueOnce({ code: 'permission-denied' })
+    mocks.result.mockResolvedValueOnce(null).mockRejectedValueOnce({ code: 'permission-denied', message: 'You do not have permission to do that.' })
     await expect(createCartItem('alice', 'a1', 1)).rejects.toEqual({
       code: 'permission-denied',
       message: 'You do not have permission to do that.',
@@ -57,27 +83,27 @@ describe('createCartItem', () => {
 
 describe('updateCartItemQuantity', () => {
   it('updates only quantity — never touches addedAt (see firestore.rules)', async () => {
-    updateDoc.mockResolvedValueOnce(undefined)
+    mocks.result.mockResolvedValueOnce({ id: 'cart-1' }).mockResolvedValueOnce([{ id: 'item-1' }])
     await updateCartItemQuantity('alice', 'a1', 4)
-    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), { quantity: 4 })
+    expect(mocks.cartItems.update).toHaveBeenCalledWith({ quantity: 4 })
   })
 
   it('clamps an out-of-range quantity before writing', async () => {
-    updateDoc.mockResolvedValueOnce(undefined)
+    mocks.result.mockResolvedValueOnce({ id: 'cart-1' }).mockResolvedValueOnce([{ id: 'item-1' }])
     await updateCartItemQuantity('alice', 'a1', 0)
-    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), { quantity: 1 })
+    expect(mocks.cartItems.update).toHaveBeenCalledWith({ quantity: 1 })
   })
 })
 
 describe('removeCartItem', () => {
   it('deletes the item document', async () => {
-    deleteDoc.mockResolvedValueOnce(undefined)
+    mocks.result.mockResolvedValueOnce({ id: 'cart-1' }).mockResolvedValueOnce(null)
     await removeCartItem('alice', 'a1')
-    expect(deleteDoc).toHaveBeenCalledTimes(1)
+    expect(mocks.cartItems.delete).toHaveBeenCalledTimes(1)
   })
 
   it('throws a typed error when denied', async () => {
-    deleteDoc.mockRejectedValueOnce({ code: 'permission-denied' })
+    mocks.result.mockResolvedValueOnce({ id: 'cart-1' }).mockRejectedValueOnce({ code: 'permission-denied', message: 'You do not have permission to do that.' })
     await expect(removeCartItem('alice', 'a1')).rejects.toEqual({
       code: 'permission-denied',
       message: 'You do not have permission to do that.',
@@ -86,20 +112,16 @@ describe('removeCartItem', () => {
 })
 
 describe('subscribeCartQuantities', () => {
-  it('subscribes exactly once and maps document ids to their quantity', () => {
+  it('subscribes through Supabase Realtime and maps refreshed item rows to quantities', async () => {
     const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({
-        docs: [
-          { id: 'a1', data: () => ({ quantity: 2 }) },
-          { id: 'a2', data: () => ({ quantity: 1 }) },
-        ],
-      })
-      return vi.fn()
-    })
+    let read: (() => Promise<unknown>) | undefined
+    mocks.observe.mockImplementationOnce((_table, _filter, readFunction) => { read = readFunction; return vi.fn() })
+    mocks.result.mockResolvedValueOnce({ id: 'cart-1' }).mockResolvedValueOnce([
+      { artwork_id: 'a1', quantity: 2 }, { artwork_id: 'a2', quantity: 1 },
+    ])
     subscribeCartQuantities('alice', onData, vi.fn())
-    expect(onSnapshot).toHaveBeenCalledTimes(1)
-    expect(onData).toHaveBeenCalledWith(
+    expect(mocks.observe).toHaveBeenCalledWith('cart_items', undefined, expect.any(Function), onData, expect.any(Function))
+    await expect(read?.()).resolves.toEqual(
       new Map([
         ['a1', 2],
         ['a2', 1],
@@ -107,30 +129,26 @@ describe('subscribeCartQuantities', () => {
     )
   })
 
-  it('defaults a malformed/missing quantity to 1 rather than dropping the item', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({ docs: [{ id: 'a1', data: () => ({}) }] })
-      return vi.fn()
-    })
-    subscribeCartQuantities('alice', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith(new Map([['a1', 1]]))
+  it('defaults a malformed/missing quantity to 1 rather than dropping the item', async () => {
+    let read: (() => Promise<unknown>) | undefined
+    mocks.observe.mockImplementationOnce((_table, _filter, readFunction) => { read = readFunction; return vi.fn() })
+    mocks.result.mockResolvedValueOnce({ id: 'cart-1' }).mockResolvedValueOnce([{ artwork_id: 'a1', quantity: undefined }])
+    subscribeCartQuantities('alice', vi.fn(), vi.fn())
+    await expect(read?.()).resolves.toEqual(new Map([['a1', 1]]))
   })
 
-  it('returns an empty Map for an empty cart', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({ docs: [] })
-      return vi.fn()
-    })
-    subscribeCartQuantities('alice', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith(new Map())
+  it('returns an empty Map for an empty cart', async () => {
+    let read: (() => Promise<unknown>) | undefined
+    mocks.observe.mockImplementationOnce((_table, _filter, readFunction) => { read = readFunction; return vi.fn() })
+    mocks.result.mockResolvedValueOnce(null)
+    subscribeCartQuantities('alice', vi.fn(), vi.fn())
+    await expect(read?.()).resolves.toEqual(new Map())
   })
 
-  it('maps a listener error via toCartError', () => {
+  it('forwards a typed realtime error via toCartError', () => {
     const onError = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, _onData, errorCallback: (error: unknown) => void) => {
-      errorCallback({ code: 'unavailable' })
+    mocks.observe.mockImplementationOnce((_table, _filter, _read, _onData, errorCallback) => {
+      errorCallback({ code: 'network', message: 'Network unavailable. Check your connection and try again.' })
       return vi.fn()
     })
     subscribeCartQuantities('alice', vi.fn(), onError)
@@ -139,7 +157,7 @@ describe('subscribeCartQuantities', () => {
 
   it('returns the underlying unsubscribe function', () => {
     const unsubscribe = vi.fn()
-    onSnapshot.mockReturnValueOnce(unsubscribe)
+    mocks.observe.mockReturnValueOnce(unsubscribe)
     const result = subscribeCartQuantities('alice', vi.fn(), vi.fn())
     expect(result).toBe(unsubscribe)
   })

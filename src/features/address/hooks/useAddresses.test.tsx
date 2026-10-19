@@ -21,6 +21,13 @@ function Probe() {
 }
 
 describe('useAddresses', () => {
+  it('does not reload when Auth returns a new object for the same identity', () => {
+    subscribeAddresses.mockReturnValue(vi.fn())
+    useAuth.mockImplementation(() => ({ status: 'authenticated', user: { uid: 'alice' } }))
+    const { rerender } = render(<Probe />)
+    rerender(<Probe />)
+    expect(subscribeAddresses).toHaveBeenCalledTimes(1)
+  })
   it('does not subscribe while signed out — the address book is authenticated-only, no guest mode', () => {
     useAuth.mockReturnValue({ status: 'unauthenticated', user: null })
     render(<Probe />)

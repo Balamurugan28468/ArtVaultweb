@@ -1,4 +1,4 @@
-import type { Timestamp } from 'firebase/firestore'
+import type { Timestamp } from '@/lib/supabase/timestamp'
 import type { Artwork, ArtworkCategory, ArtworkError } from '@/features/artwork'
 
 /**

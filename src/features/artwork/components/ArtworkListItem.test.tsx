@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ArtworkListItem } from './ArtworkListItem'
@@ -354,7 +354,7 @@ describe('ArtworkListItem', () => {
         <ArtworkListItem artwork={buildArtwork({ inventoryCount: 7, updatedAt: Timestamp.fromDate(new Date('2026-03-15')) })} />
       </MemoryRouter>,
     )
-    expect(screen.getByText(/7 in stock/)).toBeInTheDocument()
+    expect(screen.getByText(/7 physical · 0 reserved · 7 available/)).toBeInTheDocument()
     expect(screen.getByText(/Updated/)).toBeInTheDocument()
   })
 

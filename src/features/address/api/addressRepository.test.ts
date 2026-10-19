@@ -1,217 +1,1313 @@
-import { describe, expect, it, vi } from 'vitest'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
-const { collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, writeBatch } = vi.hoisted(() => ({
-  collection: vi.fn((...args: unknown[]) => ({ path: args.slice(1).join('/') })),
-  deleteDoc: vi.fn(),
-  doc: vi.fn((...args: unknown[]) => ({ path: args.slice(1).join('/'), id: 'new-address' })),
-  onSnapshot: vi.fn(),
-  orderBy: vi.fn(() => 'ORDER_BY'),
-  query: vi.fn((ref) => ref),
-  serverTimestamp: vi.fn(() => 'SERVER_TIMESTAMP'),
-  writeBatch: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  createClient: vi.fn(),
+  observe: vi.fn(),
+  requireIdentity: vi.fn(),
+  result: vi.fn(),
+  rpc: vi.fn(),
+
+  dataError: vi.fn((error: unknown) => {
+    const code =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error
+        ? String(error.code)
+        : ''
+
+    if (
+      code === '42501' ||
+      code === 'PGRST301' ||
+      code === 'permission-denied'
+    ) {
+      return {
+        code: 'permission-denied' as const,
+        message:
+          'You do not have permission to do that.',
+      }
+    }
+
+    if (
+      error instanceof TypeError ||
+      code === '57014' ||
+      code === 'network' ||
+      code === 'unavailable'
+    ) {
+      return {
+        code: 'network' as const,
+        message:
+          'Network unavailable. Check your connection and try again.',
+      }
+    }
+
+    return {
+      code: 'unknown' as const,
+      message:
+        'Something went wrong. Please try again.',
+    }
+  }),
 }))
 
-vi.mock('firebase/firestore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, writeBatch }
-})
-vi.mock('@/lib/firebase/config', () => ({ db: {} }))
+vi.mock(
+  '@/lib/supabase/client',
+  () => ({
+    createClient:
+      mocks.createClient,
+  }),
+)
 
-const { addAddress, deleteAddress, mapToAddress, setDefaultAddress, subscribeAddresses, toAddressError, updateAddress } =
-  await import('./addressRepository')
+vi.mock(
+  '@/lib/supabase/data',
+  () => ({
+    dataError:
+      mocks.dataError,
 
-function fakeBatch() {
-  return { set: vi.fn(), update: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) }
-}
+    observe:
+      mocks.observe,
+
+    requireIdentity:
+      mocks.requireIdentity,
+
+    result:
+      mocks.result,
+
+    rpc:
+      mocks.rpc,
+  }),
+)
+
+const {
+  addAddress,
+  deleteAddress,
+  mapToAddress,
+  setDefaultAddress,
+  subscribeAddresses,
+  toAddressError,
+  updateAddress,
+} = await import(
+  './addressRepository'
+)
 
 const INPUT = {
-  fullName: 'Ada Lovelace',
-  addressLine1: '12 Analytical Ave',
-  addressLine2: '',
-  city: 'London',
-  state: 'London',
-  postalCode: 'SW1A 1AA',
-  country: 'UK',
-  phone: '',
-  isDefault: false,
+  fullName:
+    'Ada Lovelace',
+
+  addressLine1:
+    '12 Analytical Ave',
+
+  addressLine2:
+    '',
+
+  city:
+    'London',
+
+  state:
+    'London',
+
+  postalCode:
+    'SW1A 1AA',
+
+  country:
+    'UK',
+
+  phone:
+    '',
+
+  isDefault:
+    false,
 }
 
-describe('mapToAddress', () => {
-  it('maps a well-formed document', () => {
-    expect(
-      mapToAddress('a1', {
-        fullName: 'Ada Lovelace',
-        addressLine1: '12 Analytical Ave',
-        city: 'London',
-        state: 'London',
-        postalCode: 'SW1A 1AA',
-        country: 'UK',
-        isDefault: true,
-        createdAt: 'ts1',
-        updatedAt: 'ts2',
-      }),
-    ).toEqual({
-      id: 'a1',
-      fullName: 'Ada Lovelace',
-      addressLine1: '12 Analytical Ave',
-      addressLine2: '',
-      city: 'London',
-      state: 'London',
-      postalCode: 'SW1A 1AA',
-      country: 'UK',
-      phone: '',
-      isDefault: true,
-      createdAt: 'ts1',
-      updatedAt: 'ts2',
-    })
-  })
+const DATABASE_ROW = {
+  id:
+    'a1',
 
-  it('returns null when required fields are missing/malformed — never trusts a partial document', () => {
-    expect(mapToAddress('a1', { addressLine1: '12 Analytical Ave' })).toBeNull()
-    expect(mapToAddress('a1', { fullName: 'Ada' })).toBeNull()
-    expect(mapToAddress('a1', { fullName: 123, addressLine1: 'x' })).toBeNull()
-  })
+  user_id:
+    'alice',
 
-  it('defensively defaults isDefault to false unless explicitly true', () => {
-    expect(
-      mapToAddress('a1', { fullName: 'Ada', addressLine1: '12 Analytical Ave', isDefault: 'yes' })?.isDefault,
-    ).toBe(false)
-  })
+  full_name:
+    'Ada Lovelace',
+
+  address_line1:
+    '12 Analytical Ave',
+
+  address_line2:
+    null,
+
+  city:
+    'London',
+
+  state:
+    'London',
+
+  postal_code:
+    'SW1A 1AA',
+
+  country:
+    'UK',
+
+  phone:
+    null,
+
+  is_default:
+    true,
+
+  created_at:
+    '2026-09-19T10:00:00.000Z',
+
+  updated_at:
+    '2026-09-19T11:00:00.000Z',
+}
+
+type QueryBuilder = {
+  select: ReturnType<
+    typeof vi.fn
+  >
+
+  eq: ReturnType<
+    typeof vi.fn
+  >
+
+  order: ReturnType<
+    typeof vi.fn
+  >
+}
+
+function installAddressClient() {
+  const builder =
+    {} as QueryBuilder
+
+  builder.select =
+    vi.fn(
+      () => builder,
+    )
+
+  builder.eq =
+    vi.fn(
+      () => builder,
+    )
+
+  builder.order =
+    vi.fn(
+      () => builder,
+    )
+
+  const from =
+    vi.fn(
+      () => builder,
+    )
+
+  mocks.createClient.mockReturnValue(
+    {
+      from,
+    },
+  )
+
+  return {
+    builder,
+    from,
+  }
+}
+
+beforeEach(() => {
+  mocks.createClient.mockReset()
+  mocks.observe.mockReset()
+  mocks.requireIdentity.mockReset()
+  mocks.result.mockReset()
+  mocks.rpc.mockReset()
+  mocks.dataError.mockClear()
+
+  mocks.requireIdentity.mockResolvedValue(
+    undefined,
+  )
 })
 
-describe('subscribeAddresses', () => {
-  it('subscribes exactly once, ordered, and maps every document', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({
-        docs: [{ id: 'a1', data: () => ({ fullName: 'Ada', addressLine1: 'x', isDefault: true }) }],
-      })
-      return vi.fn()
-    })
-    subscribeAddresses('alice', onData, vi.fn())
-    expect(onSnapshot).toHaveBeenCalledTimes(1)
-    expect(orderBy).toHaveBeenCalledWith('createdAt', 'desc')
-    expect(onData).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 'a1', fullName: 'Ada', isDefault: true }),
-    ])
-  })
+describe(
+  'mapToAddress',
+  () => {
+    it(
+      'maps a well-formed Supabase address row',
+      () => {
+        expect(
+          mapToAddress(
+            DATABASE_ROW,
+          ),
+        ).toEqual({
+          id:
+            'a1',
 
-  it('filters out malformed documents rather than throwing', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({ docs: [{ id: 'bad', data: () => ({}) }] })
-      return vi.fn()
-    })
-    subscribeAddresses('alice', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith([])
-  })
+          fullName:
+            'Ada Lovelace',
 
-  it('maps a listener error via toAddressError', () => {
-    const onError = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, _onData, errorCallback: (error: unknown) => void) => {
-      errorCallback({ code: 'permission-denied' })
-      return vi.fn()
-    })
-    subscribeAddresses('alice', vi.fn(), onError)
-    expect(onError).toHaveBeenCalledWith({ code: 'permission-denied', message: 'You do not have permission to do that.' })
-  })
-})
+          addressLine1:
+            '12 Analytical Ave',
 
-describe('addAddress', () => {
-  it('creates the new address with server timestamps, in one committed batch', async () => {
-    const batch = fakeBatch()
-    writeBatch.mockReturnValueOnce(batch)
-    await addAddress('alice', INPUT, [])
-    expect(batch.set).toHaveBeenCalledWith(expect.anything(), {
-      ...INPUT,
-      createdAt: 'SERVER_TIMESTAMP',
-      updatedAt: 'SERVER_TIMESTAMP',
-    })
-    expect(batch.update).not.toHaveBeenCalled()
-    expect(batch.commit).toHaveBeenCalledTimes(1)
-  })
+          addressLine2:
+            '',
 
-  it('when isDefault is true, clears isDefault on every existing address in the same batch', async () => {
-    const batch = fakeBatch()
-    writeBatch.mockReturnValueOnce(batch)
-    await addAddress('alice', { ...INPUT, isDefault: true }, ['other1', 'other2'])
-    expect(batch.update).toHaveBeenCalledTimes(2)
-    expect(batch.update).toHaveBeenCalledWith(expect.anything(), { isDefault: false, updatedAt: 'SERVER_TIMESTAMP' })
-  })
+          city:
+            'London',
 
-  it('throws a typed error when the batch is rejected', async () => {
-    const batch = fakeBatch()
-    batch.commit.mockRejectedValueOnce({ code: 'permission-denied' })
-    writeBatch.mockReturnValueOnce(batch)
-    await expect(addAddress('alice', INPUT, [])).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'You do not have permission to do that.',
-    })
-  })
-})
+          state:
+            'London',
 
-describe('updateAddress', () => {
-  it('merges the updated fields with a fresh updatedAt', async () => {
-    const batch = fakeBatch()
-    writeBatch.mockReturnValueOnce(batch)
-    await updateAddress('alice', 'a1', INPUT, [])
-    expect(batch.set).toHaveBeenCalledWith(expect.anything(), { ...INPUT, updatedAt: 'SERVER_TIMESTAMP' }, { merge: true })
-    expect(batch.commit).toHaveBeenCalledTimes(1)
-  })
+          postalCode:
+            'SW1A 1AA',
 
-  it('when isDefault is true, clears every other address in the same batch', async () => {
-    const batch = fakeBatch()
-    writeBatch.mockReturnValueOnce(batch)
-    await updateAddress('alice', 'a1', { ...INPUT, isDefault: true }, ['other1'])
-    expect(batch.update).toHaveBeenCalledTimes(1)
-    expect(batch.update).toHaveBeenCalledWith(expect.anything(), { isDefault: false, updatedAt: 'SERVER_TIMESTAMP' })
-  })
-})
+          country:
+            'UK',
 
-describe('setDefaultAddress', () => {
-  it('sets the target address default and clears every other in one atomic batch', async () => {
-    const batch = fakeBatch()
-    writeBatch.mockReturnValueOnce(batch)
-    await setDefaultAddress('alice', 'a1', ['other1', 'other2'])
-    expect(batch.update).toHaveBeenCalledWith(expect.anything(), { isDefault: true, updatedAt: 'SERVER_TIMESTAMP' })
-    expect(batch.update).toHaveBeenCalledWith(expect.anything(), { isDefault: false, updatedAt: 'SERVER_TIMESTAMP' })
-    expect(batch.update).toHaveBeenCalledTimes(3)
-    expect(batch.commit).toHaveBeenCalledTimes(1)
-  })
-})
+          phone:
+            '',
 
-describe('deleteAddress', () => {
-  it('deletes the address document', async () => {
-    deleteDoc.mockResolvedValueOnce(undefined)
-    await deleteAddress('alice', 'a1')
-    expect(deleteDoc).toHaveBeenCalledTimes(1)
-  })
+          isDefault:
+            true,
 
-  it('throws a typed error when denied', async () => {
-    deleteDoc.mockRejectedValueOnce({ code: 'permission-denied' })
-    await expect(deleteAddress('alice', 'a1')).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'You do not have permission to do that.',
-    })
-  })
-})
+          createdAt:
+            '2026-09-19T10:00:00.000Z',
 
-describe('toAddressError', () => {
-  it('maps network-related codes', () => {
-    expect(toAddressError({ code: 'unavailable' })).toEqual({
-      code: 'network',
-      message: 'Network unavailable. Check your connection and try again.',
-    })
-  })
+          updatedAt:
+            '2026-09-19T11:00:00.000Z',
+        })
+      },
+    )
 
-  it('falls back to unknown for an unrecognized error', () => {
-    expect(toAddressError(new Error('boom'))).toEqual({ code: 'unknown', message: 'Something went wrong. Please try again.' })
-  })
-})
+    it(
+      'returns null when id is missing',
+      () => {
+        expect(
+          mapToAddress({
+            full_name:
+              'Ada Lovelace',
 
-it('returns the new address ID only after the existing batch succeeds', async () => {
-  const batch = fakeBatch()
-  writeBatch.mockReturnValueOnce(batch)
-  expect(await addAddress('alice', INPUT, [])).toBe('new-address')
-  expect(batch.commit).toHaveBeenCalledOnce()
-})
+            address_line1:
+              '12 Analytical Ave',
+          }),
+        ).toBeNull()
+      },
+    )
+
+    it(
+      'returns null when full_name is missing',
+      () => {
+        expect(
+          mapToAddress({
+            id:
+              'a1',
+
+            address_line1:
+              '12 Analytical Ave',
+          }),
+        ).toBeNull()
+      },
+    )
+
+    it(
+      'returns null when address_line1 is missing',
+      () => {
+        expect(
+          mapToAddress({
+            id:
+              'a1',
+
+            full_name:
+              'Ada Lovelace',
+          }),
+        ).toBeNull()
+      },
+    )
+
+    it(
+      'returns null when required fields have invalid types',
+      () => {
+        expect(
+          mapToAddress({
+            id:
+              'a1',
+
+            full_name:
+              123,
+
+            address_line1:
+              '12 Analytical Ave',
+          }),
+        ).toBeNull()
+      },
+    )
+
+    it(
+      'defaults optional text fields to empty strings',
+      () => {
+        const address =
+          mapToAddress({
+            id:
+              'a1',
+
+            full_name:
+              'Ada',
+
+            address_line1:
+              '12 Analytical Ave',
+
+            city:
+              'London',
+
+            state:
+              'London',
+
+            postal_code:
+              'SW1A 1AA',
+
+            country:
+              'UK',
+
+            is_default:
+              false,
+
+            created_at:
+              '2026-09-19T10:00:00.000Z',
+
+            updated_at:
+              '2026-09-19T11:00:00.000Z',
+          })
+
+        expect(
+          address,
+        ).not.toBeNull()
+
+        expect(
+          address?.addressLine2,
+        ).toBe('')
+
+        expect(
+          address?.phone,
+        ).toBe('')
+      },
+    )
+
+    it(
+      'defaults isDefault to false unless the database value is true',
+      () => {
+        const address =
+          mapToAddress({
+            ...DATABASE_ROW,
+
+            is_default:
+              'yes',
+          })
+
+        expect(
+          address?.isDefault,
+        ).toBe(false)
+      },
+    )
+
+    it(
+      'normalizes valid PostgreSQL timestamp strings to ISO strings',
+      () => {
+        const address =
+          mapToAddress({
+            ...DATABASE_ROW,
+
+            created_at:
+              '2026-09-19T10:00:00Z',
+
+            updated_at:
+              '2026-09-19T11:30:00Z',
+          })
+
+        expect(
+          address?.createdAt,
+        ).toBe(
+          '2026-09-19T10:00:00.000Z',
+        )
+
+        expect(
+          address?.updatedAt,
+        ).toBe(
+          '2026-09-19T11:30:00.000Z',
+        )
+      },
+    )
+  },
+)
+
+describe(
+  'subscribeAddresses',
+  () => {
+    it(
+      'creates one Supabase realtime subscription for the signed-in user',
+      () => {
+        const unsubscribe =
+          vi.fn()
+
+        mocks.observe.mockReturnValue(
+          unsubscribe,
+        )
+
+        const onData =
+          vi.fn()
+
+        const onError =
+          vi.fn()
+
+        const result =
+          subscribeAddresses(
+            'alice',
+            onData,
+            onError,
+          )
+
+        expect(
+          mocks.observe,
+        ).toHaveBeenCalledTimes(
+          1,
+        )
+
+        expect(
+          mocks.observe,
+        ).toHaveBeenCalledWith(
+          'addresses',
+          'user_id=eq.alice',
+          expect.any(
+            Function,
+          ),
+          onData,
+          expect.any(
+            Function,
+          ),
+        )
+
+        expect(
+          result,
+        ).toBe(
+          unsubscribe,
+        )
+      },
+    )
+
+    it(
+      'reads addresses from Supabase and maps database rows',
+      async () => {
+        const {
+          builder,
+          from,
+        } =
+          installAddressClient()
+
+        mocks.result.mockResolvedValueOnce(
+          [
+            DATABASE_ROW,
+          ],
+        )
+
+        let read:
+          | (() =>
+              Promise<
+                unknown
+              >)
+          | undefined
+
+        mocks.observe.mockImplementation(
+          (
+            _table: unknown,
+            _filter: unknown,
+            readFunction: () =>
+              Promise<
+                unknown
+              >,
+          ) => {
+            read =
+              readFunction
+
+            return vi.fn()
+          },
+        )
+
+        subscribeAddresses(
+          'alice',
+          vi.fn(),
+          vi.fn(),
+        )
+
+        expect(
+          read,
+        ).toBeDefined()
+
+        const addresses =
+          await read?.()
+
+        expect(
+          mocks.requireIdentity,
+        ).toHaveBeenCalledWith(
+          'alice',
+        )
+
+        expect(
+          from,
+        ).toHaveBeenCalledWith(
+          'addresses',
+        )
+
+        expect(
+          builder.select,
+        ).toHaveBeenCalledTimes(
+          1,
+        )
+
+        expect(
+          builder.eq,
+        ).toHaveBeenCalledWith(
+          'user_id',
+          'alice',
+        )
+
+        expect(
+          builder.order,
+        ).toHaveBeenCalledWith(
+          'created_at',
+          {
+            ascending:
+              false,
+          },
+        )
+
+        expect(
+          addresses,
+        ).toEqual([
+          {
+            id:
+              'a1',
+
+            fullName:
+              'Ada Lovelace',
+
+            addressLine1:
+              '12 Analytical Ave',
+
+            addressLine2:
+              '',
+
+            city:
+              'London',
+
+            state:
+              'London',
+
+            postalCode:
+              'SW1A 1AA',
+
+            country:
+              'UK',
+
+            phone:
+              '',
+
+            isDefault:
+              true,
+
+            createdAt:
+              '2026-09-19T10:00:00.000Z',
+
+            updatedAt:
+              '2026-09-19T11:00:00.000Z',
+          },
+        ])
+      },
+    )
+
+    it(
+      'filters malformed Supabase rows',
+      async () => {
+        installAddressClient()
+
+        mocks.result.mockResolvedValueOnce(
+          [
+            DATABASE_ROW,
+
+            {
+              id:
+                'bad',
+
+              full_name:
+                'Broken row',
+            },
+          ],
+        )
+
+        let read:
+          | (() =>
+              Promise<
+                unknown
+              >)
+          | undefined
+
+        mocks.observe.mockImplementation(
+          (
+            _table: unknown,
+            _filter: unknown,
+            readFunction: () =>
+              Promise<
+                unknown
+              >,
+          ) => {
+            read =
+              readFunction
+
+            return vi.fn()
+          },
+        )
+
+        subscribeAddresses(
+          'alice',
+          vi.fn(),
+          vi.fn(),
+        )
+
+        const addresses =
+          await read?.()
+
+        expect(
+          addresses,
+        ).toHaveLength(
+          1,
+        )
+
+        expect(
+          addresses,
+        ).toEqual([
+          expect.objectContaining({
+            id:
+              'a1',
+
+            fullName:
+              'Ada Lovelace',
+          }),
+        ])
+      },
+    )
+
+    it(
+      'returns an empty address list when Supabase returns null',
+      async () => {
+        installAddressClient()
+
+        mocks.result.mockResolvedValueOnce(
+          null,
+        )
+
+        let read:
+          | (() =>
+              Promise<
+                unknown
+              >)
+          | undefined
+
+        mocks.observe.mockImplementation(
+          (
+            _table: unknown,
+            _filter: unknown,
+            readFunction: () =>
+              Promise<
+                unknown
+              >,
+          ) => {
+            read =
+              readFunction
+
+            return vi.fn()
+          },
+        )
+
+        subscribeAddresses(
+          'alice',
+          vi.fn(),
+          vi.fn(),
+        )
+
+        const addresses =
+          await read?.()
+
+        expect(
+          addresses,
+        ).toEqual(
+          [],
+        )
+      },
+    )
+
+    it(
+      'maps a realtime permission error',
+      () => {
+        mocks.observe.mockReturnValue(
+          vi.fn(),
+        )
+
+        const onError =
+          vi.fn()
+
+        subscribeAddresses(
+          'alice',
+          vi.fn(),
+          onError,
+        )
+
+        const call =
+          mocks.observe.mock
+            .calls[0]
+
+        const wrappedError =
+          call[4] as (
+            error: unknown,
+          ) => void
+
+        wrappedError({
+          code:
+            '42501',
+        })
+
+        expect(
+          onError,
+        ).toHaveBeenCalledWith({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+  },
+)
+
+describe(
+  'addAddress',
+  () => {
+    it(
+      'creates an address through the trusted save_address RPC',
+      async () => {
+        mocks.rpc.mockResolvedValueOnce(
+          'new-address',
+        )
+
+        await expect(
+          addAddress(
+            'alice',
+            INPUT,
+            [],
+          ),
+        ).resolves.toBe(
+          'new-address',
+        )
+
+        expect(
+          mocks.requireIdentity,
+        ).toHaveBeenCalledWith(
+          'alice',
+        )
+
+        expect(
+          mocks.rpc,
+        ).toHaveBeenCalledWith(
+          'save_address',
+          {
+            target:
+              null,
+
+            payload: {
+              fullName:
+                'Ada Lovelace',
+
+              addressLine1:
+                '12 Analytical Ave',
+
+              addressLine2:
+                '',
+
+              city:
+                'London',
+
+              state:
+                'London',
+
+              postalCode:
+                'SW1A 1AA',
+
+              country:
+                'UK',
+
+              phone:
+                '',
+
+              isDefault:
+                false,
+            },
+          },
+        )
+      },
+    )
+
+    it(
+      'trims address values before sending them to the RPC',
+      async () => {
+        mocks.rpc.mockResolvedValueOnce(
+          'new-address',
+        )
+
+        await addAddress(
+          'alice',
+          {
+            ...INPUT,
+
+            fullName:
+              '  Ada Lovelace  ',
+
+            addressLine1:
+              '  12 Analytical Ave  ',
+
+            city:
+              ' London ',
+
+            state:
+              ' London ',
+
+            postalCode:
+              ' SW1A 1AA ',
+
+            country:
+              ' UK ',
+
+            phone:
+              ' 1234567890 ',
+          },
+          [],
+        )
+
+        expect(
+          mocks.rpc,
+        ).toHaveBeenCalledWith(
+          'save_address',
+          {
+            target:
+              null,
+
+            payload:
+              expect.objectContaining({
+                fullName:
+                  'Ada Lovelace',
+
+                addressLine1:
+                  '12 Analytical Ave',
+
+                city:
+                  'London',
+
+                state:
+                  'London',
+
+                postalCode:
+                  'SW1A 1AA',
+
+                country:
+                  'UK',
+
+                phone:
+                  '1234567890',
+              }),
+          },
+        )
+      },
+    )
+
+    it(
+      'maps permission errors returned by the RPC',
+      async () => {
+        mocks.rpc.mockRejectedValueOnce({
+          code:
+            '42501',
+        })
+
+        await expect(
+          addAddress(
+            'alice',
+            INPUT,
+            [],
+          ),
+        ).rejects.toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+
+    it(
+      'rejects when the server does not return an address id',
+      async () => {
+        mocks.rpc.mockResolvedValueOnce(
+          null,
+        )
+
+        await expect(
+          addAddress(
+            'alice',
+            INPUT,
+            [],
+          ),
+        ).rejects.toMatchObject({
+          code:
+            'unknown',
+        })
+      },
+    )
+  },
+)
+
+describe(
+  'updateAddress',
+  () => {
+    it(
+      'updates the address through save_address RPC',
+      async () => {
+        mocks.rpc.mockResolvedValueOnce(
+          undefined,
+        )
+
+        await updateAddress(
+          'alice',
+          'a1',
+          INPUT,
+          [],
+        )
+
+        expect(
+          mocks.requireIdentity,
+        ).toHaveBeenCalledWith(
+          'alice',
+        )
+
+        expect(
+          mocks.rpc,
+        ).toHaveBeenCalledWith(
+          'save_address',
+          {
+            target:
+              'a1',
+
+            payload: {
+              fullName:
+                'Ada Lovelace',
+
+              addressLine1:
+                '12 Analytical Ave',
+
+              addressLine2:
+                '',
+
+              city:
+                'London',
+
+              state:
+                'London',
+
+              postalCode:
+                'SW1A 1AA',
+
+              country:
+                'UK',
+
+              phone:
+                '',
+
+              isDefault:
+                false,
+            },
+          },
+        )
+      },
+    )
+
+    it(
+      'maps update permission failures',
+      async () => {
+        mocks.rpc.mockRejectedValueOnce({
+          code:
+            '42501',
+        })
+
+        await expect(
+          updateAddress(
+            'alice',
+            'a1',
+            INPUT,
+            [],
+          ),
+        ).rejects.toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+  },
+)
+
+describe(
+  'setDefaultAddress',
+  () => {
+    it(
+      'uses the trusted set_default_address RPC',
+      async () => {
+        mocks.rpc.mockResolvedValueOnce(
+          undefined,
+        )
+
+        await setDefaultAddress(
+          'alice',
+          'a1',
+          [
+            'other1',
+            'other2',
+          ],
+        )
+
+        expect(
+          mocks.requireIdentity,
+        ).toHaveBeenCalledWith(
+          'alice',
+        )
+
+        expect(
+          mocks.rpc,
+        ).toHaveBeenCalledWith(
+          'set_default_address',
+          {
+            target:
+              'a1',
+          },
+        )
+      },
+    )
+
+    it(
+      'maps permission failures',
+      async () => {
+        mocks.rpc.mockRejectedValueOnce({
+          code:
+            '42501',
+        })
+
+        await expect(
+          setDefaultAddress(
+            'alice',
+            'a1',
+            [],
+          ),
+        ).rejects.toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+  },
+)
+
+describe(
+  'deleteAddress',
+  () => {
+    it(
+      'deletes through the trusted delete_address RPC',
+      async () => {
+        mocks.rpc.mockResolvedValueOnce(
+          undefined,
+        )
+
+        await deleteAddress(
+          'alice',
+          'a1',
+        )
+
+        expect(
+          mocks.requireIdentity,
+        ).toHaveBeenCalledWith(
+          'alice',
+        )
+
+        expect(
+          mocks.rpc,
+        ).toHaveBeenCalledWith(
+          'delete_address',
+          {
+            target:
+              'a1',
+          },
+        )
+      },
+    )
+
+    it(
+      'maps delete permission failures',
+      async () => {
+        mocks.rpc.mockRejectedValueOnce({
+          code:
+            '42501',
+        })
+
+        await expect(
+          deleteAddress(
+            'alice',
+            'a1',
+          ),
+        ).rejects.toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+  },
+)
+
+describe(
+  'identity protection',
+  () => {
+    it(
+      'does not add an address when the current user does not match',
+      async () => {
+        mocks.requireIdentity.mockRejectedValueOnce({
+          code:
+            '42501',
+        })
+
+        await expect(
+          addAddress(
+            'alice',
+            INPUT,
+            [],
+          ),
+        ).rejects.toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+
+        expect(
+          mocks.rpc,
+        ).not.toHaveBeenCalled()
+      },
+    )
+  },
+)
+
+describe(
+  'toAddressError',
+  () => {
+    it(
+      'maps PostgreSQL permission-denied code',
+      () => {
+        expect(
+          toAddressError({
+            code:
+              '42501',
+          }),
+        ).toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+
+    it(
+      'maps the Supabase PGRST permission code',
+      () => {
+        expect(
+          toAddressError({
+            code:
+              'PGRST301',
+          }),
+        ).toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+
+    it(
+      'maps network-related errors',
+      () => {
+        expect(
+          toAddressError(
+            new TypeError(
+              'Network failed',
+            ),
+          ),
+        ).toEqual({
+          code:
+            'network',
+
+          message:
+            'Network unavailable. Check your connection and try again.',
+        })
+      },
+    )
+
+    it(
+      'maps unavailable to network for migration compatibility',
+      () => {
+        expect(
+          toAddressError({
+            code:
+              'unavailable',
+          }),
+        ).toEqual({
+          code:
+            'network',
+
+          message:
+            'Network unavailable. Check your connection and try again.',
+        })
+      },
+    )
+
+    it(
+      'falls back to unknown for unrecognized errors',
+      () => {
+        expect(
+          toAddressError(
+            new Error(
+              'boom',
+            ),
+          ),
+        ).toEqual({
+          code:
+            'unknown',
+
+          message:
+            'Something went wrong. Please try again.',
+        })
+      },
+    )
+  },
+)

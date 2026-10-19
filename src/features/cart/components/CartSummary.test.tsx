@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { CartSummary } from './CartSummary'
 
 describe('CartSummary', () => {
+  it('preserves paise instead of rounding the merchandise amount', () => {
+    render(<CartSummary subtotal={12599} itemCount={1} />)
+    expect(screen.getAllByText('₹125.99')).toHaveLength(2)
+  })
   it('shows the real subtotal, formatted from minor currency units', () => {
     render(<CartSummary subtotal={300000} itemCount={2} />)
     // Appears twice by design — the subtotal line and the (currently

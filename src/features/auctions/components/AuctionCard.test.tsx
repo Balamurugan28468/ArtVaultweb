@@ -11,7 +11,7 @@ import type { Auction } from '../types'
 vi.mock('@/features/wishlist/components/WishlistButton', () => ({ WishlistButton: () => null }))
 
 function ts(ms: number) {
-  return { toMillis: () => ms } as unknown as import('firebase/firestore').Timestamp
+  return { toMillis: () => ms } as unknown as import('@/lib/supabase/timestamp').Timestamp
 }
 
 const BASE_AUCTION: Auction = {
@@ -49,13 +49,13 @@ describe('AuctionCard', () => {
   it('shows the starting bid before any real bid exists — never a fabricated current bid', () => {
     renderCard()
     expect(screen.getByText('Starting bid')).toBeInTheDocument()
-    expect(screen.getByText('₹5000')).toBeInTheDocument()
+    expect(screen.getByText('₹5,000')).toBeInTheDocument()
   })
 
   it('shows the real current bid once one exists', () => {
     renderCard({ auction: { ...BASE_AUCTION, currentHighBid: 520000, bidCount: 3 } })
     expect(screen.getByText('Current bid')).toBeInTheDocument()
-    expect(screen.getByText('₹5200')).toBeInTheDocument()
+    expect(screen.getByText('₹5,200')).toBeInTheDocument()
   })
 
   it('shows an honest placeholder when the linked artwork is unavailable', () => {

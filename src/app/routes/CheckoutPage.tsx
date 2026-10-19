@@ -6,34 +6,39 @@ import { useUserProfile } from '@/features/account'
 import { CartSummary, useCart, useCartLines } from '@/features/cart'
 import { AddressPicker, DeliverySection, PaymentSection, type ShippingAddressFormValues } from '@/features/checkout'
 import { useArtistDisplayNames } from '@/features/marketplace'
+import { availableInventory } from '@/features/inventory/stock'
+import { useCheckoutOrder } from '@/features/checkout/hooks/useCheckoutOrder'
 import { Button, Card, Container, EmptyState, PageHeader, Skeleton, buttonClassName } from '@/shared/ui'
 
 /**
  * Protected by RequireAuth (see router.tsx) — a real shipping address and
  * order review are personal data, unlike the Cart page itself (which works
  * for guests too, same as Wishlist). Genuinely real up through Review;
- * Delivery and Payment are honestly non-functional placeholders (UI-02's
- * "No fake functionality" rule) — no shipping-rate or payment integration
- * exists anywhere in this codebase yet, so "Place order" stays disabled
- * rather than simulating a successful checkout. Nothing here ever writes
- * to an `orders` collection — see firestore.rules' own comment on why that
- * write path doesn't exist yet.
+ * The callable creates an unpaid reservation using saved IDs only. Payment,
+ * shipping rates and taxes remain unavailable; no client writes orders or stock.
  */
 export function CheckoutPage() {
   const { user } = useAuth()
   const profileState = useUserProfile()
-  const { status: cartStatus } = useCart()
+  const { status: cartStatus, mode, isPending } = useCart()
+  const checkout = useCheckoutOrder(user?.uid)
   const { lines, subtotal, isLoading, unavailableCount } = useCartLines()
   const artistNames = useArtistDisplayNames(lines.map((line) => line.artwork.sellerId))
 
   const profile = profileState.status === 'loaded' ? profileState.profile : null
   const [shippingAddress, setShippingAddress] = useState<ShippingAddressFormValues | null>(null)
   const [addressComplete, setAddressComplete] = useState(false)
+  const [addressId, setAddressId] = useState<string | null>(null)
 
   const handleAddress = useCallback((values: ShippingAddressFormValues, complete: boolean) => {
     setShippingAddress(values)
     setAddressComplete(complete)
   }, [])
+
+  if (checkout.unresolved) return <Container><PageHeader title="Recover checkout" description="A previous checkout request has not been confirmed. Recover the same request before creating another order." />
+    {checkout.error && <p role="alert">{checkout.error}</p>}
+    <Button disabled={checkout.pending} onClick={() => void checkout.retry()}>{checkout.pending ? 'Checking order…' : 'Retry previous checkout'}</Button>
+  </Container>
 
   if (cartStatus === 'error') return <Container><PageHeader title="Checkout" /><p role="alert">Couldn't load your cart. Return to <Link to="/cart" className="underline">Cart</Link> to review it.</p></Container>
 
@@ -59,7 +64,7 @@ export function CheckoutPage() {
   return (
     <Container>
       <section className="flex flex-col gap-6">
-        <PageHeader title="Checkout" description="Review your cart and shipping address. Order placement and payment processing are unavailable." />
+        <PageHeader title="Checkout" description="Create a secure unpaid order with a 30-minute stock reservation. Configured Razorpay test checkout is available on the order page; no payment is taken here." />
 
         {unavailableCount > 0 && <p role="status" className="text-sm text-text-secondary">Some cart items could not be loaded or are unavailable and are excluded from this review. <Link to="/cart" className="underline">Review Cart</Link></p>}
 
@@ -91,6 +96,7 @@ export function CheckoutPage() {
                 defaultFullName={profile?.displayName ?? ''}
                 defaultPhone={profile?.phoneNumber ?? ''}
                 onChange={handleAddress}
+                onSelectionChange={setAddressId}
               />
 
               {/* C. Delivery */}
@@ -118,7 +124,7 @@ export function CheckoutPage() {
                           {artistNames[line.artwork.sellerId] ?? 'ArtVault seller'} · Qty {line.quantity}
                         </p>
                       </div>
-                      <p className="shrink-0 text-sm font-medium text-text-primary">₹{(line.lineTotal / 100).toFixed(0)}</p>
+                      <p className="shrink-0 text-sm font-medium text-text-primary">₹{line.lineTotal / 100}</p>
                     </li>
                   ))}
                 </ul>
@@ -151,16 +157,16 @@ export function CheckoutPage() {
                       variant="gold"
                       size="lg"
                       className="w-full"
-                      disabled
-                      aria-disabled="true"
-                      title="Order placement and payment processing are unavailable."
+                      disabled={checkout.pending || mode !== 'account' || !addressComplete || !addressId || unavailableCount > 0 || lines.some((line) => isPending?.(line.artwork.id) || line.quantity > availableInventory(line.artwork))}
+                      onClick={() => { if (addressId) void checkout.submit(lines.map((line) => line.artwork.id), addressId) }}
                     >
-                      Place Order
+                      {checkout.pending ? 'Creating order…' : 'Create unpaid order'}
                     </Button>
                     <p className="text-center text-xs text-text-muted">
-                      Order placement and payment processing are unavailable. Completing an address does not place an order.
-                      {!addressComplete && ' Your shipping address is incomplete.'}
+                      The server verifies prices and stock. Only included cart items are removed after a successful order. Payment remains unavailable.
+                      {(!addressComplete || !addressId) && ' Select or save a complete shipping address first.'}
                     </p>
+                    {checkout.error && <p role="alert" className="text-sm text-danger">{checkout.error}</p>}
                   </div>
                 }
               />

@@ -8,35 +8,26 @@ interface PaymentOption {
   reason: string
 }
 
-// Every option here is honestly unavailable — not because online payment
-// specifically is missing, but because ArtVault has no trusted
-// order-creation write path at all yet (see firestore.rules'
-// `match /orders/{orderId}` comment: `allow write: if false` for every
-// field, unconditionally). Card/UPI need a real payment gateway in
-// addition to that; Cash on Delivery needs no payment gateway but still
-// needs a trusted order to exist before it can be placed against — so it
-// gets its own, distinct honest explanation rather than reusing the
-// gateway-specific copy. None of these render as clickable — a disabled,
-// clearly-labeled option is the honest state until each is genuinely
-// backed by real functionality (UI-06 owner rule: "no fake functionality").
+// Live methods and cash collection remain unavailable. Configured Razorpay
+// TEST checkout opens separately after creating a trusted reserved order.
 const PAYMENT_OPTIONS: PaymentOption[] = [
   {
     id: 'card',
     label: 'Credit / Debit Card',
     icon: CreditCard,
-    reason: 'Unavailable. Requires order placement and secure payment processing.',
+    reason: 'Unavailable. Requires secure payment processing.',
   },
   {
     id: 'upi',
     label: 'UPI',
     icon: Smartphone,
-    reason: 'Unavailable. Requires order placement and secure payment processing.',
+    reason: 'Unavailable. Requires secure payment processing.',
   },
   {
     id: 'cod',
     label: 'Cash on Delivery',
     icon: Banknote,
-    reason: "Cash on Delivery isn't available yet — ArtVault's order system doesn't process real orders until a trusted order-creation backend is connected.",
+    reason: 'Cash on Delivery is unavailable. Cash collection and fulfillment are not connected.',
   },
 ]
 

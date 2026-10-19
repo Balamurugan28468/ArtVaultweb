@@ -1,4 +1,5 @@
 import { ShoppingCart } from 'lucide-react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { CartItemRow, CartSummary, useCart, useCartLines } from '@/features/cart'
 import { useArtistDisplayNames } from '@/features/marketplace'
@@ -12,9 +13,14 @@ import { Button, Container, EmptyState, PageHeader, Skeleton, buttonClassName } 
  */
 export function CartPage() {
   const { mode, status, setQuantity, removeItem } = useCart()
-  const { lines, unavailableCount, subtotal, isLoading } = useCartLines()
+  const { lines, unavailableCount, unavailableIds = [], subtotal, isLoading } = useCartLines()
   const artistNames = useArtistDisplayNames(lines.map((line) => line.artwork.sellerId))
   const navigate = useNavigate()
+  const [removing, setRemoving] = useState<string | null>(null)
+  const removeUnavailable = async (id: string) => {
+    setRemoving(id)
+    try { await removeItem(id) } finally { setRemoving(null) }
+  }
 
   return (
     <Container size="wide">
@@ -53,10 +59,20 @@ export function CartPage() {
         )}
 
               {status !== 'error' && !isLoading && unavailableCount > 0 && (
-                <p className="text-center text-sm text-text-muted">
+                <div className="flex flex-col gap-2 text-sm text-text-muted">
+                <p>
                   {unavailableCount} cart item{unavailableCount === 1 ? ' is' : 's are'} unavailable or could not be loaded and{' '}
                   {unavailableCount === 1 ? 'has' : 'have'} been excluded from your total.
                 </p>
+                <ul className="flex flex-col gap-2">
+                  {unavailableIds.map((id, index) => <li key={id} className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Unavailable cart item {index + 1}</span>
+                    <Button variant="secondary" size="sm" disabled={removing !== null} onClick={() => void removeUnavailable(id)}>
+                      {removing === id ? 'Removing…' : `Remove unavailable item ${index + 1}`}
+                    </Button>
+                  </li>)}
+                </ul>
+                </div>
               )}
 
         {status !== 'error' && !isLoading && lines.length === 0 && (

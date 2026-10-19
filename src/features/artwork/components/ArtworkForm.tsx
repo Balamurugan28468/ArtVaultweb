@@ -416,6 +416,7 @@ export function ArtworkForm({ artwork, onSaved }: { artwork?: Artwork; onSaved: 
             <label htmlFor="artwork-inventory" className="text-sm font-medium text-text-secondary">
               Inventory count
             </label>
+            {artwork && <p className="text-xs text-text-secondary">Physical stock: {artwork.inventoryCount}. Reserved: {artwork.reservedCount ?? 0}. Available: {Math.max(0, artwork.inventoryCount - (artwork.reservedCount ?? 0))}. Stock changes are checked by the server; reserved units cannot be removed.</p>}
             <Input
               id="artwork-inventory"
               type="text"

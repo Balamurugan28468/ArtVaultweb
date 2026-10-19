@@ -1,4 +1,4 @@
-import type { Timestamp } from 'firebase/firestore'
+import type { Timestamp } from '@/lib/supabase/timestamp'
 
 /**
  * UI-05 — AI Artwork Analysis. Matches the `analyzeArtwork` return shape

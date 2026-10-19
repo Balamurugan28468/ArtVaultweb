@@ -54,6 +54,7 @@ service firebase.storage {
     function artworkExistsAndIsEditableBy(artworkId, ownerUid) {
       return firestore.exists(/databases/(default)/documents/artworks/$(artworkId)) &&
         artworkDoc(artworkId).data.sellerId == ownerUid &&
+        artworkDoc(artworkId).data.get('reservedCount', 0) == 0 &&
         artworkDoc(artworkId).data.status != 'SUBMITTED';
     }
 

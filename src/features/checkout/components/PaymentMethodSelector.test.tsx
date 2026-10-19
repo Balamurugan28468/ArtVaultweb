@@ -21,13 +21,13 @@ describe('PaymentMethodSelector', () => {
   it('gives Card and UPI the same honest "connect a payment processor" copy', () => {
     render(<PaymentMethodSelector />)
     expect(
-      screen.getAllByText('Unavailable. Requires order placement and secure payment processing.'),
+      screen.getAllByText('Unavailable. Requires secure payment processing.'),
     ).toHaveLength(2)
   })
 
-  it('gives Cash on Delivery its own distinct honest explanation — no order-creation backend exists at all, not just no online-payment gateway', () => {
+  it('explains that Cash on Delivery still needs cash collection and fulfillment', () => {
     render(<PaymentMethodSelector />)
-    expect(screen.getByText(/order-creation backend is connected/i)).toBeInTheDocument()
+    expect(screen.getByText(/Cash collection and fulfillment are not connected/i)).toBeInTheDocument()
   })
 
   it('never fabricates a transaction id, card form, or success state', () => {

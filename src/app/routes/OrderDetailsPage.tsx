@@ -1,8 +1,12 @@
+import { OrderShipments } from '@/features/orders/components/OrderShipments'
 import { ImageOff } from 'lucide-react'
+import { useReducer } from 'react'
+import { TestPaymentPanel } from '@/features/payments/components/TestPaymentPanel'
 import { Link, useParams } from 'react-router'
 import { OrderStatusBadge, OrderStatusTimeline, useOrder } from '@/features/orders'
 import { useArtistDisplayNames } from '@/features/marketplace'
-import { Card, Container, EmptyState, ErrorState, PageHeader, Skeleton, buttonClassName } from '@/shared/ui'
+import { ReservationNotice } from '@/features/orders/components/ReservationNotice'
+import { Button, Card, Container, EmptyState, ErrorState, PageHeader, Skeleton, buttonClassName } from '@/shared/ui'
 
 const PAYMENT_STATE_LABEL: Record<string, string> = {
   PENDING: 'Payment pending',
@@ -26,7 +30,8 @@ function formatDate(value: { toDate?: () => Date } | undefined): string {
  */
 export function OrderDetailsPage() {
   const { orderId } = useParams()
-  const state = useOrder(orderId)
+  const [revision, refresh] = useReducer(value => value + 1, 0)
+  const state = useOrder(orderId, revision)
   const items = state.status === 'loaded' ? state.items : []
   const artistNames = useArtistDisplayNames(items.map((item) => item.sellerId).filter(Boolean))
 
@@ -34,6 +39,7 @@ export function OrderDetailsPage() {
     <Container>
       <section className="flex flex-col gap-6">
         <PageHeader title="Order Details" />
+        <Button variant="secondary" onClick={refresh}>Refresh order</Button>
 
         {state.status === 'loading' && (
           <div aria-busy="true" aria-label="Loading order" className="flex flex-col gap-3">
@@ -70,6 +76,8 @@ export function OrderDetailsPage() {
               </div>
             </Card>
 
+            <TestPaymentPanel order={state.order} onConfirmed={refresh} />
+
             <Card className="flex flex-col gap-4 p-4 sm:p-5">
               <h2 className="font-display text-lg font-medium text-text-primary">Status</h2>
               <OrderStatusTimeline order={state.order} />
@@ -92,10 +100,10 @@ export function OrderDetailsPage() {
                         {item.title}
                       </Link>
                       <p className="truncate text-xs text-text-muted">
-                        {artistNames[item.sellerId] ?? 'ArtVault seller'} · Qty {item.quantity} · ₹{(item.unitPrice / 100).toFixed(0)} each
+                        {artistNames[item.sellerId] ?? 'ArtVault seller'} · Qty {item.quantity} · ₹{item.unitPrice / 100} each
                       </p>
                     </div>
-                    <p className="shrink-0 text-sm font-medium text-text-primary">₹{(item.subtotal / 100).toFixed(0)}</p>
+                    <p className="shrink-0 text-sm font-medium text-text-primary">₹{item.subtotal / 100}</p>
                   </li>
                 ))}
               </ul>
@@ -103,17 +111,18 @@ export function OrderDetailsPage() {
               <div className="flex flex-col gap-1.5 border-t border-border pt-3 text-sm">
                 <div className="flex justify-between text-text-secondary">
                   <span>Subtotal</span>
-                  <span>₹{(state.order.subtotal / 100).toFixed(0)}</span>
+                  <span>₹{state.order.subtotal / 100}</span>
                 </div>
                 <div className="flex justify-between text-text-secondary">
                   <span>Shipping</span>
-                  <span>{state.order.shippingCost === null ? 'Not recorded' : `₹${(state.order.shippingCost / 100).toFixed(0)}`}</span>
+                  <span>{state.order.shippingCost === null ? 'Not recorded' : `₹${state.order.shippingCost / 100}`}</span>
                 </div>
                 <div className="flex justify-between border-t border-border pt-2 text-base font-medium text-text-primary">
-                  <span>Total</span>
-                  <span className="text-accent-gold">₹{(state.order.total / 100).toFixed(0)}</span>
+                    <span>{state.order.pricingState === 'ITEMS_ONLY' ? 'Artwork subtotal' : 'Total'}</span>
+                  <span className="text-accent-gold">₹{state.order.total / 100}</span>
+                  </div>
                 </div>
-              </div>
+                <ReservationNotice order={state.order} />
             </Card>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -142,10 +151,7 @@ export function OrderDetailsPage() {
                 <p className="text-sm text-text-secondary">
                   Payment: <span className="text-text-primary">{state.order.paymentState ? PAYMENT_STATE_LABEL[state.order.paymentState] : 'Payment status unavailable'}</span>
                 </p>
-                <p className="text-sm text-text-secondary">
-                  Tracking:{' '}
-                  <span className="text-text-primary">{state.order.trackingState ?? 'Not available yet'}</span>
-                </p>
+                <OrderShipments key={`${state.order.id}-${revision}`} orderId={state.order.id} test={state.order.paymentMode === 'TEST'} />
               </Card>
             </div>
           </>

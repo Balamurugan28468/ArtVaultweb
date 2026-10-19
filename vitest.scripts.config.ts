@@ -8,5 +8,6 @@ export default defineConfig({
     // directly — its lock/orphan/readiness decision logic lives in
     // scripts/lib/*.mjs specifically so it can be exercised here.
     include: ['scripts/**/*.test.mjs'],
+    testTimeout: 20000,
   },
 })

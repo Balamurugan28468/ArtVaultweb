@@ -1,75 +1,120 @@
-import {
-  browserLocalPersistence,
-  createUserWithEmailAndPassword,
-  setPersistence,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-  type User,
-} from 'firebase/auth'
-import { doc, serverTimestamp, updateDoc } from 'firebase/firestore'
-import { auth, db } from '@/lib/firebase/config'
+import { createClient } from '@/lib/supabase/client'
+import type { SignInInput } from '../schemas'
+import type { AuthUser } from '../types'
 import { toAuthErrorMessage } from './authErrors'
-import { ensureUserProfile } from './ensureUserProfile'
+import { mapSupabaseUser } from './userMapper'
 
-let persistenceReady: Promise<void> | null = null
-
-function ensurePersistence(): Promise<void> {
-  // If setPersistence ever fails (rare — e.g. a restrictive browser storage
-  // policy), reset to null rather than caching the rejection forever, so
-  // the next sign-in/up attempt retries instead of permanently failing.
-  persistenceReady ??= setPersistence(auth, browserLocalPersistence).catch((error: unknown) => {
-    console.error('Failed to set auth persistence:', error)
-    persistenceReady = null
-  })
-  return persistenceReady
+export interface SignUpResult {
+  user: AuthUser
+  needsEmailConfirmation: boolean
 }
 
-export interface SignUpInput {
+export interface SignUpWithEmailInput {
   email: string
   password: string
   displayName: string
 }
 
-export async function signUpWithEmail(input: SignUpInput): Promise<User> {
-  await ensurePersistence()
+/**
+ * Register a new user using Supabase Auth.
+ *
+ * The account is created in auth.users.
+ *
+ * The existing Supabase auth trigger is responsible for provisioning
+ * public.profiles and the default CUSTOMER role.
+ */
+export async function signUpWithEmail(
+  input: SignUpWithEmailInput,
+): Promise<SignUpResult> {
+  const supabase = createClient()
+
   try {
-    const credential = await createUserWithEmailAndPassword(auth, input.email, input.password)
-    await updateProfile(credential.user, { displayName: input.displayName })
-    // A brand-new account is always CUSTOMER — never a guess, never
-    // dependent on onUserCreate having run yet — so ensureUserProfile can
-    // guarantee the canonical document exists right now, synchronously with
-    // sign-up itself, instead of waiting on an out-of-band Cloud Function.
-    await ensureUserProfile(credential.user, { role: 'CUSTOMER', displayName: input.displayName })
-    // The onUserCreate trigger, if and when it runs, never sees a display
-    // name set only via the follow-up updateProfile() call above — closing
-    // that gap is a plain, always-allowed update now that ensureUserProfile
-    // has already guaranteed the document exists.
-    await updateDoc(doc(db, 'users', credential.user.uid), {
-      displayName: input.displayName,
-      updatedAt: serverTimestamp(),
+    const { data, error } = await supabase.auth.signUp({
+      email: input.email.trim(),
+      password: input.password,
+
+      options: {
+        data: {
+          display_name: input.displayName.trim(),
+        },
+      },
     })
-    return credential.user
+
+    if (error) {
+      throw error
+    }
+
+    if (!data.user) {
+      throw new Error('Supabase did not return a user after registration.')
+    }
+
+    return {
+      user: mapSupabaseUser(data.user),
+
+      // When email confirmation is enabled Supabase returns a user but
+      // normally does not create the authenticated session until the
+      // confirmation link is completed.
+      needsEmailConfirmation: !data.session,
+    }
   } catch (error) {
     throw new Error(toAuthErrorMessage(error))
   }
 }
 
-export interface SignInInput {
-  email: string
-  password: string
-}
+/**
+ * Sign in using Supabase email/password authentication.
+ */
+export async function signInWithEmail(
+  input: SignInInput,
+): Promise<AuthUser> {
+  const supabase = createClient()
 
-export async function signInWithEmail(input: SignInInput): Promise<User> {
-  await ensurePersistence()
   try {
-    const credential = await signInWithEmailAndPassword(auth, input.email, input.password)
-    return credential.user
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: input.email.trim(),
+      password: input.password,
+    })
+
+    if (error) {
+      throw error
+    }
+
+    if (!data.user) {
+      throw new Error('Supabase did not return a user after sign in.')
+    }
+
+    return mapSupabaseUser(data.user)
   } catch (error) {
     throw new Error(toAuthErrorMessage(error))
   }
 }
 
+/**
+ * Sign out the currently authenticated Supabase user.
+ */
 export async function signOutUser(): Promise<void> {
-  await signOut(auth)
+  const supabase = createClient()
+
+  const { error } = await supabase.auth.signOut()
+
+  if (error) {
+    throw new Error(toAuthErrorMessage(error))
+  }
+}
+
+/**
+ * Sends a Supabase password-recovery email.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const supabase = createClient()
+
+  const redirectTo = `${window.location.origin}/auth/callback?next=/auth/recovery`
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo,
+  })
+
+  if (error) {
+    throw new Error(toAuthErrorMessage(error))
+  }
 }

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatCountdown, splitCountdown, useAuctionCountdown } from './useAuctionCountdown'
 
 function ts(ms: number) {
-  return { toMillis: () => ms } as unknown as import('firebase/firestore').Timestamp
+  return { toMillis: () => ms } as unknown as import('@/lib/supabase/timestamp').Timestamp
 }
 
 describe('splitCountdown', () => {

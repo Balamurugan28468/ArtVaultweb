@@ -1,5 +1,6 @@
+vi.mock('@/features/orders/api/fulfillmentRepository', () => ({ getSellerFulfillment: vi.fn().mockResolvedValue([]) }))
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Artwork } from '@/features/artwork'
@@ -119,7 +120,7 @@ describe('SellerStudioHomePage', () => {
 
     expect(screen.getByText('Sold')).toBeInTheDocument()
     expect(screen.getByText('Not tracked yet')).toBeInTheDocument()
-    expect(screen.getByText('Orders')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Seller orders' })).toBeInTheDocument()
     // "Not connected yet" legitimately appears twice — the Orders stat's
     // caption and the separate Earnings placeholder tile.
     expect(screen.getAllByText('Not connected yet').length).toBeGreaterThan(0)
@@ -135,12 +136,12 @@ describe('SellerStudioHomePage', () => {
     expect(screen.getAllByText('Not connected yet').length).toBeGreaterThan(0)
   })
 
-  it('shows an honest "seller order management isn\'t connected yet" note rather than a fake orders list', () => {
+  it('connects the incoming paid orders section without a fake orders list', () => {
     useSellerStatus.mockReturnValue({ status: 'approved', application: { businessName: 'Alice Gallery' } })
     useSellerArtworks.mockReturnValue({ status: 'loaded', artworks: [] })
     renderPage()
 
-    expect(screen.getByText(/seller order management isn't connected yet/i)).toBeInTheDocument()
+    expect(screen.getByText('Incoming paid orders')).toBeInTheDocument()
   })
 
   it('shows an empty state for Recent artworks when there are none yet', () => {

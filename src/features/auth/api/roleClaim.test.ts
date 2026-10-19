@@ -1,51 +1,216 @@
-import type { User } from 'firebase/auth'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AuthUser } from '../types'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
-const getIdTokenResult = vi.fn()
+const { rpc } = vi.hoisted(() => ({
+  rpc: vi.fn(),
+}))
 
-vi.mock('firebase/auth', () => ({ getIdTokenResult: (...args: unknown[]) => getIdTokenResult(...args) }))
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    rpc,
+  }),
+}))
 
-const { getCurrentRoleClaim, waitForRoleClaim } = await import('./roleClaim')
+import {
+  getCurrentRoleClaim,
+  waitForRoleClaim,
+} from './roleClaim'
 
-const fakeUser = {} as User
+const fakeUser: AuthUser = {
+  id: 'user-1',
+  uid: 'user-1',
+  email: 'alice@example.com',
+  displayName: 'Alice',
+  photoURL: null,
+  phoneNumber: null,
+  emailVerified: true,
+  createdAt: '2026-09-19T00:00:00.000Z',
+}
 
 beforeEach(() => {
-  getIdTokenResult.mockReset()
+  rpc.mockReset()
 })
 
 describe('getCurrentRoleClaim', () => {
-  it('returns the role when it is a recognized value', async () => {
-    getIdTokenResult.mockResolvedValueOnce({ claims: { role: 'CUSTOMER' } })
-    await expect(getCurrentRoleClaim(fakeUser)).resolves.toBe('CUSTOMER')
+  it('returns the role when the RPC returns a recognized role', async () => {
+    rpc.mockResolvedValueOnce({
+      data: 'CUSTOMER',
+      error: null,
+    })
+
+    await expect(
+      getCurrentRoleClaim(fakeUser),
+    ).resolves.toBe('CUSTOMER')
+
+    expect(rpc).toHaveBeenCalledTimes(1)
+
+    expect(rpc).toHaveBeenCalledWith(
+      'current_app_role',
+    )
   })
 
-  it('returns null when the claim is missing or unrecognized', async () => {
-    getIdTokenResult.mockResolvedValueOnce({ claims: {} })
-    await expect(getCurrentRoleClaim(fakeUser)).resolves.toBeNull()
+  it('normalizes a lowercase role returned by the RPC', async () => {
+    rpc.mockResolvedValueOnce({
+      data: 'seller',
+      error: null,
+    })
+
+    await expect(
+      getCurrentRoleClaim(fakeUser),
+    ).resolves.toBe('SELLER')
+  })
+
+  it('returns null when the RPC value is missing', async () => {
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: null,
+    })
+
+    await expect(
+      getCurrentRoleClaim(fakeUser),
+    ).resolves.toBeNull()
+  })
+
+  it('returns null when the RPC value is not a recognized role', async () => {
+    rpc.mockResolvedValueOnce({
+      data: 'INVALID_ROLE',
+      error: null,
+    })
+
+    await expect(
+      getCurrentRoleClaim(fakeUser),
+    ).resolves.toBeNull()
+  })
+
+  it('throws when Supabase returns an RPC error', async () => {
+    const error = {
+      message: 'RPC failed',
+      code: '500',
+    }
+
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error,
+    })
+
+    await expect(
+      getCurrentRoleClaim(fakeUser),
+    ).rejects.toBe(error)
   })
 })
 
 describe('waitForRoleClaim', () => {
-  it('retries with a forced refresh until the claim appears', async () => {
-    getIdTokenResult
-      .mockResolvedValueOnce({ claims: {} })
-      .mockResolvedValueOnce({ claims: {} })
-      .mockResolvedValueOnce({ claims: { role: 'CUSTOMER' } })
+  it('retries until the role becomes available', async () => {
+    rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: 'CUSTOMER',
+        error: null,
+      })
 
-    const role = await waitForRoleClaim(fakeUser, { retries: 5, delayMs: 0 })
+    const role = await waitForRoleClaim(
+      fakeUser,
+      {
+        retries: 5,
+        delayMs: 0,
+      },
+    )
 
     expect(role).toBe('CUSTOMER')
-    expect(getIdTokenResult).toHaveBeenCalledTimes(3)
-    expect(getIdTokenResult).toHaveBeenNthCalledWith(1, fakeUser, false)
-    expect(getIdTokenResult).toHaveBeenNthCalledWith(2, fakeUser, true)
+    expect(rpc).toHaveBeenCalledTimes(3)
+
+    expect(rpc).toHaveBeenNthCalledWith(
+      1,
+      'current_app_role',
+    )
+
+    expect(rpc).toHaveBeenNthCalledWith(
+      2,
+      'current_app_role',
+    )
+
+    expect(rpc).toHaveBeenNthCalledWith(
+      3,
+      'current_app_role',
+    )
   })
 
-  it('gives up and returns null once the retry budget is exhausted', async () => {
-    getIdTokenResult.mockResolvedValue({ claims: {} })
+  it('returns null once the retry budget is exhausted', async () => {
+    rpc.mockResolvedValue({
+      data: null,
+      error: null,
+    })
 
-    const role = await waitForRoleClaim(fakeUser, { retries: 2, delayMs: 0 })
+    const role = await waitForRoleClaim(
+      fakeUser,
+      {
+        retries: 2,
+        delayMs: 0,
+      },
+    )
 
     expect(role).toBeNull()
-    expect(getIdTokenResult).toHaveBeenCalledTimes(3)
+    expect(rpc).toHaveBeenCalledTimes(3)
+  })
+
+  it('retries transient RPC errors and returns the role if a later attempt succeeds', async () => {
+    rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          message: 'Temporary failure',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: 'SELLER',
+        error: null,
+      })
+
+    const role = await waitForRoleClaim(
+      fakeUser,
+      {
+        retries: 2,
+        delayMs: 0,
+      },
+    )
+
+    expect(role).toBe('SELLER')
+    expect(rpc).toHaveBeenCalledTimes(2)
+  })
+
+  it('throws the last RPC error when all retries fail', async () => {
+    const error = {
+      message: 'Role lookup failed',
+    }
+
+    rpc.mockResolvedValue({
+      data: null,
+      error,
+    })
+
+    await expect(
+      waitForRoleClaim(
+        fakeUser,
+        {
+          retries: 2,
+          delayMs: 0,
+        },
+      ),
+    ).rejects.toBe(error)
+
+    expect(rpc).toHaveBeenCalledTimes(3)
   })
 })

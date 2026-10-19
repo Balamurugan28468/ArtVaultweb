@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { deriveAuctionStatus, minimumNextBid } from './types'
 
 function ts(ms: number) {
-  return { toMillis: () => ms } as unknown as import('firebase/firestore').Timestamp
+  return { toMillis: () => ms } as unknown as import('@/lib/supabase/timestamp').Timestamp
 }
 
 describe('deriveAuctionStatus', () => {

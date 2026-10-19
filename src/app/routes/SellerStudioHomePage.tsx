@@ -1,7 +1,10 @@
-import { FileClock, ImageOff, Package, Plus, ShoppingBag, Wallet } from 'lucide-react'
+import { SellerOrders } from '@/features/orders/components/SellerOrders'
+import { SellerAuctionLots } from '@/features/auctions'
+import { FileClock, ImageOff, Package, Plus, Wallet } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 import type { Artwork } from '@/features/artwork'
+import { availableInventory } from '@/features/inventory/stock'
 import { ConfirmRemoveFromSaleModal, useArtworkLifecycleActions, useSellerArtworks } from '@/features/artwork'
 import { SellerStudioShell, useSellerStatus } from '@/features/seller-studio'
 import { Badge, type BadgeTone, Button, Card, EmptyState, ErrorState, Skeleton, useToast } from '@/shared/ui'
@@ -74,7 +77,7 @@ function InventoryOverviewRow({ artwork }: { artwork: Artwork }) {
       <Link to={`/seller-studio/artworks/${artwork.id}/edit`} className="flex min-w-0 flex-1 items-center gap-2 hover:underline">
         <span className="truncate text-text-primary">{artwork.title}</span>
         <Badge tone="warning" size="sm">
-          {artwork.inventoryCount} left
+          {availableInventory(artwork)} left
         </Badge>
       </Link>
       {canRemoveFromSale && (
@@ -93,20 +96,7 @@ function InventoryOverviewRow({ artwork }: { artwork: Artwork }) {
   )
 }
 
-/**
- * The real Seller Studio landing page (UI-03) — replaces the UI-01/early
- * placeholder that was just three links. Every number here is computed
- * live from the seller's own real artworks (`useSellerArtworks`, the same
- * one shared Firestore listener My Artworks already uses) — never
- * fabricated. "Sold" and "Orders" stay at a real, honest 0 with a plain
- * caption explaining why: no `SOLD` artwork status and no seller-scoped
- * order query exist anywhere in this codebase yet (a buyer may only read
- * their *own* orders — see firestore.rules' `orders/{orderId}` rule from
- * UI-02 — there is no rule granting a seller read access to orders
- * containing their items). Earnings is the one stat explicitly called for
- * as a placeholder-only tile when no real data is connected — stated the
- * same honest way, never a fabricated currency figure.
- */
+/** Seller artwork dashboard and independently loaded, seller-scoped fulfillment. */
 export function SellerStudioHomePage() {
   const statusState = useSellerStatus()
   const artworksState = useSellerArtworks()
@@ -116,8 +106,8 @@ export function SellerStudioHomePage() {
     const { artworks } = artworksState
     const byStatus = (status: Artwork['status']) => artworks.filter((a) => a.status === status).length
     const publishedArtworks = artworks.filter((a) => a.status === 'PUBLISHED')
-    const unitsInStock = publishedArtworks.reduce((sum, a) => sum + a.inventoryCount, 0)
-    const lowStock = publishedArtworks.filter((a) => a.inventoryCount <= LOW_STOCK_THRESHOLD)
+    const unitsInStock = publishedArtworks.reduce((sum, a) => sum + availableInventory(a), 0)
+    const lowStock = publishedArtworks.filter((a) => availableInventory(a) <= LOW_STOCK_THRESHOLD)
     return {
       total: artworks.length,
       drafts: byStatus('DRAFT'),
@@ -178,7 +168,6 @@ export function SellerStudioHomePage() {
             <StatCard label="Submitted" value={stats.submitted} />
             <StatCard label="Published" value={stats.published} />
             <StatCard label="Sold" value={0} caption="Not tracked yet" />
-            <StatCard label="Orders" value={0} caption="Not connected yet" />
             <Card className="flex flex-col gap-1 p-3 sm:p-4">
               <span className="text-xs font-medium text-text-muted">Earnings</span>
               <span className="flex items-center gap-1.5 text-sm text-text-muted">
@@ -254,13 +243,6 @@ export function SellerStudioHomePage() {
                 <p className="text-sm text-text-muted">No published artwork is running low on stock.</p>
               )}
 
-              {/* Seller Orders — honest, not fabricated: no rule anywhere
-                  grants a seller read access to orders containing their
-                  items yet (see this component's own file comment). */}
-              <div className="flex items-start gap-2 border-t border-border pt-3 text-sm text-text-muted">
-                <ShoppingBag aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>Seller order management isn't connected yet — orders containing your artworks will appear here once it is.</p>
-              </div>
             </Card>
           </div>
 
@@ -286,6 +268,12 @@ export function SellerStudioHomePage() {
               </Button>
             </Link>
           </Card>
+        </>
+      )}
+      {statusState.status === 'approved' && (
+        <>
+          <SellerOrders />
+          <SellerAuctionLots />
         </>
       )}
     </SellerStudioShell>

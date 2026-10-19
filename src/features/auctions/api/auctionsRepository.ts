@@ -1,70 +1,74 @@
-import { collection, doc, getDoc, getDocs, orderBy, query, type Timestamp } from 'firebase/firestore'
-import { db } from '@/lib/firebase/config'
-import type { Auction, AuctionError } from '../types'
+import { dataError, rpc } from '@/lib/supabase/data'
+import { timestamp } from '@/lib/supabase/timestamp'
+import type {
+  AdminAuctionRow,
+  Auction,
+  AuctionLotStatus,
+  BidHistoryItem,
+  PlaceBidResult,
+  SellerAuctionItem,
+} from '../types'
 
-// A weekly-curated auction catalog is expected to stay small — an
-// unbounded per-status query (see fetchAllAuctions) would not scale to a
-// large open marketplace, but nothing in this codebase writes this
-// collection yet (see firestore.rules), so there is no real data volume to
-// paginate around today. Bounded defensively rather than truly unbounded.
 const MAX_AUCTIONS = 200
 
-function isFirestoreErrorLike(error: unknown): error is { code: string } {
-  return typeof error === 'object' && error !== null && 'code' in error
-}
+export const toAuctionError = dataError
 
-export function toAuctionError(error: unknown): AuctionError {
-  if (isFirestoreErrorLike(error)) {
-    if (error.code === 'permission-denied') {
-      return { code: 'permission-denied', message: 'You do not have permission to view that auction.' }
-    }
-    if (error.code === 'unavailable' || error.code === 'deadline-exceeded') {
-      return { code: 'network', message: 'Network unavailable. Check your connection and try again.' }
-    }
-  }
-  return { code: 'unknown', message: 'Something went wrong. Please try again.' }
-}
-
-/** Defensive against a malformed/partial document the same way mapToArtwork/mapToOrder are — a client never assumes every field is present. */
+/** Defensive against a malformed/partial document the same way mapToArtwork/mapToOrder are. */
 export function mapToAuction(id: string, data: Record<string, unknown>): Auction | null {
-  if (typeof data.artworkId !== 'string' || !data.startAt || !data.endAt) return null
+  const artworkId = typeof data.artwork_id === 'string' ? data.artwork_id : data.artworkId
+  const start = typeof data.starts_at === 'string' ? data.starts_at : data.startAt
+  const end = typeof data.ends_at === 'string' ? data.ends_at : data.endAt
+  if (typeof artworkId !== 'string' || !start || !end) return null
+
+  const winnerUid =
+    typeof data.winner_bidder_id === 'string'
+      ? data.winner_bidder_id
+      : typeof data.winner_uid === 'string'
+        ? data.winner_uid
+        : typeof data.winnerUid === 'string'
+          ? data.winnerUid
+          : null
+
+  const winningBidAmount =
+    typeof data.winning_bid_minor === 'number'
+      ? Number(data.winning_bid_minor)
+      : typeof (data.winning_bid_amount ?? data.winningBidAmount) === 'number'
+        ? Number(data.winning_bid_amount ?? data.winningBidAmount)
+        : null
+
+  const paymentWindowExpiresAt =
+    typeof data.payment_window_expires_at === 'string'
+      ? timestamp(data.payment_window_expires_at)
+      : null
+
   return {
     id,
-    artworkId: data.artworkId,
-    sellerId: typeof data.sellerId === 'string' ? data.sellerId : '',
-    startAt: data.startAt as Timestamp,
-    endAt: data.endAt as Timestamp,
-    startingBid: typeof data.startingBid === 'number' ? data.startingBid : 0,
-    bidIncrement: typeof data.bidIncrement === 'number' ? data.bidIncrement : 0,
-    currentHighBid: typeof data.currentHighBid === 'number' ? data.currentHighBid : null,
-    bidCount: typeof data.bidCount === 'number' ? data.bidCount : 0,
-    winnerUid: typeof data.winnerUid === 'string' ? data.winnerUid : null,
-    winningBidAmount: typeof data.winningBidAmount === 'number' ? data.winningBidAmount : null,
-    createdAt: data.createdAt as Auction['createdAt'],
-    updatedAt: data.updatedAt as Auction['updatedAt'],
+    auctionItemId: typeof data.auction_item_id === 'string' ? data.auction_item_id : undefined,
+    artworkId,
+    sellerId: typeof data.seller_id === 'string' ? data.seller_id : typeof data.sellerId === 'string' ? data.sellerId : '',
+    startAt: typeof start === 'string' ? timestamp(start) : start as Auction['startAt'],
+    endAt: typeof end === 'string' ? timestamp(end) : end as Auction['endAt'],
+    startingBid: Number(data.starting_bid_minor ?? data.startingBid ?? 0),
+    bidIncrement: Number(data.bid_increment_minor ?? data.bidIncrement ?? 0),
+    currentHighBid: typeof (data.current_high_bid ?? data.currentHighBid) === 'number' ? Number(data.current_high_bid ?? data.currentHighBid) : null,
+    bidCount: Number(data.bid_count ?? data.bidCount ?? 0),
+    winnerUid,
+    winningBidAmount,
+    lotStatus: (data.lot_status as AuctionLotStatus) ?? 'OPEN',
+    paymentWindowExpiresAt,
+    createdAt: typeof data.created_at === 'string' ? timestamp(data.created_at) : data.createdAt as Auction['createdAt'],
+    updatedAt: typeof data.updated_at === 'string' ? timestamp(data.updated_at) : data.updatedAt as Auction['updatedAt'],
   }
-}
-
-function auctionsCollection() {
-  return collection(db, 'auctions')
 }
 
 /**
- * Every auction, soonest-starting first — public (firestore.rules grants
- * `allow read: if true` on `auctions/{auctionId}`, same posture as a
- * PUBLISHED artwork), one-shot (not a listener; a landing page bucketed
- * into Upcoming/Live/Past by real time doesn't need a live subscription any
- * more than Marketplace's own paginated read does). Genuinely returns an
- * empty list today for every real deployment, since nothing writes this
- * collection yet (see AuctionsPage's own honest empty states per section) —
- * that is the correct, honest result, not a bug.
+ * Every auction, soonest-starting first.
  */
 export async function fetchAllAuctions(): Promise<Auction[]> {
   try {
-    const q = query(auctionsCollection(), orderBy('startAt', 'asc'))
-    const snapshot = await getDocs(q)
-    return snapshot.docs
-      .map((docSnapshot) => mapToAuction(docSnapshot.id, docSnapshot.data()))
+    const rows = (await rpc<Record<string, unknown>[]>('get_public_auctions')) ?? []
+    return rows
+      .map((row) => mapToAuction(String(row.id), row))
       .filter((auction): auction is Auction => auction !== null)
       .slice(0, MAX_AUCTIONS)
   } catch (error) {
@@ -73,16 +77,189 @@ export async function fetchAllAuctions(): Promise<Auction[]> {
 }
 
 /**
- * One auction by id. `permission-denied` collapses to `null` for the same
- * reason `getArtwork`/`getOrder` do — though auctions are publicly
- * readable today, so this only matters if that rule narrows in the future.
+ * One auction by id.
  */
 export async function getAuction(auctionId: string): Promise<Auction | null> {
   try {
-    const snapshot = await getDoc(doc(db, 'auctions', auctionId))
-    return snapshot.exists() ? mapToAuction(snapshot.id, snapshot.data()) : null
+    const auctions = await fetchAllAuctions()
+    return auctions.find((auction) => auction.id === auctionId) ?? null
   } catch (error) {
-    if (isFirestoreErrorLike(error) && error.code === 'permission-denied') return null
+    if (typeof error === 'object' && error !== null && 'code' in error && String(error.code) === 'permission-denied') return null
+    throw toAuctionError(error)
+  }
+}
+
+/**
+ * Places a bid via the server-authoritative RPC.
+ */
+export async function placeBid(
+  auctionItemId: string,
+  amountMinor: number,
+  idempotencyKey: string = crypto.randomUUID()
+): Promise<PlaceBidResult> {
+  try {
+    const result = await rpc<string>('place_bid', {
+      p_auction_item_id: auctionItemId,
+      p_amount_minor: amountMinor,
+      p_idempotency_key: idempotencyKey,
+    })
+
+    if (result === 'ok') {
+      return { success: true }
+    }
+    return { success: false, error: result ?? 'unknown' }
+  } catch (error) {
+    throw toAuctionError(error)
+  }
+}
+
+/**
+ * Fetches public bid amounts and timestamps for an auction lot.
+ */
+export async function fetchAuctionBidHistory(auctionItemId: string): Promise<BidHistoryItem[]> {
+  try {
+    const rows = (await rpc<Record<string, unknown>[]>('get_auction_bid_history', {
+      p_auction_item_id: auctionItemId,
+    })) ?? []
+
+    return rows.map((r) => ({
+      bidId: String(r.bid_id),
+      amountMinor: Number(r.amount_minor),
+      placedAt: timestamp(String(r.placed_at)),
+    }))
+  } catch (error) {
+    throw toAuctionError(error)
+  }
+}
+
+/**
+ * Creates an order for the winning bidder to settle the auction lot.
+ */
+export async function createAuctionWinnerOrder(auctionItemId: string): Promise<string> {
+  try {
+    const orderId = await rpc<string>('create_auction_winner_order', {
+      p_auction_item_id: auctionItemId,
+    })
+    if (!orderId) {
+      throw new Error('Failed to create winner order')
+    }
+    return orderId
+  } catch (error) {
+    throw toAuctionError(error)
+  }
+}
+
+/**
+ * Fetches auction items for the current authenticated seller.
+ */
+export async function fetchSellerAuctionItems(): Promise<SellerAuctionItem[]> {
+  try {
+    const rows = (await rpc<Record<string, unknown>[]>('get_seller_auction_items')) ?? []
+    return rows.map((r) => ({
+      id: String(r.id),
+      auctionId: String(r.auction_id),
+      artworkId: String(r.artwork_id),
+      startsAt: timestamp(String(r.starts_at)),
+      endsAt: timestamp(String(r.ends_at)),
+      auctionStatus: String(r.auction_status),
+      lotStatus: r.lot_status as AuctionLotStatus,
+      startingBidMinor: Number(r.starting_bid_minor),
+      bidIncrementMinor: Number(r.bid_increment_minor),
+      currentHighBid: Number(r.current_high_bid),
+      bidCount: Number(r.bid_count),
+      winningBidMinor: r.winning_bid_minor != null ? Number(r.winning_bid_minor) : null,
+      paymentWindowExpiresAt: r.payment_window_expires_at ? timestamp(String(r.payment_window_expires_at)) : null,
+      winnerOrderId: r.winner_order_id ? String(r.winner_order_id) : null,
+      createdAt: timestamp(String(r.created_at)),
+    }))
+  } catch (error) {
+    throw toAuctionError(error)
+  }
+}
+
+/**
+ * Admin: Fetches all auctions and lots.
+ */
+export async function fetchAdminAuctions(): Promise<AdminAuctionRow[]> {
+  try {
+    const rows = (await rpc<Record<string, unknown>[]>('get_admin_auctions')) ?? []
+    return rows.map((r) => ({
+      auctionId: String(r.auction_id),
+      auctionItemId: String(r.auction_item_id),
+      artworkId: String(r.artwork_id),
+      sellerId: String(r.seller_id),
+      startsAt: timestamp(String(r.starts_at)),
+      endsAt: timestamp(String(r.ends_at)),
+      auctionStatus: String(r.auction_status),
+      lotStatus: r.lot_status as AuctionLotStatus,
+      startingBidMinor: Number(r.starting_bid_minor),
+      bidIncrementMinor: Number(r.bid_increment_minor),
+      currentHighBid: Number(r.current_high_bid),
+      bidCount: Number(r.bid_count),
+      winnerBidderId: r.winner_bidder_id ? String(r.winner_bidder_id) : null,
+      winningBidMinor: r.winning_bid_minor != null ? Number(r.winning_bid_minor) : null,
+      paymentWindowExpiresAt: r.payment_window_expires_at ? timestamp(String(r.payment_window_expires_at)) : null,
+      winnerOrderId: r.winner_order_id ? String(r.winner_order_id) : null,
+      createdAt: timestamp(String(r.created_at)),
+      updatedAt: timestamp(String(r.updated_at)),
+    }))
+  } catch (error) {
+    throw toAuctionError(error)
+  }
+}
+
+/**
+ * Admin: Schedules a new auction lot.
+ */
+export async function scheduleAuctionLot(input: {
+  artworkId: string
+  startsAt: string
+  endsAt: string
+  startingBidMinor: number
+  bidIncrementMinor: number
+  paymentWindowHours?: number
+}): Promise<string> {
+  try {
+    const lotId = await rpc<string>('schedule_auction_lot', {
+      p_artwork_id: input.artworkId,
+      p_starts_at: input.startsAt,
+      p_ends_at: input.endsAt,
+      p_starting_bid_minor: input.startingBidMinor,
+      p_bid_increment_minor: input.bidIncrementMinor,
+      p_payment_window_hours: input.paymentWindowHours ?? 24,
+    })
+    if (!lotId) {
+      throw new Error('Failed to schedule auction lot')
+    }
+    return lotId
+  } catch (error) {
+    throw toAuctionError(error)
+  }
+}
+
+/**
+ * Admin: Cancels a DRAFT or SCHEDULED auction.
+ */
+export async function cancelAuction(auctionId: string, reason?: string): Promise<void> {
+  try {
+    await rpc('cancel_auction', {
+      p_auction_id: auctionId,
+      p_reason: reason ?? 'Admin cancelled',
+    })
+  } catch (error) {
+    throw toAuctionError(error)
+  }
+}
+
+/**
+ * Admin: Manually activates a SCHEDULED auction to LIVE.
+ */
+export async function activateAuction(auctionId: string): Promise<void> {
+  try {
+    await rpc('activate_auction', {
+      p_auction_id: auctionId,
+    })
+  } catch (error) {
     throw toAuctionError(error)
   }
 }

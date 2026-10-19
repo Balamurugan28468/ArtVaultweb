@@ -1,6 +1,7 @@
+vi.mock('@/features/orders/api/fulfillmentRepository', () => ({ getOrderShipments: vi.fn().mockResolvedValue([]) }))
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { describe, expect, it, vi } from 'vitest'
 import type { Order, OrderItem } from '@/features/orders'
 
@@ -69,6 +70,11 @@ function renderPage(orderId = 'order123456') {
 }
 
 describe('OrderDetailsPage', () => {
+  it('renders the resolved order-time thumbnail', () => {
+    useOrder.mockReturnValue({ status: 'loaded', order: buildOrder(), items: [buildItem({ imageUrl: 'https://storage.example/signed-snapshot' })] })
+    const { container } = renderPage()
+    expect(container.querySelector('img')).toHaveAttribute('src', 'https://storage.example/signed-snapshot')
+  })
   it('shows a loading state', () => {
     useOrder.mockReturnValue({ status: 'loading' })
     renderPage()

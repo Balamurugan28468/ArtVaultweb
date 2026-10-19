@@ -10,7 +10,7 @@ import { isOrderError, type OrderState } from '../types'
  * does for a private artwork — a guessed/forged order id belonging to
  * another buyer must stay indistinguishable from one that never existed.
  */
-export function useOrder(orderId: string | undefined): OrderState {
+export function useOrder(orderId: string | undefined, revision = 0): OrderState {
   const [state, setState] = useState<OrderState>({ status: 'loading' })
 
   useEffect(() => {
@@ -42,7 +42,7 @@ export function useOrder(orderId: string | undefined): OrderState {
     return () => {
       active = false
     }
-  }, [orderId])
+  }, [orderId, revision])
 
   return state
 }

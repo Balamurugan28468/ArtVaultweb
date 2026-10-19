@@ -1,0 +1,6 @@
+project_id = "artvault"
+
+# Webhooks have no Supabase JWT. The handler verifies their raw-body HMAC;
+# all buyer operations independently verify the bearer token with Auth.
+[functions.razorpay-test]
+verify_jwt = false

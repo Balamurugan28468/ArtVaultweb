@@ -11,6 +11,7 @@ export function mapToArtworkAnalysis(id: string, data: Record<string, unknown>):
   if (typeof artworkId !== 'string') return null
   const notableElements = data.notable_elements ?? data.notableElements
   return {
+    analysisMethod: data.analysis_method === 'HEURISTIC' ? 'HEURISTIC' : data.analysis_method === 'VISION' ? 'VISION' : 'LEGACY',
     id,
     artworkId,
     artisticScorePercent: typeof (data.artistic_score_percent ?? data.artisticScorePercent) === 'number' ? Number(data.artistic_score_percent ?? data.artisticScorePercent) : null,
@@ -29,12 +30,7 @@ export function mapToArtworkAnalysis(id: string, data: Record<string, unknown>):
   }
 }
 
-/**
- * One artwork's real analysis document, if one exists — `null` for every
- * artwork today, since no trusted AI gateway has ever written to
- * `artworkAnalyses` (see firestore.rules and this feature's own types.ts
- * header comment). That is the honest, correct result, not a bug.
- */
+/** One RLS-protected analysis, or null when no supported result exists. */
 export async function getArtworkAnalysis(artworkId: string): Promise<ArtworkAnalysis | null> {
   try {
     const row = await result(createClient().from('artwork_analyses').select('*').eq('artwork_id', artworkId).maybeSingle())

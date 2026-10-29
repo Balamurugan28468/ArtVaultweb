@@ -34,7 +34,7 @@ function buildAuction(overrides: Partial<Auction> = {}): Auction {
     bidIncrement: 10000,
     currentHighBid: null,
     bidCount: 0,
-    winnerUid: null,
+    isWinner: false,
     winningBidAmount: null,
     createdAt: ts(0),
     updatedAt: ts(0),

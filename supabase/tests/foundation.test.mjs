@@ -2,15 +2,20 @@ import assert from 'node:assert/strict'
 import { before, after, test } from 'node:test'
 import { readFile, readdir } from 'node:fs/promises'
 import { PGlite } from '@electric-sql/pglite'
+import { registerWeeklySelectionTests } from './weekly-selection.cases.mjs'
+import { registerAssistantRecommendationTests } from './assistant-recommendations.cases.mjs'
+import { pendingMigrations, verifyMigrationRollback, registerModule09Tests } from './module09-contracts.mjs'
 
 // A fresh in-memory PostgreSQL instance only. No URL, env loading or network DB.
 const db = new PGlite()
+const rollbackEvidence = new Set()
 const id = (n) => '00000000-0000-4000-8000-' + n.toString(16).padStart(12, '0')
 const [buyer, other, seller, seller2, admin, superAdmin] = [1, 2, 3, 4, 5, 6].map(id)
 const category = id(10), art = id(11), draft = id(12), art2 = id(13)
 const order = id(20), item = id(21), item2 = id(22), image = id(23), ar = id(24)
 const cart = id(30), otherCart = id(31), address = id(32), conversation = id(40)
 const publicTables = ["profiles","seller_profiles","artist_profiles","categories","artworks","artwork_images","inventory","carts","cart_items","wishlist_items","likes","follows","addresses","orders","order_addresses","order_items","inventory_reservations","order_events","payments","payment_events","refunds","shipments","shipment_items","auctions","auction_items","bids","notifications","admin_logs","artwork_ar_assets","artwork_analyses","ai_conversations","ai_messages","artwork_tags"]
+publicTables.push('auction_realtime_signals')
 const path = seller + '/' + art + '/' + image
 
 async function session(uid, run, role = 'authenticated', claims = {}) {
@@ -34,7 +39,7 @@ before(async () => {
     grant usage on schema public to anon, authenticated, service_role;
     alter default privileges in schema public grant all on tables to anon, authenticated;
     create schema auth;
-    create table auth.users(id uuid primary key, raw_user_meta_data jsonb default '{}');
+    create table auth.users(id uuid primary key, raw_user_meta_data jsonb default '{}',email_confirmed_at timestamptz default now());
     create function auth.uid() returns uuid language sql stable as
       $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
     grant usage on schema auth to anon, authenticated, service_role;
@@ -45,10 +50,17 @@ before(async () => {
     alter table storage.objects enable row level security;
     grant usage on schema storage to anon, authenticated, service_role;
     grant all on storage.objects to anon, authenticated, service_role;
+    -- Real publication catalog/DDL, not a mocked publication security check.
+    -- PGlite has no Realtime gateway; WebSocket delivery remains a hosted check.
+    create publication supabase_realtime;
   `)
   const directory = new URL('../migrations/', import.meta.url)
   for (const file of (await readdir(directory)).filter(name => name.endsWith('.sql')).sort()) {
     let sql = await readFile(new URL(file, directory), 'utf8')
+    if (file === '20261020153833_auction_e2e_lifecycle.sql') {
+      // Exercise removal when a prior deployment already published private lots.
+      await db.exec('alter publication supabase_realtime add table public.auction_items;')
+    }
     if (file === '20261011075254_automatic_reservation_expiry.sql') {
       // PGlite cannot load background-worker extensions. Stub ONLY Cron registration;
       // run the real worker, wrapper, grants and schedule SQL. Hosted runs prove scheduling.
@@ -60,6 +72,10 @@ before(async () => {
           on conflict(jobname) do update set schedule=$2,command=$3 returning 1::bigint;
         $$;`)
       sql = sql.replace('create extension if not exists pg_cron with schema pg_catalog;', '')
+    }
+    if (pendingMigrations.includes(file)) {
+      await verifyMigrationRollback(db, sql)
+      rollbackEvidence.add(file)
     }
     await db.exec(sql)
   }
@@ -102,6 +118,9 @@ before(async () => {
   `)
 })
 after(async () => { await db.close() })
+registerWeeklySelectionTests({db,rows,buyer,other,seller,seller2,admin,category})
+registerAssistantRecommendationTests({db,rows,buyer,other,seller,seller2,admin,category,conversation})
+registerModule09Tests({db,test,rollbackEvidence})
 
 // Isolated live-shaped fixtures only: no provider request or hosted data mutation.
 async function fulfillmentSession(run) {
@@ -183,11 +202,11 @@ test('refund review prevents fulfillment without automatic restocking', () => fu
 }))
 test('anonymous callers cannot execute fulfillment RPC', () => session(null,() => denied("select public.advance_seller_fulfillment($1,'PROCESS')",[order]),'anon'))
 
-test('Cron registers two active bounded minute jobs using the shared private workers', async () => {
+test('Cron preserves lifecycle jobs and separately registers weekly preparation', async () => {
   assert.deepEqual(await rows('select jobname,schedule,command,active from cron.job order by jobname'), [
     {
       active: true,
-      command: 'select private.close_auction_lots(50);',
+      command: 'select private.run_auction_lifecycle(50);',
       jobname: 'artvault-close-auction-lots',
       schedule: '* * * * *',
     },
@@ -197,6 +216,7 @@ test('Cron registers two active bounded minute jobs using the shared private wor
       jobname: 'artvault-expire-checkout-reservations',
       schedule: '* * * * *',
     },
+    {active:true,command:'select private.prepare_weekly_selections();',jobname:'artvault-prepare-weekly-selection',schedule:'*/10 * * * *'},
   ])
   assert.equal((await rows('select private.expire_checkout_reservations(100) as n'))[0].n, 0)
   assert.equal((await rows('select private.close_auction_lots(50) as n'))[0].n, 0)
@@ -456,12 +476,12 @@ test('seller stock cannot be reduced below reservations or edit another seller i
  await session(seller,()=>denied('select public.set_artwork_inventory($1,5)',[art2]))
 })
 
-test('all migrations execute and all 36 application tables have RLS and UUID primary keys', async () => {
+test('all migrations execute and all application tables have RLS and UUID primary keys', async () => {
   const tables = await rows("select c.relname,c.relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','private') and c.relkind='r'")
-  assert.equal(tables.length, publicTables.length + 3)
+  assert.equal(tables.length, publicTables.length + 9)
   assert.ok(tables.every(t => t.relrowsecurity))
   const keys = await rows("select t.typname from pg_constraint c join pg_class r on r.oid=c.conrelid join pg_namespace n on n.oid=r.relnamespace join pg_attribute a on a.attrelid=r.oid and a.attnum=c.conkey[1] join pg_type t on t.oid=a.atttypid where c.contype='p' and n.nspname in ('public','private')")
-  assert.equal(keys.length, 36)
+  assert.equal(keys.length, tables.length)
   assert.ok(keys.every(k => k.typname === 'uuid'))
 })
 test('signup ignores forged role metadata and atomically creates CUSTOMER profile', async () => {
@@ -773,10 +793,16 @@ test('Module 5: admin can schedule, activate, and cancel auctions; non-admin den
       lotId = res[0].id
       assert.ok(lotId)
 
-      const [lotRow] = await rows('select auction_id from public.auction_items where id = $1', [lotId])
+      const [lotRow] = (await rows('select * from public.get_admin_auctions()')).filter(row => row.auction_item_id === lotId)
       auctionId = lotRow.auction_id
 
-      // Admin activates
+      // Admin cannot activate before the server-time window.
+      await db.exec('savepoint premature_activation')
+      await assert.rejects(db.query('select public.activate_auction($1)', [auctionId]), error => error.code === '22023')
+      await db.exec('rollback to savepoint premature_activation; reset role')
+      await db.query("update public.auctions set starts_at=clock_timestamp()-interval '1 minute' where id=$1", [auctionId])
+      await db.exec('set local role authenticated')
+      // A due auction can still be activated by an authorized admin.
       await db.query('select public.activate_auction($1)', [auctionId])
       const [auction] = await rows('select status from public.auctions where id = $1', [auctionId])
       assert.equal(auction.status, 'LIVE')
@@ -862,6 +888,281 @@ test('Module 5: place_bid enforces rules and protects integrity', async () => {
   }
 })
 
+// Complete auction/payment fixtures live ONLY in this in-memory database.
+// No hosted Auth user, auction, order, payment or provider is contacted.
+async function auctionIntegrationFixture(run) {
+  await db.exec('begin')
+  const as = async (uid, operation, role = 'authenticated') => {
+    await db.exec('set local role ' + role)
+    await db.query("select set_config('request.jwt.claim.sub',$1,true)", [uid ?? ''])
+    try { return await operation() } finally { await db.exec('reset role') }
+  }
+  const rejected = async (uid, sql, params = [], code = '42501', role = 'authenticated') => as(uid, async () => {
+    await db.exec('savepoint expected_rejection')
+    try { await assert.rejects(db.query(sql,params), error => error.code === code) }
+    finally { await db.exec('rollback to savepoint expected_rejection; release savepoint expected_rejection') }
+  }, role)
+  try {
+    const [artwork] = await rows("insert into public.artworks(seller_id,category_id,title,price_minor,status) values($1,$2,'Auction integration fixture',900000,'PUBLISHED') returning id", [seller,category])
+    await db.query('insert into public.inventory(artwork_id,physical_quantity) values($1,1)', [artwork.id])
+    const imagePath = `${seller}/${artwork.id}/snapshot.png`
+    await db.query("insert into public.artwork_images(artwork_id,object_path,position,content_type,byte_size,source_sha256) values($1,$2,0,'image/png',100,repeat('c',64))", [artwork.id,imagePath])
+    const [auction] = await rows("insert into public.auctions(starts_at,ends_at,status) values(clock_timestamp()-interval '1 minute',clock_timestamp()+interval '1 hour','SCHEDULED') returning id")
+    const [lot] = await rows('insert into public.auction_items(auction_id,artwork_id,seller_id,starting_bid_minor,bid_increment_minor) values($1,$2,$3,500000,50000) returning id', [auction.id,artwork.id,seller])
+    const [shipping] = await rows("insert into public.addresses(user_id,full_name,address_line1,city,state,postal_code,country) values($1,'Winner Name','123 Shipping Street','Mumbai','Maharashtra','400001','India') returning id", [other])
+    const state = async () => {
+      const [stock] = await rows('select physical_quantity,reserved_quantity,available_quantity from public.inventory where artwork_id=$1', [artwork.id])
+      const [item] = await rows('select lot_status,winner_bidder_id,winner_order_id,winning_bid_minor from public.auction_items where id=$1', [lot.id])
+      return { stock,item }
+    }
+    const bid = async (uid, amount, key) => as(uid, async () => (await rows('select public.place_bid($1,$2,$3) as result', [lot.id,amount,key]))[0].result)
+    const close = async () => {
+      await db.query("update public.auctions set ends_at=clock_timestamp()-interval '1 microsecond' where id=$1", [auction.id])
+      await rows('select private.run_auction_lifecycle(50)')
+    }
+    const win = async () => {
+      await rows('select private.run_auction_lifecycle(50)')
+      assert.equal(await bid(buyer,550000,'first-customer-bid'),'ok')
+      assert.equal(await bid(other,600000,'second-customer-bid'),'ok')
+      await close()
+    }
+    const checkout = async (addressId = shipping.id) => as(other, async () => (await rows('select public.create_auction_winner_order($1,$2) as id', [lot.id,addressId]))[0].id)
+    const payment = async orderId => {
+      const [p] = await rows('select public.begin_razorpay_test_payment($1,$2) as value', [orderId,other])
+      assert.equal(Number(p.value.amount_minor),600000)
+      assert.equal(p.value.currency,'INR')
+      assert.equal(p.value.mode,'TEST')
+      await db.query("select public.attach_razorpay_test_order($1,'order_auctionFixture')", [p.value.id])
+      return p.value.id
+    }
+    const capture = p => db.query("select public.claim_razorpay_test_capture($1,'pay_auctionFixture',600000,'INR')", [p])
+    const settle = (p,event='auction-capture') => rows("select public.record_razorpay_test_result($1,'pay_auctionFixture',600000,'INR','captured',$2,$3) as result", [p,event,'a'.repeat(64)])
+    await run({ as,rejected,artwork,auction,lot,shipping,imagePath,state,bid,close,win,checkout,payment,capture,settle })
+  } finally { await db.exec('reset role; rollback') }
+}
+
+test('Module 05 privacy: anonymous users and losing bidders cannot read private lot identifiers', () => auctionIntegrationFixture(async f => {
+  await f.win()
+  const orderId=await f.checkout()
+  for (const [uid,role] of [[null,'anon'],[buyer,'authenticated'],[other,'authenticated']]) {
+    await f.rejected(uid,'select winner_bidder_id,winner_order_id from public.auction_items where id=$1',[f.lot.id],'42501',role)
+    await f.rejected(uid,'select * from public.auction_items where id=$1',[f.lot.id],'42501',role)
+    await f.as(uid,async()=>{
+      const [catalog]=await rows('select * from public.get_public_auctions() where auction_item_id=$1',[f.lot.id])
+      assert.ok(catalog)
+      assert.equal(catalog.is_current_user_winner,uid===other)
+      assert.equal(catalog.payment_window_expires_at!==null,uid===other)
+      for(const key of ['winner_bidder_id','winner_order_id','winner_uid']) assert.equal(Object.hasOwn(catalog,key),false)
+      const values=JSON.stringify(catalog)
+      assert.equal(values.includes(other),false)
+      assert.equal(values.includes(orderId),false)
+    },role)
+  }
+  // Even an accidental future table grant cannot revive the old public policy.
+  await db.exec('grant select on public.auction_items to anon,authenticated')
+  await f.as(null,async()=>assert.deepEqual(await rows('select * from public.auction_items where id=$1',[f.lot.id]),[]),'anon')
+  await f.as(buyer,async()=>assert.deepEqual(await rows('select * from public.auction_items where id=$1',[f.lot.id]),[]))
+}))
+
+test('Module 05 privacy: winner recognition and repeat checkout require no publicly readable private IDs', () => auctionIntegrationFixture(async f => {
+  await f.win()
+  await f.as(other,async()=>{
+    const [catalog]=await rows('select * from public.get_public_auctions() where auction_item_id=$1',[f.lot.id])
+    assert.equal(catalog.is_current_user_winner,true)
+  })
+  const orderId=await f.checkout()
+  assert.equal(await f.checkout(null),orderId)
+  await f.rejected(buyer,'select public.create_auction_winner_order($1,$2)',[f.lot.id,f.shipping.id])
+  await f.as(buyer,async()=>{
+    assert.deepEqual(await rows('select * from public.orders where id=$1',[orderId]),[])
+    assert.deepEqual(await rows('select * from public.get_admin_auctions()'),[])
+    assert.deepEqual(await rows('select * from public.get_seller_auction_items()'),[])
+  })
+  await f.as(other,async()=>assert.equal((await rows('select id from public.orders where id=$1',[orderId]))[0].id,orderId))
+  await f.as(admin,async()=>assert.equal((await rows('select * from public.get_admin_auctions() where auction_item_id=$1',[f.lot.id]))[0].winner_order_id,orderId))
+}))
+
+test('Module 05 privacy: live signals expose only bounded invalidations, never private bids or winner/order IDs', () => auctionIntegrationFixture(async f => {
+  const published=(await rows("select tablename from pg_publication_tables where pubname='supabase_realtime' and schemaname='public'")).map(row=>row.tablename)
+  assert.ok(published.includes('auction_realtime_signals'))
+  assert.ok(published.includes('orders')) // Existing order subscriptions are preserved.
+  for(const privateTable of ['auction_items','bids','auctions']) assert.equal(published.includes(privateTable),false)
+  const signal=async()=> (await rows("select * from public.auction_realtime_signals where source_type='LOT' and source_id=$1",[f.lot.id]))[0]
+  const initial=await signal()
+  await rows('select private.run_auction_lifecycle(50)')
+  assert.equal(await f.bid(buyer,550000,'live-buyer'),'ok')
+  assert.ok(Number((await signal()).revision)>Number(initial.revision))
+  const afterFirst=await signal()
+  assert.equal(await f.bid(other,600000,'live-winner'),'ok')
+  assert.ok(Number((await signal()).revision)>Number(afterFirst.revision))
+  await f.close()
+  const orderId=await f.checkout()
+  for (const [uid,role] of [[null,'anon'],[buyer,'authenticated']]) await f.as(uid,async()=>{
+    const signals=await rows('select * from public.auction_realtime_signals where auction_id=$1',[f.auction.id])
+    assert.equal(signals.length,2) // One source row per event/lot, not a bid history.
+    for(const row of signals) assert.deepEqual(Object.keys(row).sort(),['auction_id','id','revision','source_id','source_type','updated_at'])
+    const serialized=JSON.stringify(signals)
+    for(const value of [buyer,other,orderId,'amount_minor','bidder_id','winner_bidder_id','winner_order_id','idempotency_key']) assert.equal(serialized.includes(value),false)
+    const [catalog]=await rows('select * from public.get_public_auctions() where auction_item_id=$1',[f.lot.id])
+    assert.equal(Number(catalog.current_high_bid),600000)
+    assert.equal(Number(catalog.bid_count),2)
+    assert.equal(catalog.is_current_user_winner,false)
+  },role)
+  await f.as(buyer,async()=>assert.equal((await rows('select * from public.bids where auction_item_id=$1',[f.lot.id])).length,1))
+  await f.rejected(null,'select * from public.bids where auction_item_id=$1',[f.lot.id],'42501','anon')
+  await f.rejected(buyer,"update public.auction_realtime_signals set revision=999 where source_id=$1",[f.lot.id])
+  await f.rejected(buyer,"insert into public.auction_realtime_signals(source_type,source_id,auction_id) values('LOT',gen_random_uuid(),$1)",[f.auction.id])
+  await f.rejected(buyer,'select private.signal_auction_change()')
+  const [policies]=await rows("select count(*)::int as n from pg_policies where schemaname='public' and tablename='auction_items' and cmd='SELECT'")
+  assert.equal(policies.n,0)
+}))
+
+test('Module 05 privacy: draft signals stay private but withdrawal of a public event still refreshes clients', () => auctionIntegrationFixture(async f => {
+  const [draftAuction]=await rows("insert into public.auctions(starts_at,ends_at,status) values(clock_timestamp()+interval '1 hour',clock_timestamp()+interval '2 hours','DRAFT') returning id")
+  await db.query('insert into public.auction_items(auction_id,artwork_id,seller_id,starting_bid_minor,bid_increment_minor) values($1,$2,$3,500000,50000)',[draftAuction.id,f.artwork.id,seller])
+  await f.as(null,async()=>assert.deepEqual(await rows('select * from public.auction_realtime_signals where auction_id=$1',[draftAuction.id]),[]),'anon')
+  const [before]=await rows("select revision from public.auction_realtime_signals where source_type='AUCTION' and source_id=$1",[f.auction.id])
+  await db.query("update public.auctions set status='CANCELLED' where id=$1",[f.auction.id])
+  await f.as(null,async()=>{
+    const [after]=await rows("select revision from public.auction_realtime_signals where source_type='AUCTION' and source_id=$1",[f.auction.id])
+    assert.ok(Number(after.revision)>Number(before.revision))
+    assert.deepEqual(await rows('select * from public.get_public_auctions() where id=$1',[f.auction.id]),[])
+  },'anon')
+}))
+
+test('Module 05 E2E: cron activates due auctions only and closes missed scheduled windows with NO_BIDS', () => auctionIntegrationFixture(async f => {
+  await f.rejected(null,'select private.run_auction_lifecycle(50)',[],'42501','anon')
+  await f.rejected(buyer,'select private.activate_due_auctions(50)')
+  await db.query("update public.auctions set starts_at=clock_timestamp()+interval '10 minutes' where id=$1",[f.auction.id])
+  await rows('select private.run_auction_lifecycle(50)')
+  assert.equal((await rows('select status from public.auctions where id=$1',[f.auction.id]))[0].status,'SCHEDULED')
+  await f.rejected(admin,'select public.activate_auction($1)',[f.auction.id],'22023')
+  await db.query("update public.auctions set starts_at=clock_timestamp()-interval '1 minute' where id=$1",[f.auction.id])
+  await rows('select private.run_auction_lifecycle(50)')
+  assert.equal((await rows('select status from public.auctions where id=$1',[f.auction.id]))[0].status,'LIVE')
+  await f.close()
+  assert.equal((await f.state()).item.lot_status,'NO_BIDS')
+  assert.equal((await rows('select status from public.auctions where id=$1',[f.auction.id]))[0].status,'ENDED')
+  const [missed] = await rows("insert into public.auctions(starts_at,ends_at,status) values(clock_timestamp()-interval '2 hours',clock_timestamp()-interval '1 hour','SCHEDULED') returning id")
+  const [missedLot] = await rows('insert into public.auction_items(auction_id,artwork_id,seller_id,starting_bid_minor,bid_increment_minor) values($1,$2,$3,500000,50000) returning id',[missed.id,f.artwork.id,seller])
+  await rows('select private.run_auction_lifecycle(50)')
+  assert.equal((await rows('select lot_status from public.auction_items where id=$1',[missedLot.id]))[0].lot_status,'NO_BIDS')
+  const [job] = await rows("select command,schedule,active from cron.job where jobname='artvault-close-auction-lots'")
+  assert.equal(job.command,'select private.run_auction_lifecycle(50);')
+  assert.equal(job.schedule,'* * * * *')
+  assert.equal(job.active,true)
+}))
+
+test('Module 05 E2E: two customers bid; server rejects unauthorized, self, early, late and below-minimum bids', () => auctionIntegrationFixture(async f => {
+  assert.equal(await f.bid(buyer,500000,'not-live'),'auction_not_live')
+  await rows('select private.run_auction_lifecycle(50)')
+  await f.rejected(null,'select public.place_bid($1,500000,$2)',[f.lot.id,'anonymous'],'42501','anon')
+  await f.rejected(admin,'select public.place_bid($1,500000,$2)',[f.lot.id,'admin-cannot-buy'])
+  assert.equal(await f.bid(seller,500000,'seller-own'),'seller_cannot_bid')
+  await db.query("update public.auctions set starts_at=clock_timestamp()+interval '1 minute' where id=$1",[f.auction.id])
+  assert.equal(await f.bid(buyer,500000,'premature-live'),'auction_not_live')
+  // The RPC transaction may have started before activation or waited for a
+  // lock. An accepted bid must record acceptance time, not transaction start.
+  await db.query("update public.auctions set starts_at=clock_timestamp() where id=$1",[f.auction.id])
+  assert.equal(await f.bid(buyer,499999,'below-start'),'bid_too_low')
+  assert.equal(await f.bid(buyer,550000,'buyer-valid'),'ok')
+  assert.equal((await rows('select b.placed_at>=a.starts_at and b.placed_at>now() as accepted_in_window from public.bids b join public.auction_items i on i.id=b.auction_item_id join public.auctions a on a.id=i.auction_id where b.auction_item_id=$1',[f.lot.id]))[0].accepted_in_window,true)
+  assert.equal(await f.bid(other,560000,'below-increment'),'bid_too_low')
+  assert.equal(await f.bid(other,600000,'winner-valid'),'ok')
+  assert.equal(await f.bid(other,650000,'winner-valid'),'duplicate_key')
+  await f.close()
+  const {item} = await f.state()
+  assert.equal(item.lot_status,'WINNER_PENDING')
+  assert.equal(item.winner_bidder_id,other)
+  assert.equal(Number(item.winning_bid_minor),600000)
+  assert.equal(await f.bid(buyer,700000,'late-bid'),'lot_not_open')
+}))
+
+test('Module 05 E2E: winner checkout is private, address-complete and idempotent with one reservation', () => auctionIntegrationFixture(async f => {
+  await f.win()
+  await f.rejected(buyer,'select public.create_auction_winner_order($1,$2)',[f.lot.id,address])
+  await f.rejected(other,'select public.create_auction_winner_order($1,$2)',[f.lot.id,address])
+  await f.rejected(other,'select public.create_auction_winner_order($1)',[f.lot.id])
+  assert.equal((await f.state()).stock.reserved_quantity,0)
+  const orderId = await f.checkout()
+  assert.equal(await f.checkout(null),orderId)
+  assert.equal(await f.checkout(),orderId)
+  const [o] = await rows('select * from public.orders where id=$1',[orderId])
+  assert.equal(o.status,'PAYMENT_PENDING')
+  assert.equal(o.payment_mode,'TEST')
+  assert.equal(o.payment_state,'PENDING')
+  assert.equal(Number(o.subtotal_minor),600000)
+  assert.equal(Number(o.total_minor),600000)
+  const [snapshot] = await rows('select * from public.order_addresses where order_id=$1',[orderId])
+  assert.equal(snapshot.full_name,'Winner Name')
+  await f.as(other, () => db.query('select public.save_address($1,$2::jsonb)',[f.shipping.id,JSON.stringify({fullName:'Changed Name',addressLine1:'123 New Street',city:'Mumbai',state:'Maharashtra',postalCode:'400002',country:'India',isDefault:false})]))
+  assert.equal((await rows('select full_name from public.order_addresses where order_id=$1',[orderId]))[0].full_name,'Winner Name')
+  const [line] = await rows('select * from public.order_items where order_id=$1',[orderId])
+  assert.equal(line.image_path,f.imagePath)
+  assert.equal(Number(line.unit_price_minor),600000)
+  assert.equal((await rows('select count(*)::int as n from public.inventory_reservations where order_item_id=$1',[line.id]))[0].n,1)
+  assert.deepEqual((await f.state()).stock,{physical_quantity:1,reserved_quantity:1,available_quantity:0})
+  await f.as(other,async()=>assert.equal((await rows('select id from public.orders where id=$1',[orderId])).length,1))
+  await f.as(buyer,async()=>assert.equal((await rows('select id from public.orders where id=$1',[orderId])).length,0))
+  await f.rejected(null,'select id from public.orders where id=$1',[orderId],'42501','anon')
+  await db.exec('savepoint duplicate_order')
+  await assert.rejects(db.query('insert into public.orders(buyer_id,subtotal_minor,total_minor,auction_item_id) values($1,600000,600000,$2)',[other,f.lot.id]),error=>error.code==='23505')
+  await db.exec('rollback to savepoint duplicate_order')
+}))
+
+test('Module 05 E2E: trusted TEST settlement pays the winning bid and consumes unique artwork exactly once', () => auctionIntegrationFixture(async f => {
+  await f.win()
+  const orderId = await f.checkout()
+  await f.rejected(other,'select public.begin_razorpay_test_payment($1,$2)',[orderId,other])
+  const p = await f.payment(orderId)
+  await f.capture(p)
+  assert.equal((await f.settle(p))[0].result,'SUCCEEDED')
+  assert.equal((await f.settle(p))[0].result,'SUCCEEDED')
+  assert.equal((await f.settle(p,'auction-capture-repeated'))[0].result,'SUCCEEDED')
+  assert.equal(await f.checkout(null),orderId)
+  await rows('select private.run_auction_lifecycle(50)')
+  assert.deepEqual((await f.state()).stock,{physical_quantity:0,reserved_quantity:0,available_quantity:0})
+  assert.equal((await f.state()).item.lot_status,'SETTLED')
+  const [o] = await rows('select status,payment_state,payment_mode from public.orders where id=$1',[orderId])
+  assert.deepEqual(o,{status:'PAID',payment_state:'PAID',payment_mode:'TEST'})
+  assert.equal((await rows('select count(*)::int as n from public.payments where order_id=$1',[orderId]))[0].n,1)
+  assert.equal((await rows('select count(*)::int as n from public.orders where auction_item_id=$1',[f.lot.id]))[0].n,1)
+}))
+
+test('Module 05 E2E: expiry releases unpaid stock once, preserves history and cannot re-reserve on retry', () => auctionIntegrationFixture(async f => {
+  await f.win()
+  const orderId = await f.checkout()
+  await db.query("update public.inventory_reservations set expires_at=now()-interval '1 minute' where artwork_id=$1",[f.artwork.id])
+  await rows('select private.run_auction_lifecycle(50)')
+  await rows('select private.run_auction_lifecycle(50)')
+  assert.equal((await f.state()).item.lot_status,'PAYMENT_EXPIRED')
+  assert.deepEqual((await f.state()).stock,{physical_quantity:1,reserved_quantity:0,available_quantity:1})
+  assert.equal((await rows('select status from public.orders where id=$1',[orderId]))[0].status,'CANCELLED')
+  assert.equal(await f.checkout(null),orderId)
+  assert.equal((await rows('select count(*)::int as n from public.payments where order_id=$1',[orderId]))[0].n,0)
+  await f.as(other,async()=>assert.equal((await rows('select id from public.orders where id=$1',[orderId])).length,1))
+}))
+
+for (const phase of ['CAPTURING','REVIEW']) test(`Module 05 E2E: auction closer preserves ${phase} payment race protection`, () => auctionIntegrationFixture(async f => {
+  await f.win()
+  const orderId = await f.checkout()
+  const p = await f.payment(orderId)
+  await f.capture(p)
+  if (phase==='REVIEW') await db.query("select public.record_razorpay_test_result($1,'pay_auctionFixture',600000,'INR','review','review-event',$2)",[p,'b'.repeat(64)])
+  await db.query("update public.inventory_reservations set expires_at=now()-interval '1 minute' where artwork_id=$1",[f.artwork.id])
+  await db.query("update public.auction_items set payment_window_expires_at=now()-interval '1 minute' where id=$1",[f.lot.id])
+  await rows('select private.run_auction_lifecycle(50)')
+  assert.equal((await f.state()).item.lot_status,'WINNER_PENDING')
+  assert.deepEqual((await f.state()).stock,{physical_quantity:1,reserved_quantity:1,available_quantity:0})
+  assert.equal((await rows('select status from public.orders where id=$1',[orderId]))[0].status,'PAYMENT_PENDING')
+  if (phase==='CAPTURING') {
+    await f.settle(p)
+    await rows('select private.run_auction_lifecycle(50)')
+    assert.equal((await f.state()).item.lot_status,'SETTLED')
+    assert.deepEqual((await f.state()).stock,{physical_quantity:0,reserved_quantity:0,available_quantity:0})
+  }
+}))
+
 test('Module 5: close_auction_lots and create_auction_winner_order lifecycle', async () => {
   // Create auction that has just ended
   const startsAt = new Date(Date.now() - 7200000).toISOString()
@@ -879,8 +1180,8 @@ test('Module 5: close_auction_lots and create_auction_winner_order lifecycle', a
   try {
     // Place a bid directly to simulate prior bidding
     await db.query(
-      'insert into public.bids(auction_item_id, bidder_id, amount_minor, idempotency_key) values ($1, $2, $3, $4)',
-      [lot.id, buyer, 350000, 'winning-bid-key']
+      'insert into public.bids(auction_item_id, bidder_id, amount_minor, idempotency_key, placed_at) values ($1, $2, $3, $4, $5)',
+      [lot.id, buyer, 350000, 'winning-bid-key', new Date(new Date(endsAt).getTime()-60000).toISOString()]
     )
 
     // Run close_auction_lots
@@ -904,14 +1205,16 @@ test('Module 5: close_auction_lots and create_auction_winner_order lifecycle', a
 
     // Winner creates winner order
     await session(buyer, async () => {
-      const [orderRes] = await rows('select public.create_auction_winner_order($1) as id', [lot.id])
+      const [orderRes] = await rows('select public.create_auction_winner_order($1,$2) as id', [lot.id,address])
       createdOrderId = orderRes.id
       assert.ok(createdOrderId)
 
       const [orderRow] = await rows('select status, total_minor, auction_item_id from public.orders where id = $1', [createdOrderId])
-      assert.equal(orderRow.status, 'CREATED')
+      assert.equal(orderRow.status, 'PAYMENT_PENDING')
       assert.equal(Number(orderRow.total_minor), 350000)
       assert.equal(orderRow.auction_item_id, lot.id)
+      const [snapshot] = await rows('select * from public.order_addresses where order_id=$1', [createdOrderId])
+      assert.equal(snapshot.full_name,'Buyer One')
     })
 
     // Inventory reservation was created (verified as superuser)

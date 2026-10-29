@@ -199,6 +199,11 @@ export function ArtworkArViewer({
       null,
     )
 
+  // Also guards native DOM-overlay handlers before React's next commit.
+  const placementLocked = useRef(false)
+  const launching = useRef(false)
+  const [starting, setStarting] = useState(false)
+
   const arSizeReadout =
     useRef<HTMLDivElement | null>(
       null,
@@ -366,6 +371,7 @@ export function ArtworkArViewer({
       requestedPercent:
         number,
     ) => {
+      if (placementLocked.current) return
       setScalePercent(
         clampScalePercent(
           requestedPercent,
@@ -432,6 +438,7 @@ export function ArtworkArViewer({
       setLoaded(
         false,
       )
+      setStarting(false)
 
       setCapable(
         false,
@@ -753,6 +760,7 @@ export function ArtworkArViewer({
             buttonRow.style.cssText =
               'display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem'
 
+            const controlCleanups: (() => void)[] = []
             const createControlButton =
               (
                 label: string,
@@ -786,10 +794,9 @@ export function ArtworkArViewer({
                   'touch-action:manipulation',
                 ].join(';')
 
-                button.addEventListener(
-                  'click',
-                  onClick,
-                )
+                const onControlClick = () => { if (!placementLocked.current) onClick() }
+                button.addEventListener('click', onControlClick)
+                controlCleanups.push(() => button.removeEventListener('click', onControlClick))
 
                 return button
               }
@@ -859,6 +866,7 @@ export function ArtworkArViewer({
 
             lockButton.type =
               'button'
+            lockButton.disabled = true
 
             lockButton.textContent =
               '🔒 Lock position'
@@ -907,8 +915,10 @@ export function ArtworkArViewer({
                   status ===
                     'locking'
 
-                lockButton.disabled =
-                  locking
+                placementLocked.current = locked || locking
+                for (const control of [slider, decrease, reset, increase]) control.disabled = locked || locking
+
+                lockButton.disabled = locking || (!locked && currentStatus !== 'object-placed')
 
                 lockButton.textContent =
                   locking
@@ -937,6 +947,7 @@ export function ArtworkArViewer({
 
             const onLockButton =
               () => {
+                if (currentStatus !== 'object-placed') return
                 const locked =
                   currentAnchorStatus ===
                     'anchored' ||
@@ -997,6 +1008,7 @@ export function ArtworkArViewer({
 
             const onSlider =
               () => {
+                if (placementLocked.current) return
                 const next =
                   Number(
                     slider.value,
@@ -1168,6 +1180,14 @@ export function ArtworkArViewer({
 
                 currentStatus =
                   value
+
+                if (value === 'not-presenting' || value === 'failed') {
+                  setAnchorStatus('unlocked')
+                  syncLockButton('unlocked')
+                  launching.current = false
+                } else {
+                  syncLockButton(currentAnchorStatus)
+                }
 
                 setArStatus(
                   value,
@@ -1420,6 +1440,9 @@ export function ArtworkArViewer({
 
             clean =
               () => {
+                placementLocked.current = false
+                launching.current = false
+                for (const cleanup of controlCleanups) cleanup()
                 window.clearInterval(
                   capabilityTimer,
                 )
@@ -1547,7 +1570,8 @@ export function ArtworkArViewer({
 
       if (
         !element?.loaded ||
-        !element.canActivateAR
+        !element.canActivateAR || launching.current ||
+        arStatus === 'session-started' || arStatus === 'object-placed'
       ) {
         return
       }
@@ -1555,6 +1579,9 @@ export function ArtworkArViewer({
       setError(
         null,
       )
+
+      launching.current = true
+      setStarting(true)
 
       setTracking(
         null,
@@ -1567,20 +1594,33 @@ export function ArtworkArViewer({
       void element
         .activateAR()
         .catch(
-          () => {
+          (cause: unknown) => {
+            if (viewer.current !== element) return
+            launching.current = false
             setArStatus(
               'failed',
             )
 
-            setError(
-              'AR could not start. Check device support and camera permission, or use the 3D preview.',
-            )
+            const name = cause instanceof DOMException ? cause.name : ''
+            setError(name === 'NotAllowedError'
+              ? 'Camera/AR permission was denied. Allow access in Chrome site settings and try again, or use the 3D preview.'
+              : name === 'NotSupportedError'
+                ? 'This device could not provide the required AR hit testing and controls. Use the 3D preview.'
+                : name === 'SecurityError'
+                  ? 'Camera AR requires a secure connection. Use the supported local setup or HTTPS, or view the 3D preview.'
+                  : 'AR could not start. Check device support and camera permission, or use the 3D preview.')
           },
         )
+        .finally(() => {
+          if (viewer.current === element) {
+            launching.current = false
+            setStarting(false)
+          }
+        })
     }
 
   const frameSelectionLocked =
-    arStatus ===
+    starting || arStatus ===
       'session-started' ||
     arStatus ===
       'object-placed'
@@ -1721,6 +1761,7 @@ export function ArtworkArViewer({
             scalePercent
           }
           aria-label="Artwork size"
+          disabled={anchorStatus !== 'unlocked'}
           onChange={(
             event,
           ) => {
@@ -1748,6 +1789,7 @@ export function ArtworkArViewer({
           <button
             type="button"
             aria-label="Decrease artwork size"
+            disabled={anchorStatus !== 'unlocked'}
             onClick={() => {
               updateScale(
                 scalePercent -
@@ -1762,6 +1804,7 @@ export function ArtworkArViewer({
           <button
             type="button"
             aria-label="Reset artwork size"
+            disabled={anchorStatus !== 'unlocked'}
             onClick={() => {
               updateScale(
                 100,
@@ -1775,6 +1818,7 @@ export function ArtworkArViewer({
           <button
             type="button"
             aria-label="Increase artwork size"
+            disabled={anchorStatus !== 'unlocked'}
             onClick={() => {
               updateScale(
                 scalePercent +
@@ -1860,11 +1904,12 @@ export function ArtworkArViewer({
         loaded && (
           <Button
             variant="info"
+            disabled={frameSelectionLocked}
             onClick={
               launch
             }
           >
-            View in your space
+            {starting ? 'Starting AR…' : 'View in your space'}
           </Button>
         )}
 

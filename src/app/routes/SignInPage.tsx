@@ -15,6 +15,10 @@ export function SignInPage() {
   const [submitted, setSubmitted] = useState(false)
   const redirectTo = getRedirectPath(location.state)
 
+  const searchParams = new URLSearchParams(location.search)
+  const isVerified =
+    location.state?.verified === true || searchParams.get('verified') === 'true'
+
   // Navigating only once AuthProvider itself reports "authenticated" (the
   // same status RequireAuth reads), not immediately once this form's own
   // signInWithEmail() call resolves — those are two independent
@@ -36,8 +40,19 @@ export function SignInPage() {
       <BrandLogo />
       <Card className="mt-6 w-full border-t-2 border-t-accent-gold/40 p-4 sm:p-6">
         <h1 className="font-display text-2xl font-medium text-text-primary">Sign in</h1>
+        {(isVerified || location.state?.accountCreated === true) && (
+          <div
+            role="status"
+            className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm font-medium text-emerald-400"
+          >
+            {location.state?.accountCreated === true ? 'Account created successfully. Please sign in.' : 'Email verified successfully. Please sign in.'}
+          </div>
+        )}
         <div className="mt-4">
-          <SignInForm onSuccess={() => setSubmitted(true)} />
+          <SignInForm
+            key={location.key}
+            onSuccess={() => setSubmitted(true)}
+          />
         </div>
         <p className="mt-4 text-sm text-text-secondary">
           No account?{' '}

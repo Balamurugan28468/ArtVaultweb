@@ -112,7 +112,7 @@ export function AuctionsPage() {
               <div className="flex flex-col gap-3 rounded-xl border border-border-strong bg-surface/90 p-4 shadow-card backdrop-blur-sm sm:min-w-[19rem]">
                 <p className="text-xs font-semibold tracking-wide text-text-muted uppercase">Next Auction Starts In</p>
                 <AuctionCountdownBoxes auction={nextUpcoming} />
-                <Link to={`/auctions/${nextUpcoming.id}`} className="inline-flex">
+                <Link to={`/auctions/${nextUpcoming.id}${nextUpcoming.auctionItemId?`?lot=${encodeURIComponent(nextUpcoming.auctionItemId)}`:''}`} className="inline-flex">
                   <Button type="button" variant="gold" size="md" className="w-full">
                     View Upcoming Auction →
                   </Button>
@@ -208,7 +208,7 @@ export function AuctionsPage() {
             <ResponsiveGrid>
               {activeAuctions.map((auction) => (
                 <AuctionCard
-                  key={auction.id}
+                  key={auction.auctionItemId??auction.id}
                   auction={auction}
                   artwork={artworks[auction.artworkId] ?? null}
                   artistDisplayName={artistNames[auction.sellerId]}

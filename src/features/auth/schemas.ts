@@ -1,12 +1,13 @@
 import { z } from 'zod'
-import { emailField, requiredTextField } from '@/shared/validation/fields'
+import { requiredTextField } from '@/shared/validation/fields'
+import { authEmailField, getEmailDomainSuggestion } from './validation'
 
 export const NAME_MIN_LENGTH = 2
 export const NAME_MAX_LENGTH = 60
 export const SIGNUP_PASSWORD_MIN_LENGTH = 8
 
 export const signInSchema = z.object({
-  email: emailField(),
+  email: authEmailField(),
   // Deliberately no complexity requirements here — those apply only to
   // *creating* a password (sign-up), never to attempting to use an
   // existing one. An older account's password that predates this policy
@@ -43,8 +44,9 @@ const signupPasswordSchema = z.string().superRefine((value, ctx) => {
 
 export const signUpSchema = z
   .object({
-    displayName: requiredTextField({ label: 'Name', min: NAME_MIN_LENGTH, max: NAME_MAX_LENGTH }),
-    email: emailField(),
+    displayName: z.string().refine(value => !/\p{Cc}/u.test(value), 'Name must not contain control characters.')
+      .pipe(requiredTextField({ label: 'Name', min: NAME_MIN_LENGTH, max: NAME_MAX_LENGTH })),
+    email: authEmailField().refine(email => !getEmailDomainSuggestion(email), 'Did you mean @gmail.com? Please check your email before sending a code.'),
     password: signupPasswordSchema,
     confirmPassword: z.string().min(1, 'Please confirm your password.'),
   })

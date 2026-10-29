@@ -29,6 +29,9 @@ const BASE_DATA = {
 }
 
 describe('mapToArtworkAnalysis', () => {
+  it('identifies heuristic analysis without fabricating visual scores',()=>{
+    expect(mapToArtworkAnalysis('a1',{artwork_id:'a1',analysis_method:'HEURISTIC'})).toMatchObject({analysisMethod:'HEURISTIC',artisticScorePercent:null,style:null,composition:null})
+  })
   it('maps a well-formed document', () => {
     const analysis = mapToArtworkAnalysis('a1', BASE_DATA)
     expect(analysis).toMatchObject({ id: 'a1', artworkId: 'a1', artisticScorePercent: 92, style: 'Post-Impressionism' })

@@ -1,0 +1,25 @@
+import { QueryClient,QueryClientProvider } from '@tanstack/react-query'
+import { act,renderHook,waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { beforeEach,describe,expect,it,vi } from 'vitest'
+import type { Artwork } from '@/features/artwork'
+const mocks=vi.hoisted(()=>({auth:{status:'unauthenticated',user:null as null|{uid:string}},wishlist:{status:'ready',savedIds:new Set<string>()},page:vi.fn()}))
+vi.mock('@/app/providers/AuthProvider',()=>({useAuth:()=>mocks.auth}))
+vi.mock('@/features/wishlist/context/WishlistProvider',()=>({useWishlist:()=>mocks.wishlist}))
+vi.mock('../api/recommendationRepository',()=>({getRecommendationPage:mocks.page}))
+import { useRecommendations } from './useRecommendations'
+const anchor='00000000-0000-4000-8000-000000000001'
+const item=(id:string)=>({artwork:{id,sellerId:'seller'} as Artwork,score:50,reason:'New artwork discovery'})
+function setup(){const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}});return {client,wrapper:({children}:{children:ReactNode})=><QueryClientProvider client={client}>{children}</QueryClientProvider>}}
+beforeEach(()=>{vi.clearAllMocks();mocks.auth={status:'unauthenticated',user:null};mocks.wishlist={status:'ready',savedIds:new Set()};mocks.page.mockResolvedValue({items:[item('a')],personalized:false,nextCursor:undefined})})
+describe('Authorized recommendation feed',()=>{
+ it('gives guests bounded public discovery without fabricating personalization',async()=>{const {result}=renderHook(()=>useRecommendations(),setup());await waitFor(()=>expect(result.current.status).toBe('success'));expect(result.current.artworks.map(a=>a.id)).toEqual(['a']);expect(result.current.personalized).toBe(false);expect(mocks.page).toHaveBeenCalledWith('for-you',undefined,undefined)})
+ it('uses only an actual local saved-artwork anchor for guest similarity',async()=>{mocks.wishlist.savedIds=new Set([anchor]);const {result}=renderHook(()=>useRecommendations(),setup());await waitFor(()=>expect(result.current.status).toBe('success'));expect(mocks.page).toHaveBeenCalledWith('for-you',anchor,undefined)})
+ it('waits for authentication and wishlist hydration instead of fetching stale preferences',()=>{mocks.auth.status='loading';const {rerender}=renderHook(()=>useRecommendations(),setup());expect(mocks.page).not.toHaveBeenCalled();mocks.auth.status='unauthenticated';mocks.wishlist.status='loading';rerender();expect(mocks.page).not.toHaveBeenCalled()})
+ it('does not send the authenticated identity as a browser-controlled RPC parameter',async()=>{mocks.auth={status:'authenticated',user:{uid:'owner-a'}};mocks.wishlist.savedIds.add(anchor);const {result}=renderHook(()=>useRecommendations(),setup());await waitFor(()=>expect(result.current.status).toBe('success'));expect(mocks.page).toHaveBeenCalledWith('for-you',undefined,undefined)})
+ it('removes saved works and duplicate records from personalized discovery',async()=>{mocks.wishlist.savedIds.add(anchor);mocks.page.mockResolvedValue({items:[item(anchor),item('a'),item('a')],personalized:true});const {result}=renderHook(()=>useRecommendations(),setup());await waitFor(()=>expect(result.current.status).toBe('success'));expect(result.current.artworks.map(a=>a.id)).toEqual(['a'])})
+ it('keeps public trending useful even for already saved works',async()=>{mocks.wishlist.savedIds.add('a');const {result}=renderHook(()=>useRecommendations('trending'),setup());await waitFor(()=>expect(result.current.status).toBe('success'));expect(result.current.artworks.map(a=>a.id)).toEqual(['a'])})
+ it('uses cursor snapshots and deduplicates pagination overlaps',async()=>{const cursor={offset:12,asOf:'2026-10-23T12:00:00Z'};mocks.page.mockResolvedValueOnce({items:[item('a')],personalized:false,nextCursor:cursor}).mockResolvedValueOnce({items:[item('a'),item('b')],personalized:false});const {result}=renderHook(()=>useRecommendations(),setup());await waitFor(()=>expect(result.current.status).toBe('success'));await act(async()=>{await result.current.fetchNextPage()});expect(mocks.page).toHaveBeenLastCalledWith('for-you',undefined,cursor);await waitFor(()=>expect(result.current.artworks.map(a=>a.id)).toEqual(['a','b']))})
+ it('never renders previous-account personalization after identity change',async()=>{mocks.auth={status:'authenticated',user:{uid:'owner-a'}};const config=setup();const {result,rerender}=renderHook(()=>useRecommendations(),config);await waitFor(()=>expect(result.current.artworks).toHaveLength(1));mocks.page.mockReturnValue(new Promise(()=>{}));mocks.auth={status:'authenticated',user:{uid:'owner-b'}};rerender();expect(result.current.artworks).toEqual([]);expect(config.client.getQueriesData({queryKey:['recommendations-v2','owner-a']})).toEqual([])})
+ it('preserves errors for retry and never makes up substitute artworks',async()=>{mocks.page.mockRejectedValue(new Error('offline'));const {result}=renderHook(()=>useRecommendations(),setup());await waitFor(()=>expect(result.current.status).toBe('error'));expect(result.current.artworks).toEqual([])})
+})

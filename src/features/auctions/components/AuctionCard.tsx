@@ -38,7 +38,7 @@ export function AuctionCard({
   const [imageFailed, setImageFailed] = useState(false)
   const showImage = cover && !imageFailed
   const status = deriveAuctionStatus(auction)
-  const href = `/auctions/${auction.id}`
+  const href = `/auctions/${auction.id}${auction.auctionItemId?`?lot=${encodeURIComponent(auction.auctionItemId)}`:''}`
   const bidLabel = auction.currentHighBid == null ? 'Starting bid' : 'Current bid'
   const bidAmount = auction.currentHighBid ?? minimumNextBid(auction)
 

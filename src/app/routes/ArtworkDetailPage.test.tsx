@@ -328,7 +328,7 @@ describe('ArtworkDetailPage', () => {
       })
       renderPage()
 
-      expect(screen.getByText('More in Painting')).toBeInTheDocument()
+      expect(screen.getByText('Related artworks')).toBeInTheDocument()
       expect(screen.getByText('Other Painting')).toBeInTheDocument()
       expect(screen.queryByText(/AI recommend/i)).not.toBeInTheDocument()
     })
@@ -338,7 +338,7 @@ describe('ArtworkDetailPage', () => {
       useRelatedArtworks.mockReturnValue({ status: 'success', artworks: [] })
       renderPage()
 
-      expect(screen.queryByText(/^More in/)).not.toBeInTheDocument()
+      expect(screen.queryByText('Related artworks')).not.toBeInTheDocument()
     })
   })
 })

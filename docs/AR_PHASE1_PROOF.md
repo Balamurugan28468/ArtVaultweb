@@ -1,5 +1,10 @@
 # AR Phase 1: one controlled flat-artwork proof
 
+> Historical calibration checkpoint. For the current Supabase-backed, automatic
+> multi-artwork pipeline and Android checklist, use [AR_GALLERY.md](AR_GALLERY.md).
+> The emulator commands and old measurement-only scope below are historical;
+> they are not prerequisites for the current application. Firebase is retired.
+
 This is an uncommitted development-only proof on the existing
 `/artworks/:artworkId/ar` route. It is not a marketplace rollout or a
 production asset service. Physical-device verification is still required.

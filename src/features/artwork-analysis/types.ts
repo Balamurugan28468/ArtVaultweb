@@ -1,16 +1,10 @@
 import type { Timestamp } from '@/lib/supabase/timestamp'
 
-/**
- * UI-05 — AI Artwork Analysis. Matches the `analyzeArtwork` return shape
- * docs/AI_ARCHITECTURE.md's provider-agnostic `AIProvider` interface
- * implies, stored (once a real trusted AI gateway exists) at
- * `artworkAnalyses/{artworkId}` — see firestore.rules for why that
- * collection is already real (public read, write always false) even
- * though nothing populates it yet. Every field is optional/nullable
- * because a real analysis document, once one exists, may not fill in
- * every dimension — this type never assumes a complete result.
+/** RLS-protected public analysis fields. Heuristic metadata findings never
+ * populate unsupported visual scores, style, composition or authenticity.
  */
 export interface ArtworkAnalysis {
+  analysisMethod?: 'LEGACY' | 'HEURISTIC' | 'VISION'
   id: string
   artworkId: string
   artisticScorePercent: number | null

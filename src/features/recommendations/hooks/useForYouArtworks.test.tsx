@@ -5,13 +5,17 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Artwork } from '@/features/artwork'
 
 const useWishlistArtworks = vi.fn()
-vi.mock('@/features/wishlist', () => ({ useWishlistArtworks: () => useWishlistArtworks() }))
+vi.mock('@/features/wishlist/context/WishlistProvider', () => ({ useWishlist: () => {
+  const state = useWishlistArtworks()
+  return { savedIds: new Set(state.artworks.map((a: Artwork) => a.id)), status: state.isLoading ? 'loading' : 'ready' }
+} }))
+vi.mock('@/app/providers/AuthProvider', () => ({ useAuth: () => ({ status: 'unauthenticated', user: null }) }))
 
-const fetchMarketplacePage = vi.fn()
-vi.mock('@/features/marketplace', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/marketplace')>()
-  return { ...actual, fetchMarketplacePage: (...args: unknown[]) => fetchMarketplacePage(...args) }
-})
+const getRecommendationPage = vi.fn()
+vi.mock('../api/recommendationRepository', () => ({ getRecommendationPage: (...args: unknown[]) => getRecommendationPage(...args) }))
+function page(artworks: Artwork[], personalized = false) {
+  return { items: artworks.map(artwork => ({ artwork, reason: 'Similar category', score: 50 })), personalized, nextCursor: undefined }
+}
 
 const { useForYouArtworks, useSimilarArtworks } = await import('./useForYouArtworks')
 
@@ -44,7 +48,7 @@ function wrapper({ children }: { children: ReactNode }) {
 describe('useForYouArtworks', () => {
   it('falls back to newest-overall, honestly marked not personalized, when the viewer has no real Wishlist activity', async () => {
     useWishlistArtworks.mockReturnValue({ artworks: [], unavailableCount: 0, isLoading: false })
-    fetchMarketplacePage.mockResolvedValueOnce({ artworks: [buildArtwork({ id: 'a2' })], nextCursor: null })
+    getRecommendationPage.mockResolvedValueOnce(page([buildArtwork({ id: 'a2' })]))
 
     const { result } = renderHook(() => useForYouArtworks(), { wrapper })
     await waitFor(() => expect(result.current.status).toBe('success'))
@@ -54,16 +58,16 @@ describe('useForYouArtworks', () => {
 
   it('uses the real Wishlist categories when the viewer has saved artworks, marked personalized', async () => {
     useWishlistArtworks.mockReturnValue({
-      artworks: [buildArtwork({ id: 'wish-1', category: 'sculpture' })],
+      artworks: [buildArtwork({ id: '00000000-0000-4000-8000-000000000001', category: 'sculpture' })],
       unavailableCount: 0,
       isLoading: false,
     })
-    fetchMarketplacePage.mockResolvedValueOnce({ artworks: [buildArtwork({ id: 'match-1', category: 'sculpture' })], nextCursor: null })
+    getRecommendationPage.mockResolvedValueOnce(page([buildArtwork({ id: 'match-1', category: 'sculpture' })], true))
 
     const { result } = renderHook(() => useForYouArtworks(), { wrapper })
     await waitFor(() => expect(result.current.status).toBe('success'))
     expect(result.current.personalized).toBe(true)
-    expect(fetchMarketplacePage).toHaveBeenCalledWith(expect.objectContaining({ category: 'sculpture' }), null)
+    expect(getRecommendationPage).toHaveBeenLastCalledWith('for-you', '00000000-0000-4000-8000-000000000001', undefined)
   })
 
   it('never re-recommends an artwork already in the viewer\'s Wishlist', async () => {
@@ -72,10 +76,7 @@ describe('useForYouArtworks', () => {
       unavailableCount: 0,
       isLoading: false,
     })
-    fetchMarketplacePage.mockResolvedValueOnce({
-      artworks: [buildArtwork({ id: 'wish-1', category: 'sculpture' }), buildArtwork({ id: 'match-2', category: 'sculpture' })],
-      nextCursor: null,
-    })
+    getRecommendationPage.mockResolvedValueOnce(page([buildArtwork({ id: 'wish-1', category: 'sculpture' }), buildArtwork({ id: 'match-2', category: 'sculpture' })], true))
 
     const { result } = renderHook(() => useForYouArtworks(), { wrapper })
     await waitFor(() => expect(result.current.status).toBe('success'))
@@ -84,22 +85,27 @@ describe('useForYouArtworks', () => {
 })
 
 describe('useSimilarArtworks', () => {
-  it('is genuinely empty (not a fabricated fallback) when there is no real Wishlist activity to anchor on', () => {
+  it('uses an honestly unpersonalized public discovery fallback without Wishlist activity', async () => {
     useWishlistArtworks.mockReturnValue({ artworks: [], unavailableCount: 0, isLoading: false })
+    getRecommendationPage.mockResolvedValueOnce(page([]))
     const { result } = renderHook(() => useSimilarArtworks(), { wrapper })
-    expect(result.current).toEqual({ status: 'success', artworks: [], anchorCategory: null })
+    await waitFor(() => expect(result.current.status).toBe('success'))
+    expect(result.current.artworks).toEqual([])
+    expect(result.current.personalized).toBe(false)
+    expect(result.current.anchorCategory).toBeNull()
   })
 
   it('anchors on the real category of the first Wishlist item', async () => {
     useWishlistArtworks.mockReturnValue({
-      artworks: [buildArtwork({ id: 'wish-1', category: 'digital' })],
+      artworks: [buildArtwork({ id: '00000000-0000-4000-8000-000000000001', category: 'digital' })],
       unavailableCount: 0,
       isLoading: false,
     })
-    fetchMarketplacePage.mockResolvedValueOnce({ artworks: [buildArtwork({ id: 'match-1', category: 'digital' })], nextCursor: null })
+    getRecommendationPage.mockResolvedValueOnce(page([buildArtwork({ id: 'match-1', category: 'digital' })], true))
 
     const { result } = renderHook(() => useSimilarArtworks(), { wrapper })
     await waitFor(() => expect(result.current.status).toBe('success'))
-    expect(result.current.anchorCategory).toBe('digital')
+    expect(result.current.artworks[0]?.category).toBe('digital')
+    expect(getRecommendationPage).toHaveBeenLastCalledWith('related', '00000000-0000-4000-8000-000000000001', undefined)
   })
 })

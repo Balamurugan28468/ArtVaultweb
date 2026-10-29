@@ -3,6 +3,10 @@ export {
   signOutUser,
   signUpWithEmail,
   requestPasswordReset,
+  verifyEmailOtp,
+  resendVerificationOtp,
+  type VerifyEmailOtpInput,
+  type VerifyEmailOtpResult,
 } from './api/authClient'
 
 export {
@@ -29,6 +33,10 @@ export {
 export {
   SignUpForm,
 } from './components/SignUpForm'
+
+export {
+  VerifyOtpForm,
+} from './components/VerifyOtpForm'
 
 export {
   signInSchema,

@@ -26,11 +26,20 @@ const BASE_AUCTION_DATA = {
   artwork_id: 'artwork-1', seller_id: 'seller-1', starts_at: '2026-01-01T00:00:00.000Z',
   ends_at: '2026-01-02T00:00:00.000Z', starting_bid_minor: 500000,
   bid_increment_minor: 10000, current_high_bid: null, bid_count: 0,
-  winner_uid: null, winning_bid_amount: null,
+  is_current_user_winner: false, winning_bid_amount: null,
   created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
 }
 
 describe('mapToAuction', () => {
+  it('maps only the server winner flag and discards legacy private winner/order identifiers', () => {
+    const auction = mapToAuction('a1', { ...BASE_AUCTION_DATA, is_current_user_winner: true,
+      winner_bidder_id: 'private-winner', winner_order_id: 'private-order', winnerUid: 'legacy-winner' })
+    expect(auction?.isWinner).toBe(true)
+    expect(auction).not.toHaveProperty('winnerUid')
+    expect(auction).not.toHaveProperty('winner_bidder_id')
+    expect(auction).not.toHaveProperty('winner_order_id')
+    expect(mapToAuction('a1', { ...BASE_AUCTION_DATA, is_current_user_winner: 'true' })?.isWinner).toBe(false)
+  })
   it('maps a well-formed document', () => {
     const auction = mapToAuction('a1', BASE_AUCTION_DATA)
     expect(auction).toMatchObject({ id: 'a1', artworkId: 'artwork-1', sellerId: 'seller-1', startingBid: 500000 })
@@ -52,20 +61,27 @@ describe('mapToAuction', () => {
       bidIncrement: 0,
       currentHighBid: null,
       bidCount: 0,
-      winnerUid: null,
+      isWinner: false,
       winningBidAmount: null,
     })
   })
 
-  it('never fabricates currentHighBid, winnerUid, or winningBidAmount when absent', () => {
+  it('never fabricates currentHighBid, winner flag, or winningBidAmount when absent', () => {
     const auction = mapToAuction('a1', BASE_AUCTION_DATA)
     expect(auction?.currentHighBid).toBeNull()
-    expect(auction?.winnerUid).toBeNull()
+    expect(auction?.isWinner).toBe(false)
     expect(auction?.winningBidAmount).toBeNull()
   })
 })
 
 describe('getAuction', () => {
+  it('resolves the exact lot within one shared weekly event',async()=>{
+    const rows=[{id:'weekly',auction_item_id:'lot-one',...BASE_AUCTION_DATA},{id:'weekly',auction_item_id:'lot-two',...BASE_AUCTION_DATA}]
+    rpc.mockResolvedValueOnce(rows)
+    expect((await getAuction('weekly','lot-two'))?.auctionItemId).toBe('lot-two')
+    rpc.mockResolvedValueOnce(rows)
+    expect(await getAuction('weekly','wrong-lot')).toBeNull()
+  })
   it('returns null for a nonexistent auction', async () => {
     rpc.mockResolvedValueOnce([])
     expect(await getAuction('a1')).toBeNull()
@@ -154,7 +170,7 @@ describe('Module 5 auction functions', () => {
   it('createAuctionWinnerOrder calls create_auction_winner_order RPC', async () => {
     rpc.mockResolvedValueOnce('order-123')
     const orderId = await createAuctionWinnerOrder('lot-1')
-    expect(rpc).toHaveBeenCalledWith('create_auction_winner_order', { p_auction_item_id: 'lot-1' })
+    expect(rpc).toHaveBeenCalledWith('create_auction_winner_order', { p_auction_item_id: 'lot-1', p_shipping_address_id: null })
     expect(orderId).toBe('order-123')
   })
 
@@ -218,4 +234,10 @@ describe('Module 5 auction functions', () => {
     await activateAuction('a1')
     expect(rpc).toHaveBeenCalledWith('activate_auction', { p_auction_id: 'a1' })
   })
+})
+
+it('passes only the lot and saved address IDs for trusted winner checkout', async () => {
+  rpc.mockResolvedValueOnce('existing-winner-order')
+  expect(await createAuctionWinnerOrder('lot-1', 'saved-address')).toBe('existing-winner-order')
+  expect(rpc).toHaveBeenLastCalledWith('create_auction_winner_order', { p_auction_item_id: 'lot-1', p_shipping_address_id: 'saved-address' })
 })

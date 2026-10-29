@@ -26,6 +26,8 @@ type AuthStateCallback = (
 ) => void
 
 const mocks = vi.hoisted(() => {
+  const getAccountStatus = vi.fn()
+  const signOut = vi.fn()
   const getSession = vi.fn()
   const onAuthStateChange = vi.fn()
   const unsubscribe = vi.fn()
@@ -36,6 +38,7 @@ const mocks = vi.hoisted(() => {
 
   const mapSupabaseUser = vi.fn(
     (user: {
+      email_confirmed_at: '2026-10-20T00:00:00Z',
       id: string
       email?: string
     }) => ({
@@ -52,12 +55,15 @@ const mocks = vi.hoisted(() => {
 
   const supabase = {
     auth: {
+      signOut,
       getSession,
       onAuthStateChange,
     },
   }
 
   return {
+    getAccountStatus,
+    signOut,
     getSession,
     onAuthStateChange,
     unsubscribe,
@@ -68,6 +74,8 @@ const mocks = vi.hoisted(() => {
     supabase,
   }
 })
+
+vi.mock('@/features/auth/api/accountAccess', () => ({ getAccountStatus: mocks.getAccountStatus }))
 
 vi.mock(
   '@/lib/supabase/client',
@@ -113,6 +121,7 @@ function makeSession(
 ): Session {
   return {
     user: {
+      email_confirmed_at: '2026-10-20T00:00:00Z',
       id,
       email: `${id}@example.com`,
     },
@@ -140,6 +149,8 @@ function Probe() {
 }
 
 beforeEach(() => {
+  mocks.getAccountStatus.mockReset().mockResolvedValue('ACTIVE')
+  mocks.signOut.mockReset().mockResolvedValue({ error: null })
   authStateCallback = undefined
 
   mocks.getSession.mockReset()
@@ -189,6 +200,53 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+})
+
+it('does not carry an ADMIN role into a new customer session while identity is pending', async () => {
+  mocks.getSession.mockResolvedValueOnce({ data: { session: makeSession('admin') }, error: null })
+  mocks.waitForRoleClaim.mockResolvedValueOnce('ADMIN').mockResolvedValueOnce('CUSTOMER')
+  let releaseAccountStatus: ((status: string) => void) | undefined
+  mocks.getAccountStatus.mockResolvedValueOnce('ACTIVE').mockImplementationOnce(
+    () => new Promise<string>(resolve => { releaseAccountStatus = resolve }),
+  )
+  render(<AuthProvider><Probe /></AuthProvider>)
+  expect(await screen.findByText('authenticated:ADMIN')).toBeInTheDocument()
+  act(() => { authStateCallback?.('SIGNED_IN', makeSession('customer')) })
+  expect(await screen.findByText('loading:none')).toBeInTheDocument()
+  expect(screen.getByTestId('user-id')).toHaveTextContent('none')
+  await act(async () => { releaseAccountStatus?.('ACTIVE') })
+  expect(await screen.findByText('authenticated:CUSTOMER')).toBeInTheDocument()
+  expect(screen.getByTestId('user-id')).toHaveTextContent('customer')
+})
+
+it('ignores a stale initial getSession snapshot after SIGNED_OUT', async () => {
+  let finishInitialRead: ((result: { data: { session: Session | null }; error: null }) => void) | undefined
+  mocks.getSession.mockReturnValueOnce(new Promise(resolve => { finishInitialRead = resolve }))
+  render(<AuthProvider><Probe /></AuthProvider>)
+  act(() => { authStateCallback?.('SIGNED_OUT', null) })
+  expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
+  await act(async () => { finishInitialRead?.({ data: { session: makeSession('admin') }, error: null }) })
+  expect(screen.getByText('unauthenticated:none')).toBeInTheDocument()
+  expect(screen.getByTestId('user-id')).toHaveTextContent('none')
+  expect(mocks.getAccountStatus).not.toHaveBeenCalled()
+})
+
+it('blocks a restored suspended session without exposing authenticated routes or roles', async () => {
+  mocks.getSession.mockResolvedValueOnce({ data: { session: makeSession('alice') }, error: null })
+  mocks.getAccountStatus.mockResolvedValueOnce('SUSPENDED')
+  render(<AuthProvider><Probe /></AuthProvider>)
+  expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
+  expect(screen.getByTestId('user-id')).toHaveTextContent('none')
+  expect(mocks.signOut).toHaveBeenCalledExactlyOnceWith({ scope: 'local' })
+  expect(mocks.waitForRoleClaim).not.toHaveBeenCalled()
+})
+
+it('fails closed when protected account status cannot be read without treating credentials as wrong', async () => {
+  mocks.getSession.mockResolvedValueOnce({ data: { session: makeSession('alice') }, error: null })
+  mocks.getAccountStatus.mockRejectedValueOnce(new Error('Account status unavailable'))
+  render(<AuthProvider><Probe /></AuthProvider>)
+  expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
+  expect(mocks.waitForRoleClaim).not.toHaveBeenCalled()
 })
 
 describe(
@@ -442,7 +500,6 @@ describe(
         console.error,
       ).toHaveBeenCalledWith(
         'Failed to verify Supabase user profile:',
-        profileError,
       )
     })
 
@@ -480,7 +537,6 @@ describe(
         console.error,
       ).toHaveBeenCalledWith(
         'Failed to resolve Supabase application role:',
-        roleError,
       )
     })
 
@@ -513,7 +569,6 @@ describe(
         console.error,
       ).toHaveBeenCalledWith(
         'Failed to restore Supabase session:',
-        restoreError,
       )
     })
 
@@ -681,3 +736,12 @@ describe(
     })
   },
 )
+it('does not authenticate an unverified session or resolve a privileged role', async () => {
+  const session = makeSession('pending')
+  delete session.user.email_confirmed_at
+  mocks.getSession.mockResolvedValueOnce({ data: { session }, error: null })
+  render(<AuthProvider><Probe /></AuthProvider>)
+  expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
+  expect(mocks.ensureUserProfile).not.toHaveBeenCalled()
+  expect(mocks.waitForRoleClaim).not.toHaveBeenCalled()
+})

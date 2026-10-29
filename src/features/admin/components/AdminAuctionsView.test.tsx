@@ -86,6 +86,7 @@ describe('AdminAuctionsView', () => {
     expect(screen.getByText('OPEN')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Activate/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View Listing' })).toHaveAttribute('href', '/auctions/auc-1?lot=lot-1')
   }, 15000)
 
   it('calls activateAuction when clicking Activate button', async () => {

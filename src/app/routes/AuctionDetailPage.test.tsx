@@ -9,7 +9,7 @@ const useAuction = vi.fn()
 const useAuctions = vi.fn((): { status: 'loaded'; auctions: Auction[] } => ({ status: 'loaded', auctions: [] }))
 vi.mock('@/features/auctions', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/auctions')>()
-  return { ...actual, useAuction: () => useAuction(), useAuctions: () => useAuctions() }
+  return { ...actual, useAuction: (...args:unknown[]) => useAuction(...args), useAuctions: () => useAuctions() }
 })
 
 const useArtistDisplayNames = vi.fn((_ids: string[]) => ({}))
@@ -47,7 +47,7 @@ const BASE_AUCTION: Auction = {
   bidIncrement: 10000,
   currentHighBid: null,
   bidCount: 0,
-  winnerUid: null,
+  isWinner: false,
   winningBidAmount: null,
   createdAt: ts(0),
   updatedAt: ts(0),
@@ -61,9 +61,9 @@ const BASE_ARTWORK = {
   images: [],
 } as unknown as Artwork
 
-function renderPage() {
+function renderPage(url='/auctions/a1') {
   return render(
-    <MemoryRouter initialEntries={['/auctions/a1']}>
+    <MemoryRouter initialEntries={[url]}>
       <Routes>
         <Route path="/auctions/:auctionId" element={<AuctionDetailPage />} />
       </Routes>
@@ -72,6 +72,17 @@ function renderPage() {
 }
 
 describe('AuctionDetailPage', () => {
+  it('opens the requested weekly lot and exposes navigation between the shared event lots',()=>{
+    const one={...BASE_AUCTION,auctionItemId:'lot-one'}
+    const two={...BASE_AUCTION,auctionItemId:'lot-two'}
+    useAuction.mockReturnValue({status:'loaded',auction:two,artwork:BASE_ARTWORK})
+    useAuctions.mockReturnValue({status:'loaded',auctions:[one,two]})
+    renderPage('/auctions/a1?lot=lot-two')
+    expect(useAuction).toHaveBeenCalledWith('a1','lot-two')
+    expect(screen.getByRole('navigation',{name:'Weekly auction lots'})).toBeInTheDocument()
+    expect(screen.getByRole('link',{name:'Lot 2'})).toHaveAttribute('href','/auctions/a1?lot=lot-two')
+    useAuctions.mockReturnValue({status:'loaded',auctions:[]})
+  })
   it('shows a loading state', () => {
     useAuction.mockReturnValue({ status: 'loading' })
     renderPage()
@@ -121,7 +132,7 @@ describe('AuctionDetailPage', () => {
   it('shows real auction detail fields (Final bid, Status) in the Details tab', () => {
     useAuction.mockReturnValue({
       status: 'loaded',
-      auction: { ...BASE_AUCTION, endAt: ts(Date.now() - 1000), winnerUid: 'winner-1', winningBidAmount: 2840000 },
+      auction: { ...BASE_AUCTION, endAt: ts(Date.now() - 1000), isWinner: true, winningBidAmount: 2840000 },
       artwork: BASE_ARTWORK,
     })
     renderPage()
@@ -155,10 +166,10 @@ describe('AuctionDetailPage', () => {
       expect(screen.queryByText('Congratulations to the winner!')).not.toBeInTheDocument()
     })
 
-    it('shows real winner congratulations copy only when winnerUid actually exists', () => {
+    it('shows real winner congratulations copy only when a winning bid is actually recorded', () => {
       useAuction.mockReturnValue({
         status: 'loaded',
-        auction: { ...ENDED_AUCTION, winnerUid: 'winner-1', winningBidAmount: 2840000 },
+        auction: { ...ENDED_AUCTION, isWinner: true, winningBidAmount: 2840000 },
         artwork: BASE_ARTWORK,
       })
       renderPage()

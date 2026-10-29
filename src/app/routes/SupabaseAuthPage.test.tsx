@@ -1,7 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SupabaseAuthPage } from './SupabaseAuthPage'
-const mocks = vi.hoisted(() => ({ complete: vi.fn(), auth: { getUser: vi.fn(), updateUser: vi.fn(), signOut: vi.fn(), signInWithPassword: vi.fn(), resetPasswordForEmail: vi.fn() } }))
+const mocks = vi.hoisted(() => ({ signIn: vi.fn(), complete: vi.fn(), auth: { getUser: vi.fn(), updateUser: vi.fn(), signOut: vi.fn(), signInWithPassword: vi.fn(), resetPasswordForEmail: vi.fn() } }))
+vi.mock('@/features/auth/api/authClient', () => ({ signInWithEmail: mocks.signIn }))
 vi.mock('@/features/auth/supabaseCompletion', () => ({ completeSupabaseReturn: mocks.complete, authCallbackUrl: () => 'http://localhost:5173/auth/callback' }))
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: mocks.auth }) }))
 beforeEach(() => {
@@ -11,6 +12,7 @@ beforeEach(() => {
   mocks.auth.updateUser.mockResolvedValue({ error: null })
   mocks.auth.signOut.mockResolvedValue({ error: null })
   mocks.auth.signInWithPassword.mockResolvedValue({ data: { session: {} }, error: null })
+  mocks.signIn.mockResolvedValue({ id: 'user' })
 })
 it('saves password only, then supports real sign-out and subsequent Supabase sign-in', async () => {
   render(<SupabaseAuthPage />)
@@ -20,10 +22,15 @@ it('saves password only, then supports real sign-out and subsequent Supabase sig
   await screen.findByText(/Password saved/)
   expect(mocks.auth.updateUser).toHaveBeenCalledExactlyOnceWith({ password: 'a-long-test-password' })
   fireEvent.click(screen.getByRole('button', { name: 'Sign out of Supabase' }))
-  fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-test-password' } })
+  expect(await screen.findByLabelText('Email')).toHaveValue('')
+  expect(screen.getByLabelText('Password')).toHaveValue('')
+  fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'seller@example.com' } })
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-long-test-password' } })
   fireEvent.click(screen.getByRole('button', { name: 'Sign in to Supabase' }))
   await screen.findByText('Supabase sign-in succeeded.')
   expect(mocks.auth.signOut).toHaveBeenCalledTimes(1)
+  expect(mocks.signIn).toHaveBeenCalledExactlyOnceWith({ email: 'seller@example.com', password: 'a-long-test-password' })
+  expect(mocks.auth.signInWithPassword).not.toHaveBeenCalled()
 })
 it('shows failed password update without fabricated success', async () => {
   mocks.auth.updateUser.mockResolvedValue({ error: new Error('denied') })

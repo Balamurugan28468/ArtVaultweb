@@ -120,7 +120,7 @@ export function SellerAuctionLots() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Link to={`/auctions/${lot.auctionId}`}>
+              <Link to={`/auctions/${lot.auctionId}?lot=${encodeURIComponent(lot.id)}`}>
                 <Button type="button" variant="secondary" size="sm">
                   View Auction Lot
                 </Button>

@@ -197,3 +197,17 @@ describe(
     })
   },
 )
+
+it('isolates registration in memory from persistent application sessions and auth events', async () => {
+  vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co')
+  vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_test')
+  const { createClient, createRegistrationClient } = await import('./client')
+  const application = createClient()
+  const registration = createRegistrationClient()
+  expect(registration).not.toBe(application)
+  expect(createRegistrationClient()).toBe(registration)
+  expect(sdk.createClient).toHaveBeenCalledTimes(2)
+  expect(sdk.createClient).toHaveBeenLastCalledWith('https://example.supabase.co', 'sb_publishable_test', {
+    auth: { storageKey: 'artvault-registration', persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  })
+})

@@ -56,3 +56,6 @@ emulator-export-*/
 
 ar-physical-test-audit.txt
 ar-selection.json
+
+# Production data exports — never commit
+backups/

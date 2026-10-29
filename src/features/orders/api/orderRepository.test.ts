@@ -109,6 +109,27 @@ describe('getOrder', () => {
 })
 
 describe('getOrderItems', () => {
+  it('keeps purchase details readable when a snapshot image is revoked', async () => {
+    result.mockResolvedValueOnce([
+      { id: 'i1', artwork_id: 'art1', title: 'Purchased work', image_path: 'private/revoked', unit_price_minor: 550000, quantity: 1, subtotal_minor: 550000 },
+      { id: 'i2', artwork_id: 'art2', title: 'Other work', image_path: 'private/valid' },
+    ])
+    signedImage.mockRejectedValueOnce({ code: 'permission-denied' }).mockResolvedValueOnce('https://storage.example/authorized')
+    expect(await getOrderItems('existing-order')).toEqual([
+      expect.objectContaining({ title: 'Purchased work', imageUrl: null, unitPrice: 550000, quantity: 1, subtotal: 550000 }),
+      expect.objectContaining({ title: 'Other work', imageUrl: 'https://storage.example/authorized' }),
+    ])
+  })
+
+  it('keeps the order and immutable totals when thumbnail signing fails', async () => {
+    result.mockResolvedValueOnce({ id: 'o1', ...BASE_ORDER_DATA })
+    result.mockResolvedValueOnce([{ id: 'i1' }])
+    result.mockResolvedValueOnce([{ id: 'i1', artwork_id: 'art1', title: 'Purchased work', image_path: 'revoked', quantity: 1 }])
+    result.mockResolvedValueOnce(null).mockResolvedValueOnce([]).mockResolvedValueOnce([])
+    signedImage.mockRejectedValueOnce(new TypeError('offline'))
+    expect(await getOrder('o1')).toMatchObject({ id: 'o1', total: 500000, itemsPreview: [{ title: 'Purchased work', imageUrl: null, quantity: 1 }] })
+  })
+
   it.each(['existing-order', 'future-order'])('signs the checkout image snapshot for %s', async (orderId) => {
     result.mockResolvedValueOnce([{ id: 'i1', artwork_id: 'art1', title: 'Sunset', image_path: 'seller/art/image', image_url: 'obsolete-path' }])
     signedImage.mockResolvedValueOnce('https://storage.example/signed-snapshot')

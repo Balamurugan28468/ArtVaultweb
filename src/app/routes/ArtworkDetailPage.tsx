@@ -317,7 +317,7 @@ export function ArtworkDetailPage() {
 
         {artwork && related.artworks.length > 0 && (
           <div className="flex flex-col gap-4">
-            <SectionHeader title={`More in ${categoryLabel(artwork.category)}`} />
+            <SectionHeader title="Related artworks" />
             <ResponsiveGrid>
               {related.artworks.map((relatedArtwork) => (
                 <PublicArtworkCard

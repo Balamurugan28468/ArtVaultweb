@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { UserRole } from '../types'
 
 export interface EnsureUserProfileOptions {
@@ -20,6 +21,7 @@ function sleep(ms: number): Promise<void> {
 export async function ensureUserProfile(
   user: IdentityLike,
   _options?: EnsureUserProfileOptions,
+  client?: SupabaseClient,
 ): Promise<void> {
   const userId = user.id ?? user.uid
 
@@ -27,7 +29,7 @@ export async function ensureUserProfile(
     throw new Error('Authenticated user ID is missing.')
   }
 
-  const supabase = createClient()
+  const supabase = client ?? createClient()
 
   const retries = 10
   const delayMs = 150

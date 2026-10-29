@@ -1,5 +1,111 @@
 # ArtVault — Project State
 
+## Module 09 — final V1.0 local integration QA, 2026-10-24
+
+Local QA completed without hosted changes or Git commits/pushes. A verified
+552-file source snapshot protects the starting working tree at
+`../artvault-source-backups/module09-finalization-20261024-105122`.
+Auth, AR, checkout/payment authority and all existing pending migrations remain
+unchanged. Missing/revoked order thumbnails now degrade without hiding purchases;
+auction catalog/detail recover missed updates on reconnect/focus. Unit tests block
+unmocked HTTP/WebSocket connections before networking.
+
+Isolated migration tests now apply/roll back/reapply all three pending migrations
+and check static frontend RPC arguments against the installed PostgreSQL catalog.
+PGlite uses a Cron registration stub; native workers, multi-connection contention
+and live Realtime are not claimed. Docker daemon was unavailable.
+
+Final checks: frontend **1,720 passed / 180 files**; SQL/RLS **162 passed**;
+payment handlers **36 passed**; scripts/AR/providers **46 passed**. All four suites
+have zero failures/skips. Typecheck/build/diff check passed. Lint remains **0 errors
+/ 66 existing warnings**. Browser fixture smoke in Edge passed 25 route/action
+checks plus four marketplace widths and the mobile address-save action, with no runtime exceptions and no hosted
+requests allowed. Targeted checks passed 43 tests and the broader 157-test group.
+
+See `docs/MODULE09_QA_REPORT.md`, `docs/V1_ACCEPTANCE_CHECKLIST.md` and
+`docs/V1_RELEASE_RUNBOOK.md` for defects, evidence, scope, backup/restore gates,
+pending migration order, owner smoke plan and college-demo checklist.
+
+**V1.0 is locally validated, not production accepted.** Modules 05–07 pending
+migrations require coordinated approved deployment and hosted acceptance; physical
+Android AR and authorized production AR asset delivery remain open. Real non-TEST
+fulfillment is deferred. No LIVE payments, UPI/QR or original-roadmap expansion
+was added. Preserve the existing accepted ₹5,500 TEST transaction as history.
+
+## AR Gallery repair/verification continuation — 2026-10-24
+
+The active pinned model-viewer engine and existing manual Lock/Unlock events
+were retained. Repairs block all size controls while locked, reject stale native
+anchor/input results across unlock/session/interruption races, hold the last
+tracked transform, clean owned listeners/sessions, and close sessions after failed
+or late setup. Startup is explicit, guarded against duplicate clicks and has safe
+permission/support feedback. Existing frames, estimated sizing and publication/
+Storage boundaries remain intact; the alternative custom viewer is not activated.
+
+A fresh verified 550-file source snapshot was created outside the repository at
+`../artvault-source-backups/ar-finalization-20261024-101321`. The three pending
+Module 05/06/assistant migrations and all unrelated implementation were preserved.
+There was no attached authorized Android device, so physical validation of these
+repairs is pending. Production asset delivery is still a separate undeployed task.
+See `docs/AR_GALLERY.md` for the current architecture, security, exact device
+checklist, limitations and final automated results. Older AR docs are historical.
+No hosted changes, dependency changes or Git commits/pushes were made.
+Final automated verification: focused AR 72 passed (7 files); full frontend
+1,713 passed (179 files); SQL/RLS 158 passed; payments 36 passed; scripts/AR/provider
+tests 46 passed. Zero failed/skipped tests. Typecheck, build and diff check passed.
+Lint remains 0 errors / 66 existing warnings. Build emitted only a non-failing
+Tailwind plugin-timing advisory. Physical Android acceptance is still required.
+
+## Assistant and customer recommendations — local continuation, 2026-10-23
+
+The floating/full-page assistant now provides explicitly labeled local FAQ
+guidance, guest memory-only chat, and verified-user private history through
+bounded, rate-limited, idempotent RPCs. It has no account-state lookup or commerce
+mutation tools. A mockable server-only intent-classifier contract is provided;
+no live model or paid provider is configured.
+
+Customer recommendations use one authorized eligibility/ranking RPC with own
+likes/wishlist/follows, unique public engagement, freshness and seller diversity.
+This is separate from Module 06's weekly Top 5 auction ranking. Related catalog
+cards reuse existing private asset delivery. The new local-only migration is
+`20261023154024_assistant_recommendations.sql`, after pending Modules 05/06.
+No hosted data/configuration/deployments or Git commits/pushes were performed.
+Auth, auction migrations, payments and the AR engine were preserved.
+
+See `docs/ASSISTANT_RECOMMENDATIONS.md` for architecture, limitations, security,
+test commands and the coordinated deployment/manual demonstration checklist.
+Final local verification: focused frontend 118 passed; full frontend 1,684 passed
+across 178 files; SQL/RLS 158 passed; payments 36 passed; scripts/AR/provider
+contracts 46 passed. Zero failed/skipped tests. Typecheck, build and diff check
+passed; lint remains 0 errors / 66 existing warnings. Auth, AR and pending
+Module 05/06 migration hashes match the pre-continuation source backup.
+
+## Module 06 local implementation — 2026-10-23
+
+Module 06 adds explainable heuristic artwork selection, private versioned runs,
+admin review and atomic scheduling of one weekly event with up to five lots.
+It reuses existing artwork analyses, roles, media, inventory and Module 05.
+There is no configured visual AI provider; fallback output is explicitly labeled
+Heuristic ranking. Preparation defaults to disabled and is designed for three
+local calendar days before the configured weekly start (Asia/Kolkata initially).
+
+The additive migration is
+`supabase/migrations/20261023142417_weekly_artwork_selection.sql`.
+It depends on the still-pending Module 05 integration/privacy migration
+`20261020153833_auction_e2e_lifecycle.sql`, which was preserved unchanged.
+Neither migration was deployed during Module 06. No hosted records, jobs,
+publications or secrets were changed. Auth and the working AR engine were
+preserved. All changes remain uncommitted for owner review.
+
+See `docs/MODULE06_WEEKLY_SELECTION.md` for architecture, scoring limitations,
+file manifest, verification and the coordinated deployment/manual checklist.
+Final local checks: frontend 1,627 passed; focused frontend 130 passed;
+SQL/RLS 145 passed; payment tests 36 passed; script/provider tests 39 passed.
+Typecheck, production build and diff check passed; lint has zero errors and
+66 existing warnings. True multi-backend contention, background cron timing,
+live Realtime and hosted manual E2E remain deployment-verification work.
+The older sections below are historical checkpoints, not the current task queue.
+
 ## Module 3 owner-approved checkpoint — 2026-10-11
 
 Module 2 was committed/pushed as `2e2900f` to `origin/supabase-full-cutover` after

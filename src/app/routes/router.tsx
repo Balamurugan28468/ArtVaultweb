@@ -8,6 +8,9 @@ import { RequireRole } from '@/app/routes/guards/RequireRole'
 
 const SignInPage = lazy(() => import('@/app/routes/SignInPage').then((m) => ({ default: m.SignInPage })))
 const SignUpPage = lazy(() => import('@/app/routes/SignUpPage').then((m) => ({ default: m.SignUpPage })))
+const VerifyEmailPage = lazy(() =>
+  import('@/app/routes/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage })),
+)
 const AccountPage = lazy(() => import('@/app/routes/AccountPage').then((m) => ({ default: m.AccountPage })))
 const AddressBookPage = lazy(() =>
   import('@/app/routes/AddressBookPage').then((m) => ({ default: m.AddressBookPage })),
@@ -75,7 +78,9 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <HomePage /> },
       { path: 'sign-in', element: <SignInPage /> },
+      { path: 'login', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
+      { path: 'verify-email', element: <VerifyEmailPage /> },
       { path: 'explore', element: <MarketplacePage /> },
       // UI-04 — public, same as Explore/Artwork Detail: works whether or
       // not anyone is signed in.

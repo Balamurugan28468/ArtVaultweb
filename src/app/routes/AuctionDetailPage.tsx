@@ -1,6 +1,6 @@
 import { Box, Crown, Sparkles, Trophy } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import { useArtistProfile } from '@/features/artist-profile'
 import { ArtworkGallery } from '@/features/artwork'
 import {
@@ -133,7 +133,8 @@ function HighestBidderRow({ auctionItemId }: { auctionItemId?: string }) {
  */
 export function AuctionDetailPage() {
   const { auctionId } = useParams()
-  const state = useAuction(auctionId)
+  const [searchParams]=useSearchParams()
+  const state = useAuction(auctionId,searchParams.get('lot')??undefined)
   const [activeTab, setActiveTab] = useState<DetailTab>('details')
   const [arModalOpen, setArModalOpen] = useState(false)
   const [aiModalOpen, setAiModalOpen] = useState(false)
@@ -155,12 +156,17 @@ export function AuctionDetailPage() {
       : undefined
 
   const canonicalUrl =
-    auctionId && typeof window !== 'undefined' ? `${window.location.origin}/auctions/${auctionId}` : ''
+    auctionId && typeof window !== 'undefined' ? `${window.location.origin}/auctions/${auctionId}${state.status==='loaded'&&state.auction.auctionItemId?`?lot=${encodeURIComponent(state.auction.auctionItemId)}`:''}` : ''
 
   const status = state.status === 'loaded' ? deriveAuctionStatus(state.auction) : null
 
   return (
     <Container>
+      {allAuctionsState.status==='loaded'&&allAuctionsState.auctions.filter(a=>a.id===auctionId).length>1&&
+        <nav aria-label="Weekly auction lots" className="mb-4 flex flex-wrap gap-3">
+          {allAuctionsState.auctions.filter(a=>a.id===auctionId).map((a,i)=><Link key={a.auctionItemId} className="rounded border border-border px-3 py-2 text-sm"
+            to={`/auctions/${auctionId}?lot=${a.auctionItemId}`} aria-current={state.status==='loaded'&&state.auction.auctionItemId===a.auctionItemId?'page':undefined}>Lot {i+1}</Link>)}
+        </nav>}
       <section className="flex flex-col gap-6">
         <Link to="/auctions" className="text-sm text-text-secondary hover:text-text-primary hover:underline">
           ← Back to Auctions
@@ -201,7 +207,7 @@ export function AuctionDetailPage() {
                 <Trophy aria-hidden="true" className="h-10 w-10 text-accent-gold" />
                 <h1 className="font-display text-2xl font-medium text-text-primary sm:text-3xl">Auction Ended</h1>
                 <p className="text-sm text-text-secondary">
-                  {state.auction.winnerUid ? 'Congratulations to the winner!' : 'This auction has closed.'}
+                  {(state.auction.winningBidAmount != null) ? 'Congratulations to the winner!' : 'This auction has closed.'}
                 </p>
                 {state.artwork ? (
                   <div className="w-full">
@@ -231,7 +237,7 @@ export function AuctionDetailPage() {
                 <CurrentBidPanel auction={state.auction} onBidPlaced={state.reload} />
 
                 <p className="text-sm text-text-secondary">
-                  {state.auction.winnerUid
+                  {(state.auction.winningBidAmount != null)
                     ? 'Thank you to everyone who participated! Stay tuned for our next auction.'
                     : 'No winning bid was recorded — stay tuned for the next auction.'}
                 </p>

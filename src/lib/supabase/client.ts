@@ -4,10 +4,9 @@ import {
 } from '@supabase/supabase-js'
 
 let client: SupabaseClient | undefined
+let registrationClient: SupabaseClient | undefined
 
-export function createClient(): SupabaseClient {
-  if (client) return client
-
+function browserConfiguration() {
   const url =
     import.meta.env.VITE_SUPABASE_URL
 
@@ -63,6 +62,12 @@ export function createClient(): SupabaseClient {
     )
   }
 
+  return { url, key }
+}
+
+export function createClient(): SupabaseClient {
+  if (client) return client
+  const { url, key } = browserConfiguration()
   client =
     createSupabaseClient(
       url,
@@ -77,4 +82,19 @@ export function createClient(): SupabaseClient {
     )
 
   return client
+}
+
+/** Verification must not sign the application in or persist a temporary session. */
+export function createRegistrationClient(): SupabaseClient {
+  if (registrationClient) return registrationClient
+  const { url, key } = browserConfiguration()
+  registrationClient = createSupabaseClient(url, key, {
+    auth: {
+      storageKey: 'artvault-registration',
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  })
+  return registrationClient
 }

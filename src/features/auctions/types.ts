@@ -1,32 +1,21 @@
 import type { Timestamp } from '@/lib/supabase/timestamp'
 
 /**
- * UI-04 — Auctions UI/UX foundation. Matches the planned `auctions/{auctionId}`
- * shape in docs/DATABASE.md and the trusted-timestamp model in
- * docs/AUCTION_ARCHITECTURE.md: `startAt`/`endAt` are explicit trusted
- * `Timestamp` values a future trusted operation sets, never
- * `serverTimestamp()`. No Cloud Function writes this collection yet (see
- * firestore.rules — `allow write: if false` unconditionally), so every
- * document here can only ever be real data from a future trusted writer,
- * never something this app's own client code fabricates.
- *
- * Deliberately no stored `status` field is read or filtered on: nothing
- * exists yet to keep it in sync with real time, and the design doc itself
- * treats client-side time comparison as display-only with zero security
- * authority anyway (see AUCTION_ARCHITECTURE.md's "Trusted time model").
- * `deriveAuctionStatus` below computes SCHEDULED/LIVE/ENDED directly from
- * `startAt`/`endAt` against the real current time instead — always
- * correct, never dependent on an as-yet-unbuilt status-flipping job.
+ * Auction display data comes from the trusted public catalog RPC.
+ * Stored event status controls activation; timestamps bound the display window.
+ * PostgreSQL validates every bid, winner order and lifecycle transition.
  */
 export const AUCTION_STATUSES = ['SCHEDULED', 'LIVE', 'ENDED'] as const
 
 export type AuctionStatus = (typeof AUCTION_STATUSES)[number]
 
 export type AuctionLotStatus = 'OPEN' | 'WINNER_PENDING' | 'SETTLED' | 'NO_BIDS' | 'PAYMENT_EXPIRED'
+export type AuctionEventStatus = 'DRAFT' | 'SCHEDULED' | 'LIVE' | 'ENDED' | 'FINALIZED' | 'CANCELLED'
 
 export interface Auction {
   id: string
   auctionItemId?: string
+  auctionStatus?: AuctionEventStatus
   artworkId: string
   sellerId: string
   startAt: Timestamp
@@ -36,10 +25,8 @@ export interface Auction {
   /** Denormalized, in minor currency units (matches Artwork.price). `null` until a first real bid is ever placed. */
   currentHighBid: number | null
   bidCount: number
-  /**
-   * Set when the lot closes with a winning bidder.
-   */
-  winnerUid: string | null
+  /** Caller-specific server flag. Public auction data never contains a winner UUID. */
+  isWinner: boolean
   winningBidAmount: number | null
   lotStatus?: AuctionLotStatus
   paymentWindowExpiresAt?: Timestamp | null
@@ -47,8 +34,10 @@ export interface Auction {
   updatedAt: Timestamp
 }
 
-/** Computes the real, honest display status from trusted timestamps vs. the current time — see this file's own header comment. */
-export function deriveAuctionStatus(auction: Pick<Auction, 'startAt' | 'endAt'>, now: Date = new Date()): AuctionStatus {
+/** Display-only status; bidding authorization always uses server state and time. */
+export function deriveAuctionStatus(auction: Pick<Auction, 'startAt' | 'endAt' | 'auctionStatus'>, now: Date = new Date()): AuctionStatus {
+  if (auction.auctionStatus === 'DRAFT' || auction.auctionStatus === 'SCHEDULED') return 'SCHEDULED'
+  if (auction.auctionStatus && ['ENDED', 'FINALIZED', 'CANCELLED'].includes(auction.auctionStatus)) return 'ENDED'
   const nowMs = now.getTime()
   if (nowMs < auction.startAt.toMillis()) return 'SCHEDULED'
   if (nowMs < auction.endAt.toMillis()) return 'LIVE'

@@ -7,15 +7,10 @@ export interface AuctionCountdown {
   remainingMs: number
 }
 
-/**
- * A real, ticking countdown against the auction's own trusted `startAt`/
- * `endAt` — display-only, exactly as docs/AUCTION_ARCHITECTURE.md's
- * "Trusted time model" specifies: this has zero security authority, it
- * only ever reads the local clock and two real Firestore timestamps, never
- * a fabricated duration. `intervalMs` defaults to 1s so an "Ends in ..."
- * display reads as genuinely live; tests pass a shorter/mocked interval.
+/** Display-only countdown from trusted auction timestamps and event status.
+ * PostgreSQL remains authoritative for activation, bidding and closing.
  */
-export function useAuctionCountdown(auction: Pick<Auction, 'startAt' | 'endAt'>, intervalMs = 1000): AuctionCountdown {
+export function useAuctionCountdown(auction: Pick<Auction, 'startAt' | 'endAt' | 'auctionStatus'>, intervalMs = 1000): AuctionCountdown {
   const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {

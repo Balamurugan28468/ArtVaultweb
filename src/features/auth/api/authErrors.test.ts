@@ -20,7 +20,7 @@ describe('toAuthErrorMessage', () => {
       expect(
         toAuthErrorMessage(error),
       ).toBe(
-        'Incorrect email or password.',
+        'Invalid email or password.',
       )
     })
 
@@ -30,7 +30,7 @@ describe('toAuthErrorMessage', () => {
       expect(
         toAuthErrorMessage(error),
       ).toBe(
-        'Incorrect email or password.',
+        'Invalid email or password.',
       )
     })
   })
@@ -42,7 +42,7 @@ describe('toAuthErrorMessage', () => {
       expect(
         toAuthErrorMessage(error),
       ).toBe(
-        'An account already exists with this email.',
+        'Registration could not be completed. If you already have an account, sign in or use password recovery.',
       )
     })
 
@@ -54,7 +54,7 @@ describe('toAuthErrorMessage', () => {
       expect(
         toAuthErrorMessage(error),
       ).toBe(
-        'An account already exists with this email.',
+        'Registration could not be completed. If you already have an account, sign in or use password recovery.',
       )
     })
 
@@ -92,7 +92,23 @@ describe('toAuthErrorMessage', () => {
       expect(
         toAuthErrorMessage(error),
       ).toBe(
-        'Please confirm your email before signing in.',
+        'Please verify your email before signing in.',
+      )
+    })
+  })
+
+  describe('otp errors', () => {
+    it('maps an expired otp to an actionable message', () => {
+      const error = new Error('Token has expired or is invalid')
+      expect(toAuthErrorMessage(error)).toBe(
+        'This verification code has expired. Request a new code.',
+      )
+    })
+
+    it('maps an incorrect otp to an actionable message', () => {
+      const error = new Error('Token is invalid')
+      expect(toAuthErrorMessage(error)).toBe(
+        'The verification code is incorrect.',
       )
     })
   })
@@ -132,7 +148,7 @@ describe('toAuthErrorMessage', () => {
       expect(
         toAuthErrorMessage(error),
       ).toBe(
-        'Too many requests. Please wait a moment and try again.',
+        'Too many requests. Please wait and try again.',
       )
     })
 
@@ -144,7 +160,7 @@ describe('toAuthErrorMessage', () => {
       expect(
         toAuthErrorMessage(error),
       ).toBe(
-        'Too many requests. Please wait a moment and try again.',
+        'Too many requests. Please wait and try again.',
       )
     })
   })
@@ -170,7 +186,7 @@ describe('toAuthErrorMessage', () => {
           'Invalid login credentials',
         ),
       ).toBe(
-        'Incorrect email or password.',
+        'Invalid email or password.',
       )
     })
   })
@@ -191,10 +207,7 @@ describe('toAuthErrorMessage', () => {
 
       expect(
         errorSpy,
-      ).toHaveBeenCalledWith(
-        'Supabase authentication error:',
-        'boom',
-      )
+      ).not.toHaveBeenCalled()
     })
 
     it('does not expose an unknown raw error to the user', () => {
@@ -231,4 +244,16 @@ describe('toAuthErrorMessage', () => {
       ).not.toHaveBeenCalled()
     })
   })
+})
+it('maps the observed hosted SMTP failure without exposing provider details or logging them', () => {
+  const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  expect(toAuthErrorMessage({ code: 'unexpected_failure', status: 500, message: 'Error sending confirmation email' })).toBe('The verification email could not be sent. Please try again later or contact support.')
+  expect(spy).not.toHaveBeenCalled()
+  spy.mockRestore()
+})
+
+it('maps authoritative OTP expiry and rate-limit codes without exposing provider details', () => {
+  expect(toAuthErrorMessage({ code: 'otp_expired' })).toBe('This verification code has expired. Request a new code.')
+  expect(toAuthErrorMessage({ code: 'over_email_send_rate_limit' })).toBe('Too many requests. Please wait and try again.')
+  expect(toAuthErrorMessage(new Error('Invalid token'))).toBe('The verification code is incorrect.')
 })

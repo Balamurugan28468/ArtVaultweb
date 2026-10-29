@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { AlertCircle, CheckCircle, Loader2, Trophy } from 'lucide-react'
 import { Link } from 'react-router'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { Badge, Button, Card } from '@/shared/ui'
+import { AddressPicker } from '@/features/checkout'
 import { createAuctionWinnerOrder, placeBid } from '../api/auctionsRepository'
 import { AuctionCountdownBoxes } from './AuctionCountdownBoxes'
 import { deriveAuctionStatus, minimumNextBid, type Auction } from '../types'
@@ -23,8 +24,7 @@ export function CurrentBidPanel({ auction, onBidPlaced, hideCountdown }: Current
   const nextBid = minimumNextBid(auction)
   const isWinner =
     (status === 'ENDED' || auction.lotStatus === 'WINNER_PENDING') &&
-    auction.winnerUid != null &&
-    user?.uid === auction.winnerUid
+    auction.isWinner && user?.uid != null
   const isSeller = user?.uid != null && user.uid === auction.sellerId
 
   const [bidAmount, setBidAmount] = useState<string>('')
@@ -32,6 +32,8 @@ export function CurrentBidPanel({ auction, onBidPlaced, hideCountdown }: Current
   const [settling, setSettling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [shippingAddressId, setShippingAddressId] = useState<string | null>(null)
+  const checkoutPending = useRef(false)
 
   const handlePlaceBid = async (amountToPlace: number) => {
     if (!auction.auctionItemId && !auction.id) return
@@ -81,18 +83,19 @@ export function CurrentBidPanel({ auction, onBidPlaced, hideCountdown }: Current
   }
 
   const handleWinnerCheckout = async () => {
+    if (checkoutPending.current || !shippingAddressId) return
+    checkoutPending.current = true
     const lotId = auction.auctionItemId ?? auction.id
     setSettling(true)
     setError(null)
     try {
-      const orderId = await createAuctionWinnerOrder(lotId)
+      const orderId = await createAuctionWinnerOrder(lotId, shippingAddressId)
       if (typeof window !== 'undefined') {
-        window.location.assign(`/checkout?orderId=${orderId}`)
+        window.location.assign(`/orders/${encodeURIComponent(orderId)}`)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create winner order. Please try again.')
-      setSettling(false)
-    }
+    } finally { checkoutPending.current = false; setSettling(false) }
   }
 
   return (
@@ -110,13 +113,14 @@ export function CurrentBidPanel({ auction, onBidPlaced, hideCountdown }: Current
               {auction.lotStatus === 'WINNER_PENDING' && (
                 <div className="mt-1 flex flex-col gap-2">
                   <p className="text-xs text-text-secondary">
-                    Please complete payment within the payment window to secure this artwork.
+                    Select a saved shipping address to prepare your unpaid winner order at the winning bid. Razorpay TEST payments only; no real money or fulfillment.
                   </p>
+                  <AddressPicker onChange={() => {}} onSelectionChange={setShippingAddressId} />
                   <Button
                     type="button"
                     variant="gold"
                     size="sm"
-                    disabled={settling}
+                    disabled={settling || !shippingAddressId}
                     onClick={handleWinnerCheckout}
                   >
                     {settling ? (
@@ -127,6 +131,8 @@ export function CurrentBidPanel({ auction, onBidPlaced, hideCountdown }: Current
                       'Proceed to Winner Checkout →'
                     )}
                   </Button>
+                  {!shippingAddressId && <p className="text-xs text-text-secondary">Select or save a complete shipping address first.</p>}
+                  <Link to="/orders" className="text-xs underline">Already created an order? Open My Orders</Link>
                 </div>
               )}
               {auction.lotStatus === 'SETTLED' && (
@@ -137,7 +143,7 @@ export function CurrentBidPanel({ auction, onBidPlaced, hideCountdown }: Current
             </div>
           )}
 
-          {auction.winnerUid && auction.winningBidAmount != null ? (
+          {auction.winningBidAmount != null ? (
             <p className="text-sm text-text-secondary">
               Winning bid: <span className="font-medium text-text-primary">{formatAmount(auction.winningBidAmount)}</span>
             </p>

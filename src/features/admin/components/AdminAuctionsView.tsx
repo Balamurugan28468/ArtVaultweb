@@ -11,6 +11,7 @@ import {
 import { getAllArtworks } from '@/features/admin/api/adminQueueRepository'
 import type { Artwork } from '@/features/artwork'
 import { Badge, type BadgeTone, Button, Card, Modal } from '@/shared/ui'
+import { WeeklySelectionReview } from '@/features/auction-selection/components/WeeklySelectionReview'
 
 function formatAmount(amount: number): string {
   return `₹${(amount / 100).toFixed(0)}`
@@ -36,6 +37,7 @@ const LOT_STATUS_TONE: Record<AuctionLotStatus, BadgeTone> = {
 }
 
 export function AdminAuctionsView() {
+  const [selectionOpen,setSelectionOpen]=useState(false)
   const [auctions, setAuctions] = useState<AdminAuctionRow[]>([])
   const [artworks, setArtworks] = useState<Artwork[]>([])
   const [loading, setLoading] = useState(true)
@@ -56,6 +58,12 @@ export function AdminAuctionsView() {
   // Action states
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
 
+  const activeLotArtworkIds = new Set(
+    auctions
+      .filter((a) => (a.auctionStatus === 'SCHEDULED' || a.auctionStatus === 'LIVE') && a.lotStatus !== 'NO_BIDS' && a.lotStatus !== 'SETTLED' && a.lotStatus !== 'PAYMENT_EXPIRED')
+      .map((a) => a.artworkId)
+  )
+
   const loadData = async () => {
     setLoading(true)
     setError(null)
@@ -70,6 +78,19 @@ export function AdminAuctionsView() {
       setError(err instanceof Error ? err.message : 'Could not load auctions')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleArtworkChange = (artworkId: string) => {
+    setSelectedArtworkId(artworkId)
+    const art = artworks.find((a) => a.id === artworkId)
+    if (art) {
+      const pricePaise = art.price ?? (art as any).price_minor ?? 0
+      const priceRupees = Math.round(pricePaise / 100)
+      if (priceRupees > 0) {
+        setStartingBidRupees(String(priceRupees))
+        setBidIncrementRupees(String(Math.max(100, Math.round(priceRupees * 0.05))))
+      }
     }
   }
 
@@ -166,6 +187,10 @@ export function AdminAuctionsView() {
 
   return (
     <div className="flex flex-col gap-6">
+      <Button type="button" variant="secondary" onClick={()=>setSelectionOpen(value=>!value)} aria-expanded={selectionOpen}>
+        {selectionOpen?'Close weekly selection review':'Review intelligent weekly selection'}
+      </Button>
+      {selectionOpen&&<WeeklySelectionReview onScheduled={()=>void loadData()}/>}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-display text-xl font-semibold text-text-primary">Weekly Auction Engine</h1>
@@ -299,7 +324,7 @@ export function AdminAuctionsView() {
                           </>
                         )}
                         <a
-                          href={`/auctions/${row.auctionId}`}
+                          href={`/auctions/${row.auctionId}?lot=${encodeURIComponent(row.auctionItemId)}`}
                           target="_blank"
                           rel="noreferrer"
                           className="text-brand-primary-on-dark hover:underline text-[11px]"
@@ -330,17 +355,29 @@ export function AdminAuctionsView() {
             <select
               id="auction-artwork-select"
               value={selectedArtworkId}
-              onChange={(e) => setSelectedArtworkId(e.target.value)}
+              onChange={(e) => handleArtworkChange(e.target.value)}
               className="w-full rounded border border-border-strong bg-surface-elevated p-2 text-text-primary focus:border-accent-gold focus:outline-none"
               required
             >
               <option value="">-- Choose an eligible artwork --</option>
-              {artworks.map((art) => (
-                <option key={art.id} value={art.id}>
-                  {art.title} (₹{(art.price / 100).toFixed(0)}) — {art.id.slice(0, 8)}
-                </option>
-              ))}
+              {artworks.map((art) => {
+                const isActive = activeLotArtworkIds.has(art.id)
+                const pricePaise = art.price ?? (art as any).price_minor ?? 0
+                const available = (art.inventoryCount ?? (art as any).inventory_count ?? 1) - (art.reservedCount ?? 0)
+                return (
+                  <option key={art.id} value={art.id} disabled={isActive || available <= 0}>
+                    {art.title} (₹{Math.round(pricePaise / 100).toLocaleString('en-IN')})
+                    {isActive ? ' — [Active Auction]' : available <= 0 ? ' — [Out of Stock]' : ` — Stock: ${available}`}
+                    {` — ID: ${art.id.slice(0, 8)}…`}
+                  </option>
+                )
+              })}
             </select>
+            {artworks.length === 0 && (
+              <p className="mt-1 text-[11px] text-text-muted">
+                No published artworks found. Artworks must be approved and published before they can be scheduled for auction.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -366,6 +403,45 @@ export function AdminAuctionsView() {
                 required
               />
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 rounded bg-surface p-2 text-[11px] text-text-muted border border-border/60">
+            <span className="font-medium text-text-secondary">Quick test presets:</span>
+            <button
+              type="button"
+              className="text-accent-gold hover:underline"
+              onClick={() => {
+                const now = new Date()
+                const start = new Date(now.getTime() + 2 * 60 * 1000)
+                const end = new Date(now.getTime() + 10 * 60 * 1000)
+                const toLocalInput = (d: Date) => {
+                  const offset = d.getTimezoneOffset() * 60000
+                  return new Date(d.getTime() - offset).toISOString().slice(0, 16)
+                }
+                setStartsAt(toLocalInput(start))
+                setEndsAt(toLocalInput(end))
+              }}
+            >
+              Starts in 2m (Ends in 10m)
+            </button>
+            <span>•</span>
+            <button
+              type="button"
+              className="text-accent-gold hover:underline"
+              onClick={() => {
+                const now = new Date()
+                const start = new Date(now.getTime() + 5 * 60 * 1000)
+                const end = new Date(now.getTime() + 60 * 60 * 1000)
+                const toLocalInput = (d: Date) => {
+                  const offset = d.getTimezoneOffset() * 60000
+                  return new Date(d.getTime() - offset).toISOString().slice(0, 16)
+                }
+                setStartsAt(toLocalInput(start))
+                setEndsAt(toLocalInput(end))
+              }}
+            >
+              Starts in 5m (Ends in 1h)
+            </button>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

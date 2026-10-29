@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from '@/shared/ui/Button'
 import { createClient } from '@/lib/supabase/client'
 import { authCallbackUrl, completeSupabaseReturn } from '@/features/auth/supabaseCompletion'
+import { signInWithEmail } from '@/features/auth/api/authClient'
+import { signInSchema } from '@/features/auth/schemas'
 
 export function SupabaseAuthPage() {
   const [stage, setStage] = useState<'loading' | 'invalid' | 'password' | 'saved' | 'signed-out' | 'signed-in'>(() => window.location.pathname === '/auth/recovery' ? 'invalid' : 'loading')
@@ -41,13 +43,14 @@ export function SupabaseAuthPage() {
         if (result.error) throw new Error('PASSWORD')
         setPassword(''); setConfirmation(''); setStage('saved')
       } else if (stage === 'signed-out') {
-        const result = await client.auth.signInWithPassword({ email, password })
-        if (result.error || !result.data.session) throw new Error('SIGN_IN')
+        const input = signInSchema.safeParse({ email, password })
+        if (!input.success) { setError(input.error.issues[0]?.message ?? 'Enter your email and password.'); return }
+        await signInWithEmail(input.data)
         setPassword(''); setStage('signed-in')
       }
-    } catch {
+    } catch (caught) {
       setError(stage === 'password' ? 'Password was not saved. Check the password policy or request a fresh link.'
-        : stage === 'signed-out' ? 'Sign-in failed. Check your email and password.'
+        : stage === 'signed-out' ? caught instanceof Error ? caught.message : 'Sign-in failed. Please try again.'
           : 'Unable to send a recovery link. Please retry or ask the project owner to check Auth email delivery.')
     } finally { setBusy(false) }
   }
@@ -56,7 +59,7 @@ export function SupabaseAuthPage() {
     try {
       const result = await createClient().auth.signOut()
       if (result.error) throw new Error('SIGN_OUT')
-      setStage('signed-out'); setPassword(''); setConfirmation('')
+      setStage('signed-out'); setEmail(''); setPassword(''); setConfirmation('')
     } catch { setError('Sign-out failed. Please retry.') }
     finally { setBusy(false) }
   }
@@ -73,7 +76,7 @@ export function SupabaseAuthPage() {
     </form>}
     {(stage === 'saved' || stage === 'signed-in') && <div className="my-4 space-y-4">
       <p role="status">{stage === 'saved' ? 'Password saved. Sign out and sign in below to verify it.' : 'Supabase sign-in succeeded.'}</p>
-      <p className="break-words">Saved destination: {destination}. Application access remains on the previous backend until migration is complete.</p>
+      <p className="break-words">Saved destination: {destination}. Application access requires your verified session and authorized ArtVault role.</p>
       <Button onClick={() => void signOut()} disabled={busy}>Sign out of Supabase</Button>
     </div>}
     {notice && <p role="status" className="mt-4">{notice}</p>}

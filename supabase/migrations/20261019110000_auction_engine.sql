@@ -601,6 +601,18 @@ begin
     raise exception 'Artwork not found, not published, or out of stock' using errcode = 'P0002';
   end if;
 
+  -- No overlapping/conflicting active or scheduled auction for this artwork
+  if exists (
+    select 1
+    from public.auction_items ai
+    join public.auctions a on a.id = ai.auction_id
+    where ai.artwork_id = p_artwork_id
+      and a.status in ('SCHEDULED', 'LIVE')
+      and ai.lot_status in ('OPEN', 'WINNER_PENDING')
+  ) then
+    raise exception 'Artwork already has an active or scheduled auction' using errcode = '23505';
+  end if;
+
   -- Create auction event
   insert into public.auctions(starts_at, ends_at, status, currency)
   values (p_starts_at, p_ends_at, 'SCHEDULED', 'INR')

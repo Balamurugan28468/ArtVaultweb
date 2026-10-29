@@ -8,6 +8,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { ensureUserProfile } from '@/features/auth/api/ensureUserProfile'
+import { getAccountStatus } from '@/features/auth/api/accountAccess'
 import {
   getCurrentRoleClaim,
   waitForRoleClaim,
@@ -48,6 +49,8 @@ export function AuthProvider({
 
     let active = true
     let sessionVersion = 0
+    let authEventVersion = 0
+    let resolvedIdentity: string | null = null
 
     const resolveSession = async (
       session: Session | null,
@@ -56,9 +59,10 @@ export function AuthProvider({
 
       const currentVersion = sessionVersion
 
-      if (!session?.user) {
+      if (!session?.user || !session.user.email_confirmed_at) {
         if (!active) return
 
+        resolvedIdentity = null
         setUser(null)
         setRole(null)
         setStatus('unauthenticated')
@@ -71,14 +75,37 @@ export function AuthProvider({
 
       if (!active) return
 
-      setUser(mappedUser)
+      // Never expose the previous user's UI identity or role while resolving
+      // a newly signed-in user's account status and permissions.
+      if (resolvedIdentity !== mappedUser.id) {
+        setUser(null)
+        setRole(null)
+        setStatus('loading')
+      }
 
-      // Keep an existing authenticated screen usable during token refreshes.
-      setStatus((current) =>
-        current === 'authenticated'
-          ? 'authenticated'
-          : 'loading',
-      )
+      try {
+        const accountStatus = await getAccountStatus(mappedUser.id)
+        if (!active || currentVersion !== sessionVersion) return
+        if (accountStatus !== 'ACTIVE') {
+          resolvedIdentity = null
+          setUser(null)
+          setRole(null)
+          setStatus('unauthenticated')
+          await supabase.auth.signOut({ scope: 'local' })
+          return
+        }
+      } catch {
+        if (!active || currentVersion !== sessionVersion) return
+        resolvedIdentity = null
+        setUser(null)
+        setRole(null)
+        setStatus('unauthenticated')
+        return
+      }
+
+      // The authenticated identity is committed only after the account and
+      // role checks complete; token refresh for the same identity keeps the
+      // existing authenticated UI usable.
 
       try {
         /**
@@ -86,7 +113,7 @@ export function AuthProvider({
          * This only verifies that provisioning completed.
          */
         await ensureUserProfile(mappedUser)
-      } catch (error) {
+      } catch {
         /**
          * Authentication itself is still valid even if profile loading
          * temporarily fails.
@@ -95,7 +122,6 @@ export function AuthProvider({
          */
         console.error(
           'Failed to verify Supabase user profile:',
-          error,
         )
       }
 
@@ -111,10 +137,9 @@ export function AuthProvider({
       try {
         resolvedRole =
           await waitForRoleClaim(mappedUser)
-      } catch (error) {
+      } catch {
         console.error(
           'Failed to resolve Supabase application role:',
-          error,
         )
       }
 
@@ -132,6 +157,8 @@ export function AuthProvider({
        *
        * PostgreSQL RLS and protected RPCs remain authoritative.
        */
+      resolvedIdentity = mappedUser.id
+      setUser(mappedUser)
       setRole(resolvedRole ?? 'CUSTOMER')
       setStatus('authenticated')
     }
@@ -144,6 +171,7 @@ export function AuthProvider({
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       (_event, session) => {
+        authEventVersion += 1
         /**
          * Keep the auth callback itself synchronous.
          * Perform database/RPC work immediately afterward.
@@ -154,15 +182,17 @@ export function AuthProvider({
       },
     )
 
+    const initialAuthEventVersion = authEventVersion
     void supabase.auth
       .getSession()
       .then(({ data, error }) => {
-        if (!active) return
+        // A newer auth event (including SIGNED_OUT) supersedes any
+        // potentially stale session returned by this initial snapshot.
+        if (!active || authEventVersion !== initialAuthEventVersion) return
 
         if (error) {
           console.error(
             'Failed to restore Supabase session:',
-            error,
           )
 
           setUser(null)
@@ -174,10 +204,10 @@ export function AuthProvider({
 
         void resolveSession(data.session)
       })
-      .catch((error) => {
+      .catch(() => {
+        if (!active || authEventVersion !== initialAuthEventVersion) return
         console.error(
           'Unexpected Supabase session restoration error:',
-          error,
         )
 
         if (!active) return
@@ -202,10 +232,9 @@ export function AuthProvider({
         await getCurrentRoleClaim(user)
 
       setRole(nextRole ?? 'CUSTOMER')
-    } catch (error) {
+    } catch {
       console.error(
         'Failed to refresh Supabase role:',
-        error,
       )
     }
   }

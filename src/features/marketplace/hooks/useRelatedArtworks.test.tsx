@@ -4,9 +4,14 @@ import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 const fetchMarketplacePage = vi.fn()
-vi.mock('../api/marketplaceRepository', () => ({
-  fetchMarketplacePage: (...args: unknown[]) => fetchMarketplacePage(...args),
+vi.mock('@/features/recommendations/api/recommendationRepository', () => ({
+  getRecommendationPage: async (...args: unknown[]) => {
+    const page = await fetchMarketplacePage(...args)
+    return { items: page.artworks.map((artwork: { id: string }) => ({ artwork, reason: 'Similar category', score: 50 })), personalized: false }
+  },
 }))
+vi.mock('@/app/providers/AuthProvider', () => ({ useAuth: () => ({ status: 'unauthenticated', user: null }) }))
+vi.mock('@/features/wishlist/context/WishlistProvider', () => ({ useWishlist: () => ({ savedIds: new Set(), status: 'ready' }) }))
 
 const { useRelatedArtworks } = await import('./useRelatedArtworks')
 
@@ -31,8 +36,7 @@ describe('useRelatedArtworks', () => {
 
     await waitFor(() => expect(result.current.status).toBe('success'))
     expect(fetchMarketplacePage).toHaveBeenCalledWith(
-      expect.objectContaining({ category: 'painting' }),
-      null,
+      'related', 'a1', undefined,
     )
     expect(result.current.artworks).toEqual([{ id: 'a2' }, { id: 'a3' }])
   })

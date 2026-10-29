@@ -112,7 +112,14 @@ async function readItems(orderId: string): Promise<OrderItem[]> {
   return await Promise.all(rows.map(async (row) => {
     const item = mapToOrderItem(row.id, row)
     if (!item) return null
-    return { ...item, imageUrl: item.imageUrl ? await signedImage(item.imageUrl) : null }
+    // A revoked/missing image must not hide the buyer's purchase, address or
+    // payment history. Storage authorization still decides whether signing is
+    // allowed; never fall back to an unsigned/private object URL.
+    let imageUrl: string | null = null
+    if (item.imageUrl) {
+      try { imageUrl = await signedImage(item.imageUrl) } catch { /* Render the existing image placeholder. */ }
+    }
+    return { ...item, imageUrl }
   })).then((items) => items.filter((item): item is OrderItem => item !== null))
 }
 

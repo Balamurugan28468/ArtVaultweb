@@ -2,6 +2,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CurrentBidPanel } from './CurrentBidPanel'
 import type { Auction } from '../types'
+import { MemoryRouter } from 'react-router'
+
+vi.mock('@/features/checkout', () => ({
+  AddressPicker: ({ onSelectionChange }: { onSelectionChange?: (id: string | null) => void }) =>
+    <button type="button" onClick={() => onSelectionChange?.('saved-address-1')}>Select saved shipping address</button>,
+}))
 
 const useAuth = vi.fn()
 vi.mock('@/app/providers/AuthProvider', () => ({ useAuth: () => useAuth() }))
@@ -29,13 +35,15 @@ const BASE_AUCTION: Auction = {
   bidIncrement: 10000,
   currentHighBid: null,
   bidCount: 0,
-  winnerUid: null,
+  isWinner: false,
   winningBidAmount: null,
   createdAt: ts(0),
   updatedAt: ts(0),
 }
 
 beforeEach(() => {
+  mockPlaceBid.mockReset()
+  mockCreateAuctionWinnerOrder.mockReset()
   Object.defineProperty(window, 'location', {
     configurable: true,
     value: { assign: vi.fn(), href: '' },
@@ -82,7 +90,7 @@ describe('CurrentBidPanel', () => {
     useAuth.mockReturnValue({ user: { uid: 'winner-1' } })
     vi.useFakeTimers()
     vi.setSystemTime(new Date(5000))
-    render(<CurrentBidPanel auction={{ ...BASE_AUCTION, winnerUid: 'winner-1', winningBidAmount: 600000 }} />)
+    render(<CurrentBidPanel auction={{ ...BASE_AUCTION, isWinner: true, winningBidAmount: 600000 }} />)
 
     expect(screen.getByText('You won this auction!')).toBeInTheDocument()
     expect(screen.getByText('₹6,000')).toBeInTheDocument()
@@ -92,7 +100,7 @@ describe('CurrentBidPanel', () => {
     useAuth.mockReturnValue({ user: { uid: 'someone-else' } })
     vi.useFakeTimers()
     vi.setSystemTime(new Date(5000))
-    render(<CurrentBidPanel auction={{ ...BASE_AUCTION, winnerUid: 'winner-1', winningBidAmount: 600000 }} />)
+    render(<CurrentBidPanel auction={{ ...BASE_AUCTION, isWinner: false, winningBidAmount: 600000 }} />)
 
     expect(screen.queryByText('You won this auction!')).not.toBeInTheDocument()
   }, 15000)
@@ -144,24 +152,43 @@ describe('CurrentBidPanel', () => {
       mockCreateAuctionWinnerOrder.mockResolvedValueOnce('order-winner-1')
 
       render(
+        <MemoryRouter>
         <CurrentBidPanel
           auction={{
             ...LIVE_LOT_AUCTION,
             lotStatus: 'WINNER_PENDING',
-            winnerUid: 'winner-1',
+            isWinner: true,
             winningBidAmount: 150000,
           }}
         />
+        </MemoryRouter>
       )
 
       const checkoutBtn = screen.getByRole('button', { name: /Proceed to Winner Checkout/ })
       expect(checkoutBtn).toBeInTheDocument()
+      expect(checkoutBtn).toBeDisabled()
+      fireEvent.click(checkoutBtn)
+      expect(mockCreateAuctionWinnerOrder).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Select saved shipping address' }))
+      expect(checkoutBtn).toBeEnabled()
 
       fireEvent.click(checkoutBtn)
       await waitFor(() => {
-        expect(mockCreateAuctionWinnerOrder).toHaveBeenCalledWith('lot-1')
-        expect(window.location.assign).toHaveBeenCalledWith('/checkout?orderId=order-winner-1')
+        expect(mockCreateAuctionWinnerOrder).toHaveBeenCalledWith('lot-1', 'saved-address-1')
+        expect(window.location.assign).toHaveBeenCalledWith('/orders/order-winner-1')
       })
     }, 15000)
   })
+})
+
+it('keeps a failed winner checkout retryable and recovers the same order route on retry', async () => {
+  useAuth.mockReturnValue({ user: { uid: 'winner-1' } })
+  mockCreateAuctionWinnerOrder.mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValueOnce('same-order')
+  render(<MemoryRouter><CurrentBidPanel auction={{ ...BASE_AUCTION, auctionItemId: 'lot-1', lotStatus: 'WINNER_PENDING', isWinner: true }} /></MemoryRouter>)
+  fireEvent.click(screen.getByRole('button', { name: 'Select saved shipping address' }))
+  fireEvent.click(screen.getByRole('button', { name: /Proceed to Winner Checkout/ }))
+  expect(await screen.findByText('Network unavailable')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Proceed to Winner Checkout/ }))
+  await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/orders/same-order'))
+  expect(mockCreateAuctionWinnerOrder).toHaveBeenCalledTimes(2)
 })

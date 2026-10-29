@@ -63,6 +63,14 @@ function renderPage(artworkId = 'a1') {
 }
 
 describe('ArtworkAnalysisPage', () => {
+  it('labels metadata fallback as heuristic without claiming model execution',()=>{
+    usePublicArtwork.mockReturnValue({status:'success',data:buildArtwork()})
+    useArtworkAnalysis.mockReturnValue({status:'loaded',analysis:{analysisMethod:'HEURISTIC',description:'Listing metadata only.',notableElements:[]}})
+    renderPage()
+    expect(screen.getByText('Heuristic ranking')).toBeInTheDocument()
+    expect(screen.getByText('Heuristic ranking — no visual AI model executed.')).toBeInTheDocument()
+    expect(screen.queryByText('AI Analysis')).not.toBeInTheDocument()
+  })
   it('shows a loading state', () => {
     usePublicArtwork.mockReturnValue({ status: 'pending' })
     renderPage()

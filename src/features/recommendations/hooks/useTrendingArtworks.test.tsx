@@ -3,11 +3,10 @@ import { renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-const fetchTrendingArtworks = vi.fn()
-vi.mock('@/features/marketplace', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/marketplace')>()
-  return { ...actual, fetchTrendingArtworks: () => fetchTrendingArtworks() }
-})
+const getRecommendationPage = vi.fn()
+vi.mock('../api/recommendationRepository', () => ({ getRecommendationPage: (...args: unknown[]) => getRecommendationPage(...args) }))
+vi.mock('@/app/providers/AuthProvider', () => ({ useAuth: () => ({ status: 'unauthenticated', user: null }) }))
+vi.mock('@/features/wishlist/context/WishlistProvider', () => ({ useWishlist: () => ({ savedIds: new Set(), status: 'ready' }) }))
 
 const { useTrendingArtworks } = await import('./useTrendingArtworks')
 
@@ -18,9 +17,10 @@ function wrapper({ children }: { children: ReactNode }) {
 
 describe('useTrendingArtworks', () => {
   it('resolves to the real, unpersonalized trending list — no sign-in/activity required', async () => {
-    fetchTrendingArtworks.mockResolvedValueOnce([{ id: 'a1' }])
+    getRecommendationPage.mockResolvedValueOnce({ items: [{ artwork: { id: 'a1' }, reason: 'Real marketplace engagement', score: 60 }], personalized: false })
     const { result } = renderHook(() => useTrendingArtworks(), { wrapper })
     await waitFor(() => expect(result.current.status).toBe('success'))
     expect(result.current.data).toEqual([{ id: 'a1' }])
+    expect(getRecommendationPage).toHaveBeenCalledWith('trending', undefined, undefined)
   })
 })

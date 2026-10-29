@@ -135,6 +135,7 @@ interface AnchorCapableFrame
 }
 
 interface StableRendererState {
+  generation: number
   anchor:
     XRAnchor | null
 
@@ -177,6 +178,9 @@ const rendererStates =
     object,
     StableRendererState
   >()
+
+const releasedElements = new WeakSet<object>()
+const elementControls = new WeakMap<HTMLElement, { lock: () => void; unlock: () => void }>()
 
 function dispatchAnchorState(
   element:
@@ -262,6 +266,7 @@ function resetAnchorState(
   state:
     StableRendererState,
 ) {
+  state.generation += 1
   deleteAnchor(
     state,
   )
@@ -416,7 +421,8 @@ function restoreNativeRepositioning(
   if (
     !session ||
     ar.currentSession !==
-      session
+      session ||
+    (session.visibilityState && session.visibilityState !== 'visible')
   ) {
     return
   }
@@ -476,7 +482,8 @@ void requestTransientHitTest.call(
             session ||
           ar.currentSession !==
             session ||
-          state.locked
+          state.locked ||
+          (session.visibilityState && session.visibilityState !== 'visible')
         ) {
           try {
             hitTestSource.cancel()
@@ -670,6 +677,9 @@ async function createAnchorAtCurrentPlacement(
     frame as
       AnchorCapableFrame
 
+  const generation = ++state.generation
+  const session = state.session
+
   if (
     !referenceSpace ||
     typeof anchorFrame
@@ -718,6 +728,11 @@ async function createAnchorAtCurrentPlacement(
   } catch {
     anchor =
       null
+  }
+
+  if (state.generation !== generation || state.session !== session) {
+    try { anchor?.delete() } catch { /* Stale native anchor. */ }
+    return
   }
 
   state.anchorPending =
@@ -835,6 +850,8 @@ function applyAnchorPose(
     )
 
   if (!pose) {
+    // Reassert the last known placement after model-viewer's frame processing.
+    lockRendererToPosition(ar, state, state.position.x, state.position.y, state.position.z, state.yaw)
     if (
       !state.lost
     ) {
@@ -901,6 +918,7 @@ function unlockRenderer(
   state:
     StableRendererState,
 ) {
+  state.generation += 1
   state.lockRequested =
     false
 
@@ -999,6 +1017,7 @@ function patchStableWallRenderer(
 
   const state:
     StableRendererState = {
+      generation: 0,
       anchor:
         null,
 
@@ -1068,11 +1087,9 @@ function patchStableWallRenderer(
           'immersive-ar',
           {
             requiredFeatures:
-              [],
+              ['hit-test', ...(ar.overlay ? ['dom-overlay'] : [])],
 
             optionalFeatures: [
-              'hit-test',
-              'dom-overlay',
               'light-estimation',
               'anchors',
             ],
@@ -1087,42 +1104,35 @@ function patchStableWallRenderer(
           },
         )
 
-      ar.threeRenderer
-        .xr
-        .setReferenceSpaceType(
-          'local',
-        )
+      resetAnchorState(state)
+      state.session = session
+      let ended = false
+      const onVisibility = () => {
+        if (state.session !== session) return
+        if (session.visibilityState !== 'visible') disableNativeRepositioning(ar)
+        else if (!state.locked) restoreNativeRepositioning(ar, state)
+      }
+      session.addEventListener('visibilitychange', onVisibility)
+      session.addEventListener('end', () => {
+        ended = true
+        session.removeEventListener('visibilitychange', onVisibility)
+        if (state.session === session) {
+          resetAnchorState(state)
+          dispatchAnchorState(ar.presentedScene?.element, 'unlocked')
+        }
+      }, { once: true })
 
-      await ar.threeRenderer
-        .xr
-        .setSession(
-          session,
-        )
-
-      ar.threeRenderer
-        .xr
-        .cameraAutoUpdate =
-        false
-
-      resetAnchorState(
-        state,
-      )
-
-      state.session =
-        session
-
-      session.addEventListener(
-        'end',
-        () => {
-          resetAnchorState(
-            state,
-          )
-        },
-        {
-          once:
-            true,
-        },
-      )
+      try {
+        ar.threeRenderer.xr.setReferenceSpaceType('local')
+        await ar.threeRenderer.xr.setSession(session)
+        ar.threeRenderer.xr.cameraAutoUpdate = false
+        if (ended) throw new Error('AR session ended during setup.')
+      } catch (error) {
+        session.removeEventListener('visibilitychange', onVisibility)
+        if (state.session === session) resetAnchorState(state)
+        try { await session.end() } catch { /* Already ended. */ }
+        throw error
+      }
 
       return session
     }
@@ -1143,6 +1153,12 @@ function patchStableWallRenderer(
       frame:
         XRFrame,
     ) => {
+      if (state.locked) {
+        // Block native gesture state before the engine renders, then refresh
+        // any optional anchor pose after its normal frame processing below.
+        disableNativeRepositioning(ar)
+        lockRendererToPosition(ar, state, state.position.x, state.position.y, state.position.z, state.yaw)
+      }
       /*
        * Run model-viewer's original
        * frame first so the current
@@ -1230,6 +1246,7 @@ function patchModelViewerPrototype(
     ) {
       const element =
         this
+      if (releasedElements.has(element)) throw new Error('AR viewer has been released.')
 
       const internal =
         (
@@ -1272,33 +1289,35 @@ function patchModelViewerPrototype(
               .__artVaultAnchorControlsInstalled =
               true
 
+            const lock = () => {
+              if (ar.presentedScene?.element === element) requestRendererLock(ar, state)
+            }
+            const unlock = () => {
+              if (ar.presentedScene?.element === element) unlockRenderer(ar, state)
+            }
+            elementControls.set(element, { lock, unlock })
+
             element.addEventListener(
               'artvault-lock-position',
-              () => {
-                requestRendererLock(
-                  ar,
-                  state,
-                )
-              },
+              lock,
             )
 
             element.addEventListener(
               'artvault-unlock-position',
-              () => {
-                unlockRenderer(
-                  ar,
-                  state,
-                )
-              },
+              unlock,
             )
           }
         }
       }
 
-      return originalActivateAR
+      await originalActivateAR
         .call(
           element,
         )
+      // A pending permission/session request can resolve after route unmount.
+      if (releasedElements.has(element) && ar?.presentedScene?.element === element) {
+        await ar.stopPresenting().catch(() => undefined)
+      }
     }
 }
 
@@ -1349,6 +1368,13 @@ export async function loadViewer() {
       element:
         ModelViewerElement,
     ) {
+      releasedElements.add(element)
+      const controls = elementControls.get(element)
+      if (controls) {
+        element.removeEventListener('artvault-lock-position', controls.lock)
+        element.removeEventListener('artvault-unlock-position', controls.unlock)
+        elementControls.delete(element)
+      }
       const internal =
         (
           element as
@@ -1371,6 +1397,8 @@ export async function loadViewer() {
           ?.element ===
         element
       ) {
+        const state = rendererStates.get(renderer as object)
+        if (state) resetAnchorState(state)
         void renderer
           .stopPresenting()
           .catch(

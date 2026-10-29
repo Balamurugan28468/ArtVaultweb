@@ -222,6 +222,71 @@ beforeEach(() => {
 describe(
   'real AR viewer wrapper',
   () => {
+    it.each(['locking', 'anchored', 'local-lock', 'lost', 'recovered'])(
+      'disables every size control and rejects injected slider changes while %s',
+      async status => {
+        const { element } = await setup()
+        act(() => {
+          element.dispatchEvent(new CustomEvent('ar-status', { detail: { status: 'object-placed' } }))
+          element.dispatchEvent(new CustomEvent('artvault-anchor-state', { detail: { status } }))
+        })
+        const controls = screen.getAllByRole('slider', { name: 'Artwork size' })
+        for (const slider of controls) {
+          expect(slider).toBeDisabled()
+          fireEvent.input(slider, { target: { value: '200' } })
+          fireEvent.change(slider, { target: { value: '200' } })
+        }
+        for (const name of ['Increase artwork size', 'Decrease artwork size', 'Reset artwork size']) {
+          for (const button of screen.getAllByRole('button', { name })) expect(button).toBeDisabled()
+        }
+        expect(element).toHaveAttribute('scale', '1 1 1')
+        act(() => element.dispatchEvent(new CustomEvent('artvault-anchor-state', { detail: { status: 'unlocked' } })))
+        fireEvent.click(screen.getAllByRole('button', { name: 'Increase artwork size' })[0])
+        expect(element).toHaveAttribute('scale', '1.05 1.05 1.05')
+      },
+    )
+
+    it('keeps Lock disabled while scanning and resets all locks after session exit', async () => {
+      const { element } = await setup()
+      act(() => element.dispatchEvent(new CustomEvent('ar-status', { detail: { status: 'session-started' } })))
+      expect(screen.getByRole('button', { name: 'Lock artwork position' })).toBeDisabled()
+      act(() => {
+        element.dispatchEvent(new CustomEvent('ar-status', { detail: { status: 'object-placed' } }))
+        element.dispatchEvent(new CustomEvent('artvault-anchor-state', { detail: { status: 'local-lock' } }))
+        element.dispatchEvent(new CustomEvent('ar-status', { detail: { status: 'not-presenting' } }))
+      })
+      expect(screen.getByRole('slider', { name: 'Artwork size' })).toBeEnabled()
+      expect(screen.queryByText(/position is locked/)).not.toBeInTheDocument()
+    })
+
+    it('prevents duplicate launch requests while browser permission is pending', async () => {
+      const { element } = await setup()
+      let complete!: () => void
+      activateAR.mockReturnValueOnce(new Promise<void>(resolve => { complete = resolve }))
+      act(() => { element.loaded = true; element.canActivateAR = true; element.dispatchEvent(new Event('load')) })
+      const button = screen.getByRole('button', { name: 'View in your space' })
+      fireEvent.click(button); fireEvent.click(button)
+      expect(activateAR).toHaveBeenCalledOnce()
+      await act(async () => complete())
+    })
+
+    it('cleans native overlay handlers when the viewer is replaced', async () => {
+      const { element, unmount } = await setup()
+      const button = element.querySelector<HTMLButtonElement>('[aria-label="Increase artwork size"]')!
+      const remove = vi.spyOn(button, 'removeEventListener')
+      unmount()
+      expect(remove).toHaveBeenCalledWith('click', expect.any(Function))
+    })
+
+    it('shows a specific permission-denied state without exposing the underlying error text', async () => {
+      const { element } = await setup()
+      activateAR.mockRejectedValueOnce(new DOMException('Internal resource details', 'NotAllowedError'))
+      act(() => { element.loaded = true; element.canActivateAR = true; element.dispatchEvent(new Event('load')) })
+      fireEvent.click(screen.getByRole('button', { name: 'View in your space' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('Camera/AR permission was denied')
+      expect(screen.queryByText('Internal resource details')).not.toBeInTheDocument()
+      expect(screen.getByAltText(/artwork image fallback/)).toBeInTheDocument()
+    })
     it(
       'shows the estimated framed display dimensions',
       async () => {

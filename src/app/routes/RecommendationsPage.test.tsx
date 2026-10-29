@@ -15,10 +15,20 @@ vi.mock('@/features/marketplace', () => ({ useArtistDisplayNames: (...args: unkn
 const useForYouArtworks = vi.fn()
 const useSimilarArtworks = vi.fn()
 const useTrendingArtworks = vi.fn()
+const sourceSelected = vi.fn()
+const retry = vi.fn()
+const loadMore = vi.fn()
 vi.mock('@/features/recommendations', () => ({
-  useForYouArtworks: () => useForYouArtworks(),
-  useSimilarArtworks: () => useSimilarArtworks(),
-  useTrendingArtworks: () => useTrendingArtworks(),
+  useRecommendations: (mode: string) => {
+    sourceSelected(mode)
+    const trending = useTrendingArtworks()
+    const related = useSimilarArtworks()
+    const personal = useForYouArtworks()
+    const data = mode === 'trending' ? trending : mode === 'related' ? related : personal
+    const artworks = data.artworks ?? data.data ?? []
+    return { refetch: retry, fetchNextPage: loadMore, ...data, status: data.status === 'loading' ? 'pending' : data.status, artworks,
+      items: artworks.map((artwork: Artwork) => ({ artwork, reason: 'Real marketplace activity', score: 50 })) }
+  },
 }))
 
 const { RecommendationsPage } = await import('./RecommendationsPage')
@@ -75,24 +85,26 @@ describe('RecommendationsPage', () => {
     expect(screen.getByText('card: Golden Serenity')).toBeInTheDocument()
   })
 
-  it('shows an honest "not available yet" state for Artists You Follow — Follows was never built', () => {
+  it('shows a genuine empty result for Artists You Follow when there is no matching activity', () => {
     useForYouArtworks.mockReturnValue({ status: 'success', artworks: [], personalized: false })
     useSimilarArtworks.mockReturnValue({ status: 'success', artworks: [], anchorCategory: null })
     useTrendingArtworks.mockReturnValue({ status: 'success', data: [] })
     renderPage()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Artists You Follow' }))
-    expect(screen.getByText("Following artists isn't available yet")).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Artists You Follow' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('Nothing to recommend yet')).toBeInTheDocument()
   })
 
-  it('shows an honest "not available yet" state for Based on Your Likes — never a fabricated per-user like list', () => {
+  it('shows no fabricated per-user recommendations when Based on Your Likes is empty', () => {
     useForYouArtworks.mockReturnValue({ status: 'success', artworks: [], personalized: false })
     useSimilarArtworks.mockReturnValue({ status: 'success', artworks: [], anchorCategory: null })
     useTrendingArtworks.mockReturnValue({ status: 'success', data: [] })
     renderPage()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Based on Your Likes' }))
-    expect(screen.getByText("Picks based on your Likes aren't available yet")).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Based on Your Likes' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('Nothing to recommend yet')).toBeInTheDocument()
   })
 
   it('shows a loading state for the active tab', () => {
@@ -111,5 +123,34 @@ describe('RecommendationsPage', () => {
     renderPage()
 
     expect(screen.getByText("Couldn't load recommendations")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry recommendations' }))
+    expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it('renders explanations, enables pagination and disables an in-flight load', () => {
+    useForYouArtworks.mockReturnValue({ status: 'success', artworks: [buildArtwork()], personalized: true, hasNextPage: true })
+    const view = renderPage()
+    expect(screen.getByText('Real marketplace activity')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more recommendations' }))
+    expect(loadMore).toHaveBeenCalledOnce()
+    useForYouArtworks.mockReturnValue({ status: 'success', artworks: [], hasNextPage: true, isFetchingNextPage: true })
+    view.rerender(<MemoryRouter><RecommendationsPage /></MemoryRouter>)
+    expect(screen.getByRole('button', { name: /Loading/ })).toBeDisabled()
+  })
+
+  it.each([['Artists You Follow', 'following'], ['Based on Your Likes', 'liked'], ['New Discoveries', 'new']])('loads the correct authorized feed for %s', (label, mode) => {
+    useForYouArtworks.mockReturnValue({ status: 'success', artworks: [], personalized: false })
+    renderPage()
+    fireEvent.click(screen.getByRole('tab', { name: label }))
+    expect(sourceSelected).toHaveBeenLastCalledWith(mode)
+  })
+
+  it('supports keyboard tab navigation and focus', () => {
+    useForYouArtworks.mockReturnValue({ status: 'success', artworks: [], personalized: false })
+    useSimilarArtworks.mockReturnValue({ status: 'success', artworks: [] })
+    renderPage()
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'For You' }), { key: 'ArrowRight' })
+    expect(screen.getByRole('tab', { name: 'Similar Artworks' })).toHaveFocus()
+    expect(sourceSelected).toHaveBeenLastCalledWith('related')
   })
 })

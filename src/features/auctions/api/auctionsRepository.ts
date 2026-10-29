@@ -3,6 +3,7 @@ import { timestamp } from '@/lib/supabase/timestamp'
 import type {
   AdminAuctionRow,
   Auction,
+  AuctionEventStatus,
   AuctionLotStatus,
   BidHistoryItem,
   PlaceBidResult,
@@ -20,15 +21,6 @@ export function mapToAuction(id: string, data: Record<string, unknown>): Auction
   const end = typeof data.ends_at === 'string' ? data.ends_at : data.endAt
   if (typeof artworkId !== 'string' || !start || !end) return null
 
-  const winnerUid =
-    typeof data.winner_bidder_id === 'string'
-      ? data.winner_bidder_id
-      : typeof data.winner_uid === 'string'
-        ? data.winner_uid
-        : typeof data.winnerUid === 'string'
-          ? data.winnerUid
-          : null
-
   const winningBidAmount =
     typeof data.winning_bid_minor === 'number'
       ? Number(data.winning_bid_minor)
@@ -44,6 +36,7 @@ export function mapToAuction(id: string, data: Record<string, unknown>): Auction
   return {
     id,
     auctionItemId: typeof data.auction_item_id === 'string' ? data.auction_item_id : undefined,
+    auctionStatus: typeof data.auction_status === 'string' && ['DRAFT','SCHEDULED','LIVE','ENDED','FINALIZED','CANCELLED'].includes(data.auction_status) ? data.auction_status as AuctionEventStatus : undefined,
     artworkId,
     sellerId: typeof data.seller_id === 'string' ? data.seller_id : typeof data.sellerId === 'string' ? data.sellerId : '',
     startAt: typeof start === 'string' ? timestamp(start) : start as Auction['startAt'],
@@ -52,7 +45,7 @@ export function mapToAuction(id: string, data: Record<string, unknown>): Auction
     bidIncrement: Number(data.bid_increment_minor ?? data.bidIncrement ?? 0),
     currentHighBid: typeof (data.current_high_bid ?? data.currentHighBid) === 'number' ? Number(data.current_high_bid ?? data.currentHighBid) : null,
     bidCount: Number(data.bid_count ?? data.bidCount ?? 0),
-    winnerUid,
+    isWinner: data.is_current_user_winner === true,
     winningBidAmount,
     lotStatus: (data.lot_status as AuctionLotStatus) ?? 'OPEN',
     paymentWindowExpiresAt,
@@ -79,10 +72,10 @@ export async function fetchAllAuctions(): Promise<Auction[]> {
 /**
  * One auction by id.
  */
-export async function getAuction(auctionId: string): Promise<Auction | null> {
+export async function getAuction(auctionId: string,auctionItemId?:string): Promise<Auction | null> {
   try {
     const auctions = await fetchAllAuctions()
-    return auctions.find((auction) => auction.id === auctionId) ?? null
+    return auctions.find((auction) => auction.id === auctionId && (!auctionItemId || auction.auctionItemId===auctionItemId)) ?? null
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && String(error.code) === 'permission-denied') return null
     throw toAuctionError(error)
@@ -135,10 +128,11 @@ export async function fetchAuctionBidHistory(auctionItemId: string): Promise<Bid
 /**
  * Creates an order for the winning bidder to settle the auction lot.
  */
-export async function createAuctionWinnerOrder(auctionItemId: string): Promise<string> {
+export async function createAuctionWinnerOrder(auctionItemId: string, shippingAddressId?: string): Promise<string> {
   try {
     const orderId = await rpc<string>('create_auction_winner_order', {
       p_auction_item_id: auctionItemId,
+      p_shipping_address_id: shippingAddressId ?? null,
     })
     if (!orderId) {
       throw new Error('Failed to create winner order')

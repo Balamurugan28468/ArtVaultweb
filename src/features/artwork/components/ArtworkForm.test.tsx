@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ArtworkForm } from './ArtworkForm'

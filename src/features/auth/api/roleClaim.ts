@@ -1,36 +1,91 @@
-import { getIdTokenResult, type User } from 'firebase/auth'
-import { isUserRole, type UserRole } from '../types'
+import { createClient } from '@/lib/supabase/client'
+import { isUserRole, type AuthUser, type UserRole } from '../types'
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-export async function getCurrentRoleClaim(user: User, forceRefresh = false): Promise<UserRole | null> {
-  const tokenResult = await getIdTokenResult(user, forceRefresh)
-  const role = tokenResult.claims.role
-  return isUserRole(role) ? role : null
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
 }
 
 /**
- * The role custom claim is set by a Cloud Function that runs asynchronously
- * after sign-up, so it is not guaranteed to be present on the very first
- * token read. Polls with forced token refreshes until it appears or the
- * retry budget is exhausted. The default budget (~6s) is sized for a cold
- * Cloud Functions start (confirmed empirically against the local emulator —
- * a tighter ~2s budget was observed to expire before the trigger completed).
+ * Supabase replacement for the old Firebase role custom-claim reader.
+ *
+ * The function name is retained temporarily so existing ArtVault imports do
+ * not all need to change at once.
+ *
+ * Authorization remains server-controlled through:
+ *
+ * private.user_roles
+ * public.current_app_role()
+ * RLS
+ * protected RPCs
+ */
+export async function getCurrentRoleClaim(
+  _user?: AuthUser | null,
+  _forceRefresh = false,
+): Promise<UserRole | null> {
+  const supabase = createClient()
+
+  const { data, error } = await supabase.rpc('current_app_role')
+
+  if (error) {
+    throw error
+  }
+
+  if (isUserRole(data)) {
+    return data
+  }
+
+  if (typeof data === 'string') {
+    const normalized = data.toUpperCase()
+
+    if (isUserRole(normalized)) {
+      return normalized
+    }
+  }
+
+  return null
+}
+
+/**
+ * Usually the role exists immediately because provisioning is handled by
+ * PostgreSQL during account creation.
+ *
+ * A small retry window is still useful immediately after registration and
+ * during development.
  */
 export async function waitForRoleClaim(
-  user: User,
-  { retries = 12, delayMs = 500, forceInitialRefresh = false }: {
+  user?: AuthUser | null,
+  {
+    retries = 10,
+    delayMs = 200,
+  }: {
     retries?: number
     delayMs?: number
     forceInitialRefresh?: boolean
   } = {},
 ): Promise<UserRole | null> {
+  let lastError: unknown = null
+
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const role = await getCurrentRoleClaim(user, forceInitialRefresh || attempt > 0)
-    if (role) return role
-    if (attempt < retries) await sleep(delayMs)
+    try {
+      const role = await getCurrentRoleClaim(user)
+
+      if (role) {
+        return role
+      }
+    } catch (error) {
+      lastError = error
+    }
+
+    if (attempt < retries) {
+      await sleep(delayMs)
+    }
   }
+
+  if (lastError) {
+    throw lastError
+  }
+
   return null
 }

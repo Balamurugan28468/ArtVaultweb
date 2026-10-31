@@ -13,6 +13,7 @@ export interface CartLinesResult {
   lines: CartLine[]
   /** Cart entries whose artwork no longer resolves (deleted, or no longer PUBLISHED) — shown as a count, not silently dropped. Same contract as useWishlistArtworks' unavailableCount. */
   unavailableCount: number
+  unavailableIds: string[]
   subtotal: number
   isLoading: boolean
 }
@@ -49,8 +50,9 @@ export function useCartLines(): CartLinesResult {
     lines.push({ artwork, quantity, lineTotal: artwork.price * quantity })
   })
 
-  const unavailableCount = isLoading ? 0 : artworkIds.length - lines.length
+  const unavailableIds = isLoading ? [] : artworkIds.filter((id) => !lines.some((line) => line.artwork.id === id))
+  const unavailableCount = unavailableIds.length
   const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0)
 
-  return { lines, unavailableCount, subtotal, isLoading }
+  return { lines, unavailableCount, unavailableIds, subtotal, isLoading }
 }

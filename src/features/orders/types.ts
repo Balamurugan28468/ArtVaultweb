@@ -1,9 +1,8 @@
-import type { Timestamp } from 'firebase/firestore'
+import type { Timestamp } from '@/lib/supabase/timestamp'
 
-// The full intended order lifecycle (UI-02 scope). No client write path
-// exists yet for any of these — see firestore.rules' own comment on
-// `orders/{orderId}` — so every one of these states can only ever appear
-// once a future trusted server operation starts writing real orders.
+// The full intended order lifecycle (UI-02 scope). Trusted checkout now
+// records CREATED / PAYMENT_PENDING, and reservation expiry CANCELLED.
+// Other transitions still require their corresponding trusted backend.
 // OrderStatusTimeline only ever renders the stages a given order's own
 // data actually contains, never every stage in this list unconditionally
 // (see that component's own comment).
@@ -50,8 +49,8 @@ export type PaymentState = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED'
 /**
  * Read-only client view of an orders/{orderId} Firestore document (see
  * docs/DATABASE.md, firestore.rules). Read-only from every client today —
- * written only by a future trusted server operation, never by this app's
- * own code. `shippingAddress` and per-item price/title are snapshots taken
+ * written only by trusted server operations, never by browser writes.
+ * `shippingAddress` and per-item price/title are snapshots taken
  * at order-creation time (unlike the live-joined Cart/Wishlist pattern) —
  * a real order must keep showing what was actually charged and shipped
  * even if the artwork's price or the seller's own listing changes later.
@@ -62,16 +61,25 @@ export interface Order {
   status: OrderStatus
   /** Null means missing/unrecognized stored data, never an assumed pending state. */
   paymentState: PaymentState | null
+  /** Explicit sandbox provenance; never present this as a real-money sale. */
+  paymentMode?: 'TEST'
+  paymentReference?: string
   subtotal: number
   shippingCost: number | null
   total: number
+  currency?: string
+  /** New unpaid orders contain merchandise only; legacy records remain readable. */
+  pricingState?: 'ITEMS_ONLY'
+  reservationStatus?: 'ACTIVE' | 'RELEASED' | 'CONSUMED'
+  reservationExpiresAt?: Timestamp
+  cancellationReason?: string
   shippingAddress: OrderShippingAddress | null
   trackingState: string | null
   statusHistory: OrderStatusEvent[]
   /**
    * A small denormalized preview of this order's items (title/image/
-   * quantity only), written alongside the order itself by whatever future
-   * trusted operation creates orders — exists purely so My Orders can show
+   * quantity only), written alongside the order by the trusted checkout
+   * operation — exists purely so My Orders can show
    * a real thumbnail/title per card without an N+1 read of every order's
    * full `items` subcollection. The full, authoritative per-item snapshot
    * (price, subtotal, seller) still lives only in `items` — see OrderItem

@@ -5,12 +5,14 @@ import { SignInPage } from './SignInPage'
 
 const useAuth = vi.fn()
 const navigate = vi.fn()
+const signInProps = vi.fn()
 
 vi.mock('@/app/providers/AuthProvider', () => ({ useAuth: () => useAuth() }))
 vi.mock('@/features/auth', () => ({
-  SignInForm: ({ onSuccess }: { onSuccess: () => void }) => (
-    <button onClick={() => void onSuccess()}>trigger sign-in success</button>
-  ),
+  SignInForm: (props: { onSuccess: () => void }) => {
+    signInProps(props)
+    return <button onClick={() => void props.onSuccess()}>trigger sign-in success</button>
+  },
 }))
 vi.mock('react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router')>()
@@ -80,4 +82,34 @@ it('preserves the checkout destination when switching to registration', () => {
   </MemoryRouter>)
   fireEvent.click(screen.getByRole('link', { name: 'Sign up' }))
   expect(screen.getByText('/checkout?step=address#shipping')).toBeInTheDocument()
+})
+
+it('displays success banner when navigating with verified state', () => {
+  useAuth.mockReturnValue({ status: 'unauthenticated' })
+  render(
+    <MemoryRouter
+      initialEntries={[
+        { pathname: '/sign-in', state: { verified: true, email: 'alice@example.com' } },
+      ]}
+    >
+      <SignInPage />
+    </MemoryRouter>,
+  )
+
+  expect(
+    screen.getByText('Email verified successfully. Please sign in.'),
+  ).toBeInTheDocument()
+})
+
+it('never forwards credentials from route state or query parameters to the sign-in form', () => {
+  useAuth.mockReturnValue({ status: 'unauthenticated' })
+  render(<MemoryRouter initialEntries={[{ pathname: '/sign-in', search: '?email=query@example.com&password=ignored', state: { verified: true, email: 'state@example.com', password: 'ignored' } }]}><SignInPage /></MemoryRouter>)
+  expect(Object.keys(signInProps.mock.lastCall![0])).toEqual(['onSuccess'])
+})
+
+it('shows account completion success without passing credentials into login', () => {
+  useAuth.mockReturnValue({ status: 'unauthenticated' })
+  render(<MemoryRouter initialEntries={[{ pathname: '/sign-in', state: { accountCreated: true } }]}><SignInPage /></MemoryRouter>)
+  expect(screen.getByRole('status')).toHaveTextContent('Account created successfully. Please sign in.')
+  expect(Object.keys(signInProps.mock.lastCall![0])).toEqual(['onSuccess'])
 })

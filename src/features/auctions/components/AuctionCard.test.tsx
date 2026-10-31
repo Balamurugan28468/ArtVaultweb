@@ -11,7 +11,7 @@ import type { Auction } from '../types'
 vi.mock('@/features/wishlist/components/WishlistButton', () => ({ WishlistButton: () => null }))
 
 function ts(ms: number) {
-  return { toMillis: () => ms } as unknown as import('firebase/firestore').Timestamp
+  return { toMillis: () => ms } as unknown as import('@/lib/supabase/timestamp').Timestamp
 }
 
 const BASE_AUCTION: Auction = {
@@ -24,7 +24,7 @@ const BASE_AUCTION: Auction = {
   bidIncrement: 10000,
   currentHighBid: null,
   bidCount: 0,
-  winnerUid: null,
+  isWinner: false,
   winningBidAmount: null,
   createdAt: ts(0),
   updatedAt: ts(0),
@@ -41,6 +41,10 @@ function renderCard(props: Partial<Parameters<typeof AuctionCard>[0]> = {}) {
 }
 
 describe('AuctionCard', () => {
+  it('links to the selected weekly lot instead of silently opening the first one',()=>{
+    renderCard({auction:{...BASE_AUCTION,auctionItemId:'lot-two'}})
+    expect(screen.getByRole('link',{name:/Starry Reflections/})).toHaveAttribute('href','/auctions/a1?lot=lot-two')
+  })
   it('links to the auction detail page, not the artwork page', () => {
     renderCard()
     expect(screen.getByRole('link', { name: /Starry Reflections/ })).toHaveAttribute('href', '/auctions/a1')
@@ -49,13 +53,13 @@ describe('AuctionCard', () => {
   it('shows the starting bid before any real bid exists — never a fabricated current bid', () => {
     renderCard()
     expect(screen.getByText('Starting bid')).toBeInTheDocument()
-    expect(screen.getByText('₹5000')).toBeInTheDocument()
+    expect(screen.getByText('₹5,000')).toBeInTheDocument()
   })
 
   it('shows the real current bid once one exists', () => {
     renderCard({ auction: { ...BASE_AUCTION, currentHighBid: 520000, bidCount: 3 } })
     expect(screen.getByText('Current bid')).toBeInTheDocument()
-    expect(screen.getByText('₹5200')).toBeInTheDocument()
+    expect(screen.getByText('₹5,200')).toBeInTheDocument()
   })
 
   it('shows an honest placeholder when the linked artwork is unavailable', () => {

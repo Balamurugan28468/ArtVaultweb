@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ArtistProfileEditForm } from './ArtistProfileEditForm'
 import type { ArtistProfile } from '../types'

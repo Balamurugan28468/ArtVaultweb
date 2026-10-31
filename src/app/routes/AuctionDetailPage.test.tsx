@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { describe, expect, it, vi } from 'vitest'
 import type { Auction } from '@/features/auctions'
 import type { Artwork } from '@/features/artwork'
@@ -9,7 +9,7 @@ const useAuction = vi.fn()
 const useAuctions = vi.fn((): { status: 'loaded'; auctions: Auction[] } => ({ status: 'loaded', auctions: [] }))
 vi.mock('@/features/auctions', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/auctions')>()
-  return { ...actual, useAuction: () => useAuction(), useAuctions: () => useAuctions() }
+  return { ...actual, useAuction: (...args:unknown[]) => useAuction(...args), useAuctions: () => useAuctions() }
 })
 
 const useArtistDisplayNames = vi.fn((_ids: string[]) => ({}))
@@ -47,7 +47,7 @@ const BASE_AUCTION: Auction = {
   bidIncrement: 10000,
   currentHighBid: null,
   bidCount: 0,
-  winnerUid: null,
+  isWinner: false,
   winningBidAmount: null,
   createdAt: ts(0),
   updatedAt: ts(0),
@@ -61,9 +61,9 @@ const BASE_ARTWORK = {
   images: [],
 } as unknown as Artwork
 
-function renderPage() {
+function renderPage(url='/auctions/a1') {
   return render(
-    <MemoryRouter initialEntries={['/auctions/a1']}>
+    <MemoryRouter initialEntries={[url]}>
       <Routes>
         <Route path="/auctions/:auctionId" element={<AuctionDetailPage />} />
       </Routes>
@@ -72,6 +72,17 @@ function renderPage() {
 }
 
 describe('AuctionDetailPage', () => {
+  it('opens the requested weekly lot and exposes navigation between the shared event lots',()=>{
+    const one={...BASE_AUCTION,auctionItemId:'lot-one'}
+    const two={...BASE_AUCTION,auctionItemId:'lot-two'}
+    useAuction.mockReturnValue({status:'loaded',auction:two,artwork:BASE_ARTWORK})
+    useAuctions.mockReturnValue({status:'loaded',auctions:[one,two]})
+    renderPage('/auctions/a1?lot=lot-two')
+    expect(useAuction).toHaveBeenCalledWith('a1','lot-two')
+    expect(screen.getByRole('navigation',{name:'Weekly auction lots'})).toBeInTheDocument()
+    expect(screen.getByRole('link',{name:'Lot 2'})).toHaveAttribute('href','/auctions/a1?lot=lot-two')
+    useAuctions.mockReturnValue({status:'loaded',auctions:[]})
+  })
   it('shows a loading state', () => {
     useAuction.mockReturnValue({ status: 'loading' })
     renderPage()
@@ -97,10 +108,10 @@ describe('AuctionDetailPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Starry Reflections' })).toBeInTheDocument()
     expect(screen.getByText('A night sky in oil.')).toBeInTheDocument()
-    // ₹5000 (the starting bid) appears both in the Auction Details card and
-    // in CurrentBidPanel's own "current bid" display — both real, same value.
-    expect(screen.getAllByText('₹5000').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('₹100')).toBeInTheDocument() // bid increment
+    // ₹5,000 (the starting bid) appears in the Auction Details card,
+    // CurrentBidPanel's "current bid" display, and the right column stats
+    expect(screen.getAllByText('₹5,000').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('₹100').length).toBeGreaterThanOrEqual(1) // bid increment
     expect(screen.getByRole('link', { name: 'View full artwork listing →' })).toHaveAttribute('href', '/artworks/artwork-1')
   })
 
@@ -121,13 +132,13 @@ describe('AuctionDetailPage', () => {
   it('shows real auction detail fields (Final bid, Status) in the Details tab', () => {
     useAuction.mockReturnValue({
       status: 'loaded',
-      auction: { ...BASE_AUCTION, endAt: ts(Date.now() - 1000), winnerUid: 'winner-1', winningBidAmount: 2840000 },
+      auction: { ...BASE_AUCTION, endAt: ts(Date.now() - 1000), isWinner: true, winningBidAmount: 2840000 },
       artwork: BASE_ARTWORK,
     })
     renderPage()
-    // ₹28400 (the winning bid) appears both in CurrentBidPanel's "Winning
+    // ₹28,400 (the winning bid) appears both in CurrentBidPanel's "Winning
     // bid" line and the Details tab's "Final bid" row — both real, same value.
-    expect(screen.getAllByText('₹28400').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('₹28,400').length).toBeGreaterThanOrEqual(2)
     // "Ended" appears both on the status badge and in the Details tab's
     // Status row — both real, same derived value.
     expect(screen.getAllByText('Ended').length).toBeGreaterThanOrEqual(2)
@@ -155,16 +166,16 @@ describe('AuctionDetailPage', () => {
       expect(screen.queryByText('Congratulations to the winner!')).not.toBeInTheDocument()
     })
 
-    it('shows real winner congratulations copy only when winnerUid actually exists', () => {
+    it('shows real winner congratulations copy only when a winning bid is actually recorded', () => {
       useAuction.mockReturnValue({
         status: 'loaded',
-        auction: { ...ENDED_AUCTION, winnerUid: 'winner-1', winningBidAmount: 2840000 },
+        auction: { ...ENDED_AUCTION, isWinner: true, winningBidAmount: 2840000 },
         artwork: BASE_ARTWORK,
       })
       renderPage()
 
       expect(screen.getByText('Congratulations to the winner!')).toBeInTheDocument()
-      expect(screen.getAllByText('₹28400').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('₹28,400').length).toBeGreaterThanOrEqual(1)
     })
 
     it('shows the honest "Bid ranking unavailable" panel — never a fabricated leaderboard', () => {

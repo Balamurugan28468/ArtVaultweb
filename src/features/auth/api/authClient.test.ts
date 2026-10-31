@@ -1,94 +1,533 @@
-import type { User } from 'firebase/auth'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
-const createUserWithEmailAndPassword = vi.fn()
-const updateProfile = vi.fn()
-const setPersistence = vi.fn()
-const updateDoc = vi.fn()
-const doc = vi.fn((...args: unknown[]) => ({ args }))
-const serverTimestamp = vi.fn(() => 'server-timestamp')
-const ensureUserProfile = vi.fn()
-const toAuthErrorMessage = vi.fn((error: unknown) => (error instanceof Error ? error.message : 'Something went wrong. Please try again.'))
+const mocks = vi.hoisted(() => {
+  const getAccountStatus = vi.fn()
+  const signUp = vi.fn()
+  const signInWithPassword = vi.fn()
+  const signOut = vi.fn()
+  const resetPasswordForEmail = vi.fn()
+  const verifyOtp = vi.fn()
+  const resend = vi.fn()
+  const getUser = vi.fn()
+  const updateUser = vi.fn()
+  const update = vi.fn().mockReturnThis()
+  const from = vi.fn().mockReturnValue({
+    update,
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'alice' }, error: null }),
+  })
 
-vi.mock('firebase/auth', () => ({
-  browserLocalPersistence: 'local',
-  createUserWithEmailAndPassword: (...args: unknown[]) => createUserWithEmailAndPassword(...args),
-  setPersistence: (...args: unknown[]) => setPersistence(...args),
-  signInWithEmailAndPassword: vi.fn(),
-  signOut: vi.fn(),
-  updateProfile: (...args: unknown[]) => updateProfile(...args),
-}))
-vi.mock('firebase/firestore', () => ({
-  doc: (...args: unknown[]) => doc(...args),
-  serverTimestamp: () => serverTimestamp(),
-  updateDoc: (...args: unknown[]) => updateDoc(...args),
-}))
-vi.mock('@/lib/firebase/config', () => ({ auth: {}, db: {} }))
-vi.mock('./authErrors', () => ({ toAuthErrorMessage: (error: unknown) => toAuthErrorMessage(error) }))
-vi.mock('./ensureUserProfile', () => ({ ensureUserProfile: (...args: unknown[]) => ensureUserProfile(...args) }))
+  const supabase = {
+    auth: {
+      signUp,
+      getUser,
+      updateUser,
+      signInWithPassword,
+      signOut,
+      resetPasswordForEmail,
+      verifyOtp,
+      resend,
+    },
+    from,
+  }
 
-const { signUpWithEmail } = await import('./authClient')
-
-const fakeUser = { uid: 'alice' } as User
-
-beforeEach(() => {
-  createUserWithEmailAndPassword.mockReset().mockResolvedValue({ user: fakeUser })
-  updateProfile.mockReset().mockResolvedValue(undefined)
-  setPersistence.mockReset().mockResolvedValue(undefined)
-  updateDoc.mockReset()
-  doc.mockClear()
-  ensureUserProfile.mockReset().mockResolvedValue(undefined)
-  toAuthErrorMessage.mockClear()
+  return {
+    getAccountStatus,
+    signUp,
+    getUser,
+    updateUser,
+    update,
+    from,
+    signInWithPassword,
+    signOut,
+    resetPasswordForEmail,
+    verifyOtp,
+    resend,
+    supabase,
+  }
 })
 
-// Regression coverage for a real, now permanently-fixed architectural gap:
-// users/{uid} used to depend entirely on the asynchronous onUserCreate
-// Cloud Function trigger, which repeatedly failed to run on this project's
-// local Functions emulator under load. signUpWithEmail now calls
-// ensureUserProfile — a client-triggered, rules-enforced, idempotent
-// provisioning guarantee (see ensureUserProfile.ts/firestore.rules) — so
-// the canonical profile is guaranteed to exist synchronously with sign-up
-// itself, never dependent on an out-of-band trigger completing.
-describe('signUpWithEmail', () => {
-  it('guarantees the canonical profile exists (as CUSTOMER) before writing the display name', async () => {
-    const callOrder: string[] = []
-    ensureUserProfile.mockImplementationOnce(async () => {
-      callOrder.push('ensured-profile')
-    })
-    updateDoc.mockImplementationOnce(async () => {
-      callOrder.push('updated-display-name')
-    })
+vi.mock(
+  '@/lib/supabase/client',
+  () => ({
+    createClient: () =>
+      mocks.supabase,
+    createRegistrationClient: () => mocks.supabase,
+  }),
+)
 
-    await signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })
+vi.mock('./accountAccess', () => ({ getAccountStatus: mocks.getAccountStatus }))
 
-    expect(ensureUserProfile).toHaveBeenCalledWith(fakeUser, { role: 'CUSTOMER', displayName: 'Alice' })
-    expect(callOrder).toEqual(['ensured-profile', 'updated-display-name'])
-    expect(updateDoc).toHaveBeenCalledWith(expect.anything(), {
-      displayName: 'Alice',
-      updatedAt: 'server-timestamp',
-    })
+const {
+  completeSignUp,
+  requestPasswordReset,
+  signInWithEmail,
+  signOutUser,
+  signUpWithEmail,
+  verifyEmailOtp,
+  resendVerificationOtp,
+} = await import('./authClient')
+
+const fakeUser = {
+  id: 'alice',
+  email: 'a@example.com',
+  email_confirmed_at:
+    '2026-09-19T10:00:00.000Z',
+  created_at:
+    '2026-09-19T10:00:00.000Z',
+  phone: null,
+  user_metadata: {
+    display_name: 'Alice',
+  },
+}
+
+beforeEach(() => {
+  mocks.getAccountStatus.mockReset().mockResolvedValue('ACTIVE')
+  mocks.getUser.mockReset().mockResolvedValue({ data: { user: fakeUser }, error: null })
+  mocks.updateUser.mockReset().mockResolvedValue({ data: { user: fakeUser }, error: null })
+  mocks.update.mockClear()
+  mocks.from.mockClear()
+  mocks.signUp.mockReset()
+  mocks.signInWithPassword.mockReset()
+  mocks.signOut.mockReset()
+  mocks.resetPasswordForEmail.mockReset()
+  mocks.verifyOtp.mockReset()
+  mocks.resend.mockReset()
+
+  mocks.signUp.mockResolvedValue({
+    data: {
+      user: { ...fakeUser, email_confirmed_at: null },
+      session: null,
+    },
+    error: null,
   })
 
-  it('propagates a genuine profile-provisioning failure instead of silently swallowing it', async () => {
-    ensureUserProfile.mockRejectedValueOnce(new Error('permission-denied'))
+  mocks.signInWithPassword.mockResolvedValue({
+    data: {
+      user: fakeUser,
+    },
+    error: null,
+  })
+
+  mocks.signOut.mockResolvedValue({
+    error: null,
+  })
+
+  mocks.resetPasswordForEmail.mockResolvedValue({
+    error: null,
+  })
+
+  mocks.verifyOtp.mockResolvedValue({
+    data: {
+      user: fakeUser,
+      session: { access_token: 'session-token' },
+    },
+    error: null,
+  })
+
+  mocks.resend.mockResolvedValue({
+    data: {},
+    error: null,
+  })
+})
+
+describe(
+  'signUpWithEmail',
+  () => {
+    it('registers through Supabase Auth with trimmed email and display-name metadata', async () => {
+      const result =
+        await signUpWithEmail({
+          email:
+            '  a@example.com  ',
+          password:
+            'Testpass1',
+          displayName:
+            '  Alice  ',
+        })
+
+      expect(
+        mocks.signUp,
+      ).toHaveBeenCalledTimes(1)
+
+      expect(
+        mocks.signUp,
+      ).toHaveBeenCalledWith({
+        email: 'a@example.com',
+        password: 'Testpass1',
+        options: {
+          data: {
+            display_name: 'Alice',
+          },
+        },
+      })
+
+      expect(
+        result,
+      ).toEqual({
+        user: {
+          id: 'alice',
+          uid: 'alice',
+          email:
+            'a@example.com',
+          displayName: 'Alice',
+          photoURL: null,
+          phoneNumber: null,
+          emailVerified: false,
+          createdAt:
+            '2026-09-19T10:00:00.000Z',
+        },
+        needsEmailConfirmation:
+          true,
+      })
+    })
+
+    it('reports that email confirmation is needed when Supabase creates the user without a session', async () => {
+      mocks.signUp.mockResolvedValueOnce({
+        data: {
+          user: { ...fakeUser, email_confirmed_at: null },
+          session: null,
+        },
+        error: null,
+      })
+
+      const result =
+        await signUpWithEmail({
+          email:
+            'a@example.com',
+          password:
+            'Testpass1',
+          displayName:
+            'Alice',
+        })
+
+      expect(
+        result.needsEmailConfirmation,
+      ).toBe(true)
+    })
+
+    it('maps an already-registered Supabase error to a safe user-facing message', async () => {
+      mocks.signUp.mockResolvedValueOnce({
+        data: {
+          user: null,
+          session: null,
+        },
+        error:
+          new Error(
+            'User already registered',
+          ),
+      })
+
+      await expect(
+        signUpWithEmail({
+          email:
+            'a@example.com',
+          password:
+            'Testpass1',
+          displayName:
+            'Alice',
+        }),
+      ).rejects.toThrow(
+        'Registration could not be completed.',
+      )
+    })
+  },
+)
+
+describe(
+  'signInWithEmail',
+  () => {
+    it.each(['alice@gmal.com', 'alice@gmail.com'])('passes %s and the unchanged password exclusively to Supabase Auth', async (email) => {
+      await signInWithEmail({ email: `  ${email}  `, password: ' Testpass1 ' })
+      expect(mocks.signInWithPassword).toHaveBeenCalledExactlyOnceWith({ email, password: ' Testpass1 ' })
+      expect(mocks.from).not.toHaveBeenCalled()
+      expect(mocks.update).not.toHaveBeenCalled()
+    })
+
+    it('signs in through Supabase with a trimmed email and returns the mapped AuthUser', async () => {
+      const result =
+        await signInWithEmail({
+          email:
+            '  a@example.com  ',
+          password:
+            'Testpass1',
+        })
+
+      expect(
+        mocks.signInWithPassword,
+      ).toHaveBeenCalledTimes(1)
+
+      expect(
+        mocks.signInWithPassword,
+      ).toHaveBeenCalledWith({
+        email: 'a@example.com',
+        password: 'Testpass1',
+      })
+
+      expect(
+        result,
+      ).toEqual({
+        id: 'alice',
+        uid: 'alice',
+        email:
+          'a@example.com',
+        displayName: 'Alice',
+        photoURL: null,
+        phoneNumber: null,
+        emailVerified: true,
+        createdAt:
+          '2026-09-19T10:00:00.000Z',
+      })
+    })
+
+    it('maps invalid Supabase credentials to the account-enumeration-safe message', async () => {
+      mocks.signInWithPassword.mockResolvedValueOnce({
+        data: {
+          user: null,
+        },
+        error:
+          new Error(
+            'Invalid login credentials',
+          ),
+      })
+
+      await expect(
+        signInWithEmail({
+          email:
+            'a@example.com',
+          password:
+            'wrong-password',
+        }),
+      ).rejects.toThrow(
+        'Invalid email or password.',
+      )
+    })
+  },
+)
+
+describe(
+  'signOutUser',
+  () => {
+    it('signs out through Supabase Auth', async () => {
+      await expect(
+        signOutUser(),
+      ).resolves.toBeUndefined()
+
+      expect(
+        mocks.signOut,
+      ).toHaveBeenCalledTimes(1)
+    })
+
+    it('maps a Supabase network failure instead of silently succeeding', async () => {
+      mocks.signOut.mockResolvedValueOnce({
+        error:
+          new Error(
+            'Network request failed',
+          ),
+      })
+
+      await expect(
+        signOutUser(),
+      ).rejects.toThrow(
+        'Network error. Check your internet connection and try again.',
+      )
+    })
+  },
+)
+
+describe(
+  'requestPasswordReset',
+  () => {
+    it('sends the recovery email through Supabase with the correct callback URL', async () => {
+      await expect(
+        requestPasswordReset(
+          '  a@example.com  ',
+        ),
+      ).resolves.toBeUndefined()
+
+      expect(
+        mocks.resetPasswordForEmail,
+      ).toHaveBeenCalledTimes(1)
+
+      expect(
+        mocks.resetPasswordForEmail,
+      ).toHaveBeenCalledWith(
+        'a@example.com',
+        {
+          redirectTo:
+            `${window.location.origin}/auth/callback?next=/auth/recovery`,
+        },
+      )
+    })
+
+    it('maps a Supabase rate-limit error to a useful message', async () => {
+      mocks.resetPasswordForEmail.mockResolvedValueOnce({
+        error:
+          new Error(
+            'Email rate limit exceeded',
+          ),
+      })
+
+      await expect(
+        requestPasswordReset(
+          'a@example.com',
+        ),
+      ).rejects.toThrow(
+        'Too many requests. Please wait and try again.',
+      )
+    })
+  },
+)
+
+describe('verifyEmailOtp', () => {
+  it('verifies the OTP with type signup, signs out session, and returns the verified user', async () => {
+    const result = await verifyEmailOtp({
+      email: '  a@example.com  ',
+      token: ' 123456 ',
+    })
+
+    expect(mocks.verifyOtp).toHaveBeenCalledWith({
+      email: 'a@example.com',
+      token: '123456',
+      type: 'signup',
+    })
+
+    expect(mocks.signOut).toHaveBeenCalled()
+    expect(result.user.email).toBe('a@example.com')
+  })
+
+  it('maps expired OTP error properly', async () => {
+    mocks.verifyOtp.mockResolvedValueOnce({
+      data: { user: null },
+      error: new Error('Token has expired or is invalid'),
+    })
 
     await expect(
-      signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' }),
-    ).rejects.toThrow('permission-denied')
+      verifyEmailOtp({
+        email: 'a@example.com',
+        token: '123456',
+      }),
+    ).rejects.toThrow('This verification code has expired. Request a new code.')
+  })
+})
 
-    expect(updateDoc).not.toHaveBeenCalled()
+describe('resendVerificationOtp', () => {
+  it('resends signup OTP with trimmed email', async () => {
+    await expect(
+      resendVerificationOtp('  a@example.com  '),
+    ).resolves.toBeUndefined()
+
+    expect(mocks.resend).toHaveBeenCalledWith({
+      type: 'signup',
+      email: 'a@example.com',
+    })
   })
 
-  it('writes the display name exactly once — never creates a duplicate profile document', async () => {
-    await signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })
+  it('maps rate limit error on resend', async () => {
+    mocks.resend.mockResolvedValueOnce({
+      error: new Error('For security purposes, you can only request this once every 60 seconds'),
+    })
 
-    expect(updateDoc).toHaveBeenCalledTimes(1)
-    expect(doc).toHaveBeenCalledWith({}, 'users', 'alice')
+    await expect(
+      resendVerificationOtp('a@example.com'),
+    ).rejects.toThrow('Too many requests. Please wait and try again.')
   })
+})
+it('does not report OTP success if sign-out fails', async () => {
+  mocks.signOut.mockResolvedValueOnce({ error: new Error('Network request failed') })
+  await expect(verifyEmailOtp({ email: 'a@example.com', token: '123456' })).rejects.toThrow('Network error')
+})
+it('does not continue OTP registration when hosted email confirmation is disabled', async () => {
+  mocks.signUp.mockResolvedValueOnce({ data: { user: fakeUser, session: { access_token: 'test-only' } }, error: null })
+  await expect(signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })).rejects.toThrow('Email confirmation must be enabled')
+  expect(mocks.signOut).toHaveBeenCalledTimes(1)
+})
+it('handles an obfuscated duplicate registration without pretending a new OTP was sent', async () => {
+  mocks.signUp.mockResolvedValueOnce({ data: { user: { ...fakeUser, identities: [] }, session: null }, error: null })
+  await expect(signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })).rejects.toThrow('Registration could not be completed.')
+})
+it('rejects Supabase unconfirmed-email sign-in errors', async () => {
+  mocks.signInWithPassword.mockResolvedValueOnce({ data: { user: null }, error: { code: 'email_not_confirmed', message: 'Email not confirmed' } })
+  await expect(signInWithEmail({ email: 'a@example.com', password: 'Testpass1' })).rejects.toThrow('Please verify your email')
+})
 
-  it('never requests a role other than CUSTOMER for a brand-new account', async () => {
-    await signUpWithEmail({ email: 'a@example.com', password: 'Testpass1', displayName: 'Alice' })
+it('signs out even if the trigger-provisioned profile cannot be read', async () => {
+  mocks.supabase.from.mockReturnValueOnce({ select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), maybeSingle: vi.fn().mockResolvedValue({ data: null, error: { message: 'Profile unavailable' } }) })
+  await expect(verifyEmailOtp({ email: 'a@example.com', token: '123456' })).rejects.toThrow()
+  expect(mocks.signOut).toHaveBeenCalledTimes(1)
+})
+it('does not report unverified OTP user as verified and still clears its session', async () => {
+  mocks.verifyOtp.mockResolvedValueOnce({ data: { user: { ...fakeUser, email_confirmed_at: null } }, error: null })
+  await expect(verifyEmailOtp({ email: 'a@example.com', token: '123456' })).rejects.toThrow('Please verify your email')
+  expect(mocks.signOut).toHaveBeenCalledTimes(1)
+})
 
-    expect(ensureUserProfile).toHaveBeenCalledWith(fakeUser, expect.objectContaining({ role: 'CUSTOMER' }))
-  })
+const registration = { userId: 'alice', email: 'a@example.com', displayName: 'Alice', password: 'Testpass1', confirmPassword: 'Testpass1' }
+it('checks account status by the verified Auth identity before accepting login', async () => {
+  await signInWithEmail({ email: 'a@example.com', password: 'Testpass1' })
+  expect(mocks.getAccountStatus).toHaveBeenCalledExactlyOnceWith('alice')
+})
+it('rejects a suspended authenticated account and clears its local session', async () => {
+  mocks.getAccountStatus.mockResolvedValueOnce('SUSPENDED')
+  await expect(signInWithEmail({ email: 'a@example.com', password: 'Testpass1' })).rejects.toThrow('This account is suspended.')
+  expect(mocks.signOut).toHaveBeenCalledExactlyOnceWith({ scope: 'local' })
+})
+it('does not confuse an unavailable account profile with invalid credentials', async () => {
+  mocks.getAccountStatus.mockRejectedValueOnce(new Error('internal database error'))
+  await expect(signInWithEmail({ email: 'a@example.com', password: 'Testpass1' })).rejects.toThrow('Your account status could not be verified.')
+  expect(mocks.signOut).toHaveBeenCalledExactlyOnceWith({ scope: 'local' })
+})
+it.each(['12345', '12345678', '12a456'])('never submits a partial or malformed OTP to Supabase', async (token) => {
+  await expect(verifyEmailOtp({ email: 'a@example.com', token })).rejects.toThrow('The verification code is incorrect.')
+  expect(mocks.verifyOtp).not.toHaveBeenCalled()
+})
+it('retains the verified session for final account completion only when explicitly requested', async () => {
+  const result = await verifyEmailOtp({ email: 'a@example.com', token: '123456' }, { retainSession: true })
+  expect(result.user.id).toBe('alice')
+  expect(mocks.signOut).not.toHaveBeenCalled()
+})
+it('final completion checks Auth, updates one existing profile and signs out', async () => {
+  await completeSignUp(registration)
+  expect(mocks.getUser).toHaveBeenCalledTimes(1)
+  expect(mocks.updateUser).toHaveBeenCalledWith({ password: 'Testpass1', data: { display_name: 'Alice' } })
+  expect(mocks.from).toHaveBeenCalledWith('profiles')
+  expect(mocks.update).toHaveBeenCalledTimes(1)
+  expect(mocks.update).toHaveBeenCalledWith({ display_name: 'Alice' })
+  expect(mocks.signOut).toHaveBeenCalledTimes(1)
+  expect(mocks.supabase.from).not.toHaveBeenCalledWith('user_roles')
+})
+it.each([
+  { ...fakeUser, id: 'another-identity' },
+  { ...fakeUser, email: 'other@example.com' },
+  { ...fakeUser, email_confirmed_at: null },
+  null,
+])('final completion rejects a mismatched or unverified Auth identity', async (user) => {
+  mocks.getUser.mockResolvedValueOnce({ data: { user }, error: null })
+  await expect(completeSignUp(registration)).rejects.toThrow('Verification no longer matches')
+  expect(mocks.updateUser).not.toHaveBeenCalled()
+  expect(mocks.update).not.toHaveBeenCalled()
+  expect(mocks.signOut).toHaveBeenCalledTimes(1)
+})
+it('same-password response does not create a duplicate account/profile or block completion', async () => {
+  mocks.updateUser.mockResolvedValueOnce({ data: { user: null }, error: { code: 'same_password' } })
+  await completeSignUp(registration)
+  expect(mocks.signUp).not.toHaveBeenCalled()
+  expect(mocks.update).toHaveBeenCalledTimes(1)
+})
+it('does not report completion when an Auth password update fails', async () => {
+  mocks.updateUser.mockResolvedValueOnce({ data: { user: null }, error: { code: 'weak_password' } })
+  await expect(completeSignUp(registration)).rejects.toThrow('security requirements')
+  expect(mocks.update).not.toHaveBeenCalled()
+  expect(mocks.signOut).toHaveBeenCalledTimes(1)
+})
+it('a rejected profile write still signs out and cannot pretend registration completed', async () => {
+  mocks.update.mockImplementationOnce(() => { throw new Error('Profile write unavailable') })
+  await expect(completeSignUp(registration)).rejects.toThrow()
+  expect(mocks.signOut).toHaveBeenCalledTimes(1)
 })

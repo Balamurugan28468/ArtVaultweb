@@ -32,7 +32,9 @@ export function useUserProfile(): ProfileState {
       return
     }
 
-    const createdAtMs = user.metadata?.creationTime ? new Date(user.metadata.creationTime).getTime() : 0
+    const createdAtMs = user.createdAt
+  ? new Date(user.createdAt).getTime()
+  : 0
     const isWithinGracePeriod = () => Date.now() - createdAtMs < PROVISIONING_GRACE_MS
 
     setState({ status: 'loading' })

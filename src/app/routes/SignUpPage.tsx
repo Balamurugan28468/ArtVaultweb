@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
-import { useAuth } from '@/app/providers/AuthProvider'
 import { BrandLogo } from '@/app/branding/BrandLogo'
 import { SignUpForm } from '@/features/auth'
 import { getRedirectPath } from '@/features/auth/returnTo'
@@ -8,26 +6,14 @@ import { Card } from '@/shared/ui'
 
 export function SignUpPage() {
   const navigate = useNavigate()
-  const redirectTo = getRedirectPath(useLocation().state)
-  const { status } = useAuth()
-  const [submitted, setSubmitted] = useState(false)
+  const location = useLocation()
+  const redirectTo = getRedirectPath(location.state)
 
-  // Navigating only once AuthProvider itself reports "authenticated" — the
-  // same status RequireAuth reads — rather than immediately once this
-  // form's own signUpWithEmail() call resolves, is what actually matters
-  // here: those are two independent completions (this form's own promise vs.
-  // AuthProvider's separate onAuthStateChanged-driven resolution), and
-  // navigating on the wrong one is a real race — arriving at /account before
-  // AuthProvider catches up made RequireAuth bounce straight back to
-  // /sign-in, even though sign-up had genuinely succeeded.
-  useEffect(() => {
-    if (submitted && status === 'authenticated') {
-      navigate(redirectTo, { replace: true })
-    }
-  }, [submitted, status, navigate, redirectTo])
-
-  const handleSuccess = () => {
-    setSubmitted(true)
+  const handleVerified = () => {
+    navigate('/sign-in', {
+      replace: true,
+      state: { accountCreated: true, from: redirectTo },
+    })
   }
 
   return (
@@ -40,7 +26,7 @@ export function SignUpPage() {
       <Card className="mt-6 w-full border-t-2 border-t-accent-gold/40 p-4 sm:p-6">
         <h1 className="font-display text-2xl font-medium text-text-primary">Create your account</h1>
         <div className="mt-4">
-          <SignUpForm onSuccess={handleSuccess} />
+          <SignUpForm onSuccess={handleVerified} />
         </div>
         <p className="mt-4 text-sm text-text-secondary">
           Already have an account?{' '}

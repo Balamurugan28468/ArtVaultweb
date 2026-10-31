@@ -1,42 +1,49 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, where } = vi.hoisted(() => ({
-  collection: vi.fn(() => ({ path: 'orders' })),
-  doc: vi.fn(() => ({ path: 'orders/o1' })),
-  getDoc: vi.fn(),
-  getDocs: vi.fn(),
-  onSnapshot: vi.fn(),
-  orderBy: vi.fn(() => 'ORDER_BY'),
-  query: vi.fn(() => 'QUERY'),
-  where: vi.fn(() => 'WHERE'),
-}))
-
-vi.mock('firebase/firestore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, where }
+const { createClient, observe, result, signedImage } = vi.hoisted(() => {
+  const builder = { select: vi.fn(), eq: vi.fn(), order: vi.fn(), maybeSingle: vi.fn(), in: vi.fn() }
+  builder.select.mockReturnValue(builder)
+  builder.eq.mockReturnValue(builder)
+  builder.order.mockReturnValue(builder)
+  builder.maybeSingle.mockReturnValue(builder)
+  builder.in.mockReturnValue(builder)
+  return {
+    createClient: vi.fn(() => ({ from: vi.fn(() => builder) })), observe: vi.fn(), result: vi.fn(), signedImage: vi.fn(),
+  }
 })
-vi.mock('@/lib/firebase/config', () => ({ db: {} }))
+
+vi.mock('@/lib/supabase/client', () => ({ createClient }))
+vi.mock('@/lib/supabase/data', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/supabase/data')>()), observe, result, signedImage,
+}))
 
 const { getOrder, getOrderItems, mapToOrder, subscribeOrders, toOrderError } = await import('./orderRepository')
 
 const BASE_ORDER_DATA = {
-  buyerId: 'alice',
+  buyer_id: 'alice',
   status: 'PAID',
-  paymentState: 'PAID',
-  subtotal: 500000,
-  total: 500000,
-  createdAt: { toDate: () => new Date('2026-01-01') },
-  updatedAt: { toDate: () => new Date('2026-01-01') },
+  payment_state: 'PAID', subtotal_minor: 500000, total_minor: 500000,
+  created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
 }
 
 describe('mapToOrder', () => {
+  it('preserves explicit test provenance, provider reference and consumed reservation without inventing them', () => {
+    expect(mapToOrder('o1', { ...BASE_ORDER_DATA, payment_mode: 'TEST', payment_reference: 'pay_verified', reservation_status: 'CONSUMED' }))
+      .toMatchObject({ paymentMode: 'TEST', paymentReference: 'pay_verified', reservationStatus: 'CONSUMED' })
+    expect(mapToOrder('o1', BASE_ORDER_DATA)).not.toHaveProperty('paymentMode')
+    expect(mapToOrder('o1', BASE_ORDER_DATA)).not.toHaveProperty('paymentReference')
+  })
+  it('preserves trusted reservation and incomplete-pricing metadata without assuming it for legacy orders', () => {
+    expect(mapToOrder('o1', { ...BASE_ORDER_DATA, currency: 'INR', pricing_state: 'ITEMS_ONLY', reservation_status: 'ACTIVE', reservation_expires_at: '2026-09-17T00:00:00.000Z' })).toMatchObject({ currency: 'INR', pricingState: 'ITEMS_ONLY', reservationStatus: 'ACTIVE', reservationExpiresAt: expect.anything() })
+    expect(mapToOrder('o1', BASE_ORDER_DATA)).not.toHaveProperty('reservationStatus')
+  })
   it('maps a well-formed document', () => {
     const order = mapToOrder('o1', BASE_ORDER_DATA)
     expect(order).toMatchObject({ id: 'o1', buyerId: 'alice', status: 'PAID', paymentState: 'PAID', total: 500000 })
   })
 
   it('returns null for a document missing buyerId', () => {
-    expect(mapToOrder('o1', { ...BASE_ORDER_DATA, buyerId: undefined })).toBeNull()
+    expect(mapToOrder('o1', { ...BASE_ORDER_DATA, buyer_id: undefined })).toBeNull()
   })
 
   it('returns null for a document with an unrecognized status — never fabricates a fallback lifecycle stage', () => {
@@ -66,13 +73,20 @@ describe('mapToOrder', () => {
 })
 
 describe('getOrder', () => {
+  it('reads the buyer-protected provider reference for a stored test order', async () => {
+    result.mockResolvedValueOnce({ id: 'o1', ...BASE_ORDER_DATA, payment_mode: 'TEST' })
+    result.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(null).mockResolvedValueOnce([])
+    result.mockResolvedValueOnce({ provider_payment_id: 'pay_verified' })
+    expect(await getOrder('o1')).toMatchObject({ paymentMode: 'TEST', paymentReference: 'pay_verified' })
+  })
   it('returns null for a nonexistent order', async () => {
-    getDoc.mockResolvedValueOnce({ exists: () => false })
+    result.mockResolvedValueOnce(null)
     expect(await getOrder('o1')).toBeNull()
   })
 
   it('returns the mapped order when it exists', async () => {
-    getDoc.mockResolvedValueOnce({ exists: () => true, id: 'o1', data: () => BASE_ORDER_DATA })
+    result.mockResolvedValueOnce({ id: 'o1', ...BASE_ORDER_DATA })
+    result.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(null).mockResolvedValueOnce([])
     const order = await getOrder('o1')
     expect(order?.id).toBe('o1')
   })
@@ -81,12 +95,12 @@ describe('getOrder', () => {
   // belonging to another buyer must look exactly like one that never
   // existed, never surface as a distinguishable error.
   it('collapses permission-denied into null rather than throwing', async () => {
-    getDoc.mockRejectedValueOnce({ code: 'permission-denied' })
+    result.mockRejectedValueOnce({ code: 'permission-denied' })
     expect(await getOrder('o1')).toBeNull()
   })
 
   it('rethrows a genuine network error as a typed OrderError', async () => {
-    getDoc.mockRejectedValueOnce({ code: 'unavailable' })
+    result.mockRejectedValueOnce(new TypeError('offline'))
     await expect(getOrder('o1')).rejects.toEqual({
       code: 'network',
       message: 'Network unavailable. Check your connection and try again.',
@@ -95,51 +109,86 @@ describe('getOrder', () => {
 })
 
 describe('getOrderItems', () => {
+  it('keeps purchase details readable when a snapshot image is revoked', async () => {
+    result.mockResolvedValueOnce([
+      { id: 'i1', artwork_id: 'art1', title: 'Purchased work', image_path: 'private/revoked', unit_price_minor: 550000, quantity: 1, subtotal_minor: 550000 },
+      { id: 'i2', artwork_id: 'art2', title: 'Other work', image_path: 'private/valid' },
+    ])
+    signedImage.mockRejectedValueOnce({ code: 'permission-denied' }).mockResolvedValueOnce('https://storage.example/authorized')
+    expect(await getOrderItems('existing-order')).toEqual([
+      expect.objectContaining({ title: 'Purchased work', imageUrl: null, unitPrice: 550000, quantity: 1, subtotal: 550000 }),
+      expect.objectContaining({ title: 'Other work', imageUrl: 'https://storage.example/authorized' }),
+    ])
+  })
+
+  it('keeps the order and immutable totals when thumbnail signing fails', async () => {
+    result.mockResolvedValueOnce({ id: 'o1', ...BASE_ORDER_DATA })
+    result.mockResolvedValueOnce([{ id: 'i1' }])
+    result.mockResolvedValueOnce([{ id: 'i1', artwork_id: 'art1', title: 'Purchased work', image_path: 'revoked', quantity: 1 }])
+    result.mockResolvedValueOnce(null).mockResolvedValueOnce([]).mockResolvedValueOnce([])
+    signedImage.mockRejectedValueOnce(new TypeError('offline'))
+    expect(await getOrder('o1')).toMatchObject({ id: 'o1', total: 500000, itemsPreview: [{ title: 'Purchased work', imageUrl: null, quantity: 1 }] })
+  })
+
+  it.each(['existing-order', 'future-order'])('signs the checkout image snapshot for %s', async (orderId) => {
+    result.mockResolvedValueOnce([{ id: 'i1', artwork_id: 'art1', title: 'Sunset', image_path: 'seller/art/image', image_url: 'obsolete-path' }])
+    signedImage.mockResolvedValueOnce('https://storage.example/signed-snapshot')
+    expect(await getOrderItems(orderId)).toEqual([expect.objectContaining({ imageUrl: 'https://storage.example/signed-snapshot' })])
+    expect(signedImage).toHaveBeenLastCalledWith('seller/art/image')
+  })
+
+  it('uses the same signed snapshot in order history previews', async () => {
+    result.mockResolvedValueOnce({ id: 'o1', ...BASE_ORDER_DATA })
+    result.mockResolvedValueOnce([{ id: 'i1' }])
+    result.mockResolvedValueOnce([{ id: 'i1', artwork_id: 'art1', title: 'Sunset', image_path: 'seller/art/image', quantity: 1 }])
+    result.mockResolvedValueOnce(null).mockResolvedValueOnce([]).mockResolvedValueOnce([])
+    signedImage.mockResolvedValueOnce('https://storage.example/signed-snapshot')
+    expect((await getOrder('o1'))?.itemsPreview).toEqual([{ title: 'Sunset', imageUrl: 'https://storage.example/signed-snapshot', quantity: 1 }])
+  })
+
   it('returns the mapped items for an order', async () => {
-    getDocs.mockResolvedValueOnce({
-      docs: [{ id: 'i1', data: () => ({ artworkId: 'art1', title: 'Sunset', unitPrice: 100, quantity: 1, subtotal: 100 }) }],
-    })
+    result.mockResolvedValueOnce([
+      { id: 'i1', artwork_id: 'art1', title: 'Sunset', unit_price_minor: 100, quantity: 1, subtotal_minor: 100 },
+    ])
     const items = await getOrderItems('o1')
     expect(items).toEqual([{ id: 'i1', artworkId: 'art1', sellerId: '', title: 'Sunset', imageUrl: null, unitPrice: 100, quantity: 1, subtotal: 100 }])
   })
 
   it('returns an empty array on permission-denied rather than throwing', async () => {
-    getDocs.mockRejectedValueOnce({ code: 'permission-denied' })
+    result.mockRejectedValueOnce({ code: 'permission-denied' })
     expect(await getOrderItems('o1')).toEqual([])
   })
 })
 
 describe('subscribeOrders', () => {
-  it('queries by buyerId, newest first, and maps results', () => {
+  it('scopes the realtime subscription to the buyer and maps its refreshed rows', async () => {
     const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({ docs: [{ id: 'o1', data: () => BASE_ORDER_DATA }] })
-      return vi.fn()
-    })
+    let read: (() => Promise<unknown>) | undefined
+    observe.mockImplementationOnce((_table, _filter, readFunction) => { read = readFunction; return vi.fn() })
+    result.mockResolvedValueOnce([{ id: 'o1', ...BASE_ORDER_DATA }])
+    result.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(null).mockResolvedValueOnce([])
     subscribeOrders('alice', onData, vi.fn())
-    expect(where).toHaveBeenCalledWith('buyerId', '==', 'alice')
-    expect(orderBy).toHaveBeenCalledWith('createdAt', 'desc')
-    expect(onData).toHaveBeenCalledWith([expect.objectContaining({ id: 'o1', buyerId: 'alice' })])
+    expect(observe).toHaveBeenCalledWith('orders', 'buyer_id=eq.alice', expect.any(Function), onData, expect.any(Function))
+    await expect(read?.()).resolves.toEqual([expect.objectContaining({ id: 'o1', buyerId: 'alice' })])
   })
 
-  it('filters out any malformed order document rather than crashing the list', () => {
-    const onData = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, successCallback: (snap: unknown) => void) => {
-      successCallback({ docs: [{ id: 'bad', data: () => ({ status: 'PAID' }) }] })
-      return vi.fn()
-    })
-    subscribeOrders('alice', onData, vi.fn())
-    expect(onData).toHaveBeenCalledWith([])
+  it('filters malformed rows from the realtime refresh rather than crashing the list', async () => {
+    let read: (() => Promise<unknown>) | undefined
+    observe.mockImplementationOnce((_table, _filter, readFunction) => { read = readFunction; return vi.fn() })
+    result.mockResolvedValueOnce([{ id: 'bad', status: 'PAID' }])
+    result.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(null).mockResolvedValueOnce([])
+    subscribeOrders('alice', vi.fn(), vi.fn())
+    await expect(read?.()).resolves.toEqual([])
   })
 
-  it('maps a listener error via toOrderError', () => {
+  it('forwards the typed realtime error supplied by the shared Supabase observer', () => {
     const onError = vi.fn()
-    onSnapshot.mockImplementationOnce((_ref, _onData, errorCallback: (error: unknown) => void) => {
-      errorCallback({ code: 'permission-denied' })
+    observe.mockImplementationOnce((_table, _filter, _read, _onData, errorCallback) => {
+      errorCallback({ code: 'permission-denied', message: 'You do not have permission to do that.' })
       return vi.fn()
     })
     subscribeOrders('alice', vi.fn(), onError)
-    expect(onError).toHaveBeenCalledWith({ code: 'permission-denied', message: 'You do not have permission to view that order.' })
+    expect(onError).toHaveBeenCalledWith({ code: 'permission-denied', message: 'You do not have permission to do that.' })
   })
 })
 

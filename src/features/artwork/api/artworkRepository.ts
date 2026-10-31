@@ -1,19 +1,16 @@
+import { createClient } from '@/lib/supabase/client'
 import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  onSnapshot,
-  query,
-  runTransaction,
-  serverTimestamp,
+  dataError,
+  observe,
+  requireIdentity,
+  result,
+  rpc,
+  signedImage,
+} from '@/lib/supabase/data'
+import {
   Timestamp,
-  updateDoc,
-  where,
-  type Unsubscribe,
-} from 'firebase/firestore'
-import { db } from '@/lib/firebase/config'
+  timestamp,
+} from '@/lib/supabase/timestamp'
 import {
   isArtworkCategory,
   isArtworkImageContentType,
@@ -24,234 +21,417 @@ import {
   type ArtworkImage,
 } from '../types'
 
-function artworksCollection() {
-  return collection(db, 'artworks')
+export const toArtworkError = dataError
+
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value)
+  )
 }
 
-function artworkDocRef(id: string) {
-  return doc(db, 'artworks', id)
+function numberOrZero(value: unknown): number {
+  const number =
+    typeof value === 'number'
+      ? value
+      : Number(value)
+
+  return Number.isFinite(number)
+    ? number
+    : 0
 }
 
-function isFirestoreErrorLike(error: unknown): error is { code: string } {
-  return typeof error === 'object' && error !== null && 'code' in error
-}
-
-export function toArtworkError(error: unknown): ArtworkError {
-  if (isFirestoreErrorLike(error)) {
-    if (error.code === 'permission-denied') {
-      return { code: 'permission-denied', message: 'You do not have permission to do that.' }
-    }
-    if (error.code === 'unavailable' || error.code === 'deadline-exceeded') {
-      return { code: 'network', message: 'Network unavailable. Check your connection and try again.' }
-    }
+export function mapToArtwork(
+  id: string,
+  data: Record<string, unknown>,
+): Artwork | null {
+  if (
+    typeof data.sellerId !== 'string' ||
+    !isArtworkStatus(data.status)
+  ) {
+    return null
   }
-  return { code: 'unknown', message: 'Something went wrong. Please try again.' }
-}
 
-/** Defensive mapping — never assumes every image entry is present or well-typed; drops anything malformed rather than crashing. */
-function mapToArtworkImage(value: unknown): ArtworkImage | null {
-  if (typeof value !== 'object' || value === null) return null
-  const image = value as Record<string, unknown>
-  if (typeof image.id !== 'string' || typeof image.path !== 'string' || typeof image.url !== 'string') return null
-  if (!isArtworkImageContentType(image.contentType)) return null
-  if (typeof image.order !== 'number' || typeof image.size !== 'number') return null
+  const images: ArtworkImage[] =
+    Array.isArray(data.images)
+      ? data.images.filter(
+          (
+            value,
+          ): value is ArtworkImage => {
+            if (!isRecord(value)) {
+              return false
+            }
 
-  return { id: image.id, path: image.path, url: image.url, order: image.order, contentType: image.contentType, size: image.size }
-}
-
-function mapToArtworkImages(value: unknown): ArtworkImage[] {
-  if (!Array.isArray(value)) return []
-  return value.map(mapToArtworkImage).filter((image): image is ArtworkImage => image !== null)
-}
-
-/**
- * Defensive mapping — never assumes every field is present or well-typed.
- * Exported for reuse by other public read paths over the same collection
- * (see marketplaceRepository.ts, Module 08) — the mapping itself doesn't
- * change across query shapes, only which documents a given query can ever
- * return.
- */
-export function mapToArtwork(id: string, data: Record<string, unknown>): Artwork | null {
-  if (typeof data.sellerId !== 'string') return null
-  if (!isArtworkStatus(data.status)) return null
+            return (
+              typeof value.id === 'string' &&
+              typeof value.path === 'string' &&
+              typeof value.url === 'string' &&
+              isArtworkImageContentType(
+                value.contentType,
+              ) &&
+              typeof value.size === 'number' &&
+              typeof value.order === 'number'
+            )
+          },
+        )
+      : []
 
   return {
     id,
     sellerId: data.sellerId,
-    title: typeof data.title === 'string' ? data.title : '',
-    description: typeof data.description === 'string' ? data.description : '',
-    price: typeof data.price === 'number' ? data.price : 0,
-    category: isArtworkCategory(data.category) ? data.category : 'other',
-    tags: Array.isArray(data.tags) ? data.tags.filter((tag): tag is string => typeof tag === 'string') : [],
-    images: mapToArtworkImages(data.images),
-    inventoryCount: typeof data.inventoryCount === 'number' ? data.inventoryCount : 0,
+
+    title:
+      typeof data.title === 'string'
+        ? data.title
+        : '',
+
+    description:
+      typeof data.description === 'string'
+        ? data.description
+        : '',
+
+    price:
+      typeof data.price === 'number'
+        ? data.price
+        : 0,
+
+    category: isArtworkCategory(data.category)
+      ? data.category
+      : 'other',
+
+    tags: Array.isArray(data.tags)
+      ? data.tags.filter(
+          (tag): tag is string =>
+            typeof tag === 'string',
+        )
+      : [],
+
+    images,
+
+    inventoryCount:
+      typeof data.inventoryCount === 'number'
+        ? data.inventoryCount
+        : 0,
+
+    reservedCount:
+      typeof data.reservedCount === 'number'
+        ? data.reservedCount
+        : 0,
+
     status: data.status,
-    reviewedAt: data.reviewedAt instanceof Timestamp ? data.reviewedAt : null,
-    rejectionReason: typeof data.rejectionReason === 'string' ? data.rejectionReason : null,
-    likeCount: typeof data.likeCount === 'number' && data.likeCount >= 0 ? data.likeCount : 0,
-    createdAt: data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.now(),
-    updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : Timestamp.now(),
+
+    reviewedAt:
+      data.reviewedAt instanceof Timestamp
+        ? data.reviewedAt
+        : null,
+
+    rejectionReason:
+      typeof data.rejectionReason === 'string'
+        ? data.rejectionReason
+        : null,
+
+    likeCount:
+      typeof data.likeCount === 'number'
+        ? data.likeCount
+        : 0,
+
+    createdAt:
+      data.createdAt instanceof Timestamp
+        ? data.createdAt
+        : Timestamp.now(),
+
+    updatedAt:
+      data.updatedAt instanceof Timestamp
+        ? data.updatedAt
+        : Timestamp.now(),
   }
 }
 
-/**
- * All of a seller's own artworks, newest-edit-first. Sorted client-side
- * (not `orderBy('updatedAt')` in the query) deliberately — a seller's own
- * catalog is small at foundation stage, and this sidesteps needing a
- * composite index for an equality-plus-order-by-different-field query
- * before Module 04 has any real query-pattern data to size one against.
- */
+export async function mapCatalogRow(
+  row: Record<string, unknown>,
+): Promise<Artwork> {
+  const rawImages = Array.isArray(row.images)
+    ? row.images.filter(isRecord)
+    : []
+
+  const images: ArtworkImage[] = []
+
+  for (const image of rawImages) {
+    const id =
+      typeof image.id === 'string'
+        ? image.id
+        : null
+
+    const path =
+      typeof image.path === 'string'
+        ? image.path
+        : null
+
+    const contentType =
+      image.contentType ??
+      image.content_type
+
+    const order =
+      numberOrZero(
+        image.order ??
+          image.sort_order,
+      )
+
+    const size =
+      numberOrZero(
+        image.size ??
+          image.size_bytes,
+      )
+
+    if (
+      !id ||
+      !path ||
+      !isArtworkImageContentType(
+        contentType,
+      )
+    ) {
+      continue
+    }
+
+    images.push({
+      id,
+      path,
+      url: await signedImage(path),
+      order,
+      contentType,
+      size,
+    })
+  }
+
+  const mapped = mapToArtwork(
+    String(row.id),
+    {
+      ...row,
+
+      sellerId:
+        typeof row.seller_id === 'string'
+          ? row.seller_id
+          : '',
+
+      price: numberOrZero(
+        row.price_minor,
+      ),
+
+      inventoryCount: numberOrZero(
+        row.physical_quantity,
+      ),
+
+      reservedCount: numberOrZero(
+        row.reserved_quantity,
+      ),
+
+      likeCount: numberOrZero(
+        row.like_count,
+      ),
+
+      images,
+
+      reviewedAt: row.reviewed_at
+        ? timestamp(row.reviewed_at)
+        : null,
+
+      rejectionReason:
+        row.rejection_reason,
+
+      createdAt: timestamp(
+        row.created_at,
+      ),
+
+      updatedAt: timestamp(
+        row.updated_at,
+      ),
+    },
+  )
+
+  if (!mapped) {
+    throw dataError(null)
+  }
+
+  return mapped
+}
+
+export async function sellerArtworks(
+  sellerId: string,
+  published = false,
+): Promise<Artwork[]> {
+  let query = createClient()
+    .from('artwork_catalog')
+    .select('*')
+    .eq('seller_id', sellerId)
+    .order('updated_at', {
+      ascending: false,
+    })
+
+  if (published) {
+    query = query.eq(
+      'status',
+      'PUBLISHED',
+    )
+  }
+
+  const rows =
+    (await result(query)) ?? []
+
+  return Promise.all(
+    rows.map((row) =>
+      mapCatalogRow(
+        row as Record<string, unknown>,
+      ),
+    ),
+  )
+}
+
 export function subscribeSellerArtworks(
   sellerId: string,
   onData: (artworks: Artwork[]) => void,
   onError: (error: ArtworkError) => void,
-): Unsubscribe {
-  const q = query(artworksCollection(), where('sellerId', '==', sellerId))
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const artworks = snapshot.docs
-        .map((docSnapshot) => mapToArtwork(docSnapshot.id, docSnapshot.data()))
-        .filter((artwork): artwork is Artwork => artwork !== null)
-        .sort((a, b) => b.updatedAt.toMillis() - a.updatedAt.toMillis())
-      onData(artworks)
-    },
-    (error) => onError(toArtworkError(error)),
+) {
+  return observe(
+    'artworks',
+    `seller_id=eq.${sellerId}`,
+    () => sellerArtworks(sellerId),
+    onData,
+    onError,
   )
 }
 
-/**
- * An artist's real, publicly-visible catalog — Module 07's own query,
- * consumed by the public artist page (never by Seller Studio, which uses
- * subscribeSellerArtworks above to see everything regardless of status).
- * `sellerId == X && status == 'PUBLISHED'` is two equality filters on
- * different fields, which Firestore serves from its automatic single-field
- * indexes without needing a composite index. Public — works whether or not
- * anyone is signed in (see firestore.rules' additive PUBLISHED-read branch).
- */
 export function subscribePublishedArtworks(
   sellerId: string,
   onData: (artworks: Artwork[]) => void,
   onError: (error: ArtworkError) => void,
-): Unsubscribe {
-  const q = query(artworksCollection(), where('sellerId', '==', sellerId), where('status', '==', 'PUBLISHED'))
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const artworks = snapshot.docs
-        .map((docSnapshot) => mapToArtwork(docSnapshot.id, docSnapshot.data()))
-        .filter((artwork): artwork is Artwork => artwork !== null)
-        .sort((a, b) => b.updatedAt.toMillis() - a.updatedAt.toMillis())
-      onData(artworks)
-    },
-    (error) => onError(toArtworkError(error)),
+) {
+  return observe(
+    'artworks',
+    `seller_id=eq.${sellerId}`,
+    () =>
+      sellerArtworks(
+        sellerId,
+        true,
+      ),
+    onData,
+    onError,
   )
 }
 
-/**
- * A single one-shot read — never a live subscription — for contexts that
- * need many artworks' current data at once without opening one listener
- * per artwork (e.g. resolving a saved Wishlist's items, Module 09). Returns
- * `null` for a nonexistent, malformed, or permission-denied document rather
- * than throwing: a wishlist entry whose artwork was since deleted or
- * unpublished is an ordinary, expected case for that caller to render as
- * "no longer available," not an error.
- */
-export async function getArtwork(id: string): Promise<Artwork | null> {
-  try {
-    const snapshot = await getDoc(artworkDocRef(id))
-    return snapshot.exists() ? mapToArtwork(snapshot.id, snapshot.data()) : null
-  } catch {
+export async function getArtwork(
+  id: string,
+): Promise<Artwork | null> {
+  const row = await result(
+    createClient()
+      .from('artwork_catalog')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle(),
+  )
+
+  if (!row) {
     return null
   }
+
+  return mapCatalogRow(
+    row as Record<string, unknown>,
+  )
 }
 
-/**
- * The public Artwork Detail page's own read (Module 11) — same one-shot
- * `getDoc` as `getArtwork` above, but with deliberately different error
- * semantics. `getArtwork` exists to resolve *many* ids at once (a saved
- * Wishlist), where any single failure — including a genuine network error —
- * should just make that one item look "unavailable" rather than fail the
- * whole list, so it swallows every error into `null`. A dedicated detail
- * page needs the opposite: a real network/unavailable failure should
- * surface as a retryable error to the one visitor looking at it, not
- * collapse into the same "this doesn't exist" state a private or
- * nonexistent artwork correctly gets. `permission-denied` is the one
- * Firestore error still mapped to `null` here, for exactly the same privacy
- * reason `getArtwork` maps it to `null` too: a private artwork the caller
- * isn't allowed to read must stay indistinguishable from one that was never
- * published or never existed, never leaked via a different code path.
- */
-export async function getPublicArtwork(id: string): Promise<Artwork | null> {
-  try {
-    const snapshot = await getDoc(artworkDocRef(id))
-    return snapshot.exists() ? mapToArtwork(snapshot.id, snapshot.data()) : null
-  } catch (error) {
-    if (isFirestoreErrorLike(error) && error.code === 'permission-denied') return null
-    throw toArtworkError(error)
+export async function getPublicArtwork(
+  id: string,
+): Promise<Artwork | null> {
+  const row = await result(
+    createClient()
+      .from('artwork_catalog')
+      .select('*')
+      .eq('id', id)
+      .eq('status', 'PUBLISHED')
+      .maybeSingle(),
+  )
+
+  if (!row) {
+    return null
   }
+
+  return mapCatalogRow(
+    row as Record<string, unknown>,
+  )
 }
 
-/** Exactly one Firestore listener per call — callers own cleanup via the returned Unsubscribe. */
 export function subscribeArtwork(
   id: string,
   onData: (artwork: Artwork | null) => void,
   onError: (error: ArtworkError) => void,
-): Unsubscribe {
-  return onSnapshot(
-    artworkDocRef(id),
-    (snapshot) => {
-      onData(snapshot.exists() ? mapToArtwork(snapshot.id, snapshot.data()) : null)
+) {
+  const read = () =>
+    getArtwork(id)
+
+  const stopArtwork = observe(
+    'artworks',
+    `id=eq.${id}`,
+    read,
+    onData,
+    onError,
+  )
+
+  const stopInventory = observe(
+    'inventory',
+    `artwork_id=eq.${id}`,
+    read,
+    onData,
+    onError,
+  )
+
+  return () => {
+    stopArtwork()
+    stopInventory()
+  }
+}
+
+export async function createArtworkDraft(
+  sellerId: string,
+  input: ArtworkDraftInput,
+): Promise<string> {
+  await requireIdentity(sellerId)
+
+  return rpc<string>(
+    'save_artwork',
+    {
+      target: null,
+      operation: 'CREATE',
+      fields: input,
     },
-    (error) => onError(toArtworkError(error)),
   )
 }
 
-export async function createArtworkDraft(sellerId: string, input: ArtworkDraftInput): Promise<string> {
-  try {
-    const ref = await addDoc(artworksCollection(), {
-      sellerId,
-      title: input.title.trim(),
-      description: input.description.trim(),
-      price: input.price,
-      category: input.category,
-      tags: input.tags,
-      images: [],
-      inventoryCount: input.inventoryCount,
-      status: 'DRAFT',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
-    return ref.id
-  } catch (error) {
-    throw toArtworkError(error)
-  }
+export async function updateArtworkDraft(
+  id: string,
+  input: ArtworkDraftInput,
+): Promise<void> {
+  await rpc(
+    'save_artwork',
+    {
+      target: id,
+      operation: 'EDIT',
+      fields: input,
+    },
+  )
 }
 
-/** Only ever called while an artwork is still DRAFT — firestore.rules rejects this once SUBMITTED. */
-export async function updateArtworkDraft(id: string, input: ArtworkDraftInput): Promise<void> {
-  try {
-    await updateDoc(artworkDocRef(id), {
-      title: input.title.trim(),
-      description: input.description.trim(),
-      price: input.price,
-      category: input.category,
-      tags: input.tags,
-      inventoryCount: input.inventoryCount,
-      updatedAt: serverTimestamp(),
-    })
-  } catch (error) {
-    throw toArtworkError(error)
-  }
-}
-
-/** One-way for this module: DRAFT -> SUBMITTED only. firestore.rules rejects the reverse. */
-export async function submitArtwork(id: string): Promise<void> {
-  try {
-    await updateDoc(artworkDocRef(id), { status: 'SUBMITTED', updatedAt: serverTimestamp() })
-  } catch (error) {
-    throw toArtworkError(error)
-  }
+export async function submitArtwork(
+  id: string,
+): Promise<void> {
+  await rpc(
+    'save_artwork',
+    {
+      target: id,
+      operation: 'SUBMIT',
+    },
+  )
 }
 
 export interface ArtworkSafeFieldsInput {
@@ -260,159 +440,90 @@ export interface ArtworkSafeFieldsInput {
   tags: string[]
 }
 
-/**
- * Module 13 Phase 4 — the only write path that may touch a PUBLISHED
- * artwork while it stays PUBLISHED: exactly the three commerce fields that
- * carry no content-moderation risk. Writing only these keys (never
- * title/description/category/images alongside them) is what lets
- * `firestore.rules`' matching branch prove — via `diff().affectedKeys()
- * .hasOnly(...)`, not by trusting this function — that no public content
- * changed. Use `resubmitArtworkForReview` below for any change to real
- * content.
- */
-export async function updatePublishedArtworkSafeFields(id: string, input: ArtworkSafeFieldsInput): Promise<void> {
-  try {
-    await updateDoc(artworkDocRef(id), {
-      price: input.price,
-      inventoryCount: input.inventoryCount,
-      tags: input.tags,
-      updatedAt: serverTimestamp(),
-    })
-  } catch (error) {
-    throw toArtworkError(error)
-  }
+export async function updatePublishedArtworkSafeFields(
+  id: string,
+  input: ArtworkSafeFieldsInput,
+): Promise<void> {
+  await rpc(
+    'save_artwork',
+    {
+      target: id,
+      operation: 'SAFE_EDIT',
+      fields: input,
+    },
+  )
 }
 
-/**
- * Module 13 Phase 4 (and its own photo-editing follow-up, extended again by
- * the seller artwork recovery/control pass) — the seller-facing path back
- * into moderation: a PUBLISHED artwork whose owner is changing real public
- * content (title/description/category/images), a REJECTED artwork's owner
- * correcting it and asking for a fresh decision, or a SUSPENDED artwork's
- * owner doing the same after an admin moderation action. All three cases
- * end at exactly the same place — `status: 'SUBMITTED'`, `reviewedAt`/
- * `rejectionReason` both reset to `null` so a stale prior decision (a
- * rejection reason or an admin's suspension reason alike) can never read as
- * the active one during the new review cycle — because `firestore.rules`
- * itself treats them as the same transition (see its own comment); this
- * function mirrors that unification rather than duplicating it into three
- * near-identical functions. A SUSPENDED artwork's resubmission does not
- * touch `adminLogs` — that audit trail is a separate collection, and the
- * original suspension record is preserved exactly as it was written.
- *
- * `images` is always written explicitly (never merged from the caller's
- * stale copy) — the caller (ArtworkForm, via useArtworkImages'
- * `getImagesForSave`) is expected to pass the exact array it wants
- * persisted, already renumbered. Reusing the same `isValidArtworkImages`
- * shape-check firestore.rules already applies to every other images write
- * means a bad array is rejected server-side exactly as it would be anywhere
- * else, not specially trusted here.
- */
-export async function resubmitArtworkForReview(id: string, input: ArtworkDraftInput, images: ArtworkImage[]): Promise<void> {
-  try {
-    await updateDoc(artworkDocRef(id), {
-      title: input.title.trim(),
-      description: input.description.trim(),
-      price: input.price,
-      category: input.category,
-      tags: input.tags,
-      images,
-      inventoryCount: input.inventoryCount,
-      status: 'SUBMITTED',
-      reviewedAt: null,
-      rejectionReason: null,
-      updatedAt: serverTimestamp(),
-    })
-  } catch (error) {
-    throw toArtworkError(error)
-  }
+export async function resubmitArtworkForReview(
+  id: string,
+  input: ArtworkDraftInput,
+  images: ArtworkImage[],
+): Promise<void> {
+  await rpc(
+    'resubmit_artwork',
+    {
+      target: id,
+      fields: input,
+      images: images.map(
+        (image) => ({
+          id: image.id,
+        }),
+      ),
+    },
+  )
 }
 
-/**
- * Works for any status except SUBMITTED — firestore.rules' `allow delete`
- * rejects only that one (seller artwork recovery/control pass: DRAFT,
- * REJECTED, SUSPENDED, and PUBLISHED are all owner-deletable now). See
- * `removeArtworkFromSale` below for the non-destructive alternative that
- * takes a PUBLISHED artwork off the marketplace while preserving the
- * record, which stays available alongside this hard delete.
- */
-export async function deleteOwnedArtwork(id: string): Promise<void> {
-  try {
-    await deleteDoc(artworkDocRef(id))
-  } catch (error) {
-    throw toArtworkError(error)
-  }
+export async function deleteOwnedArtwork(
+  id: string,
+): Promise<void> {
+  await rpc(
+    'save_artwork',
+    {
+      target: id,
+      operation: 'DELETE',
+    },
+  )
 }
 
-/**
- * UI-03 final correction — the only safe way for an owner to take a
- * PUBLISHED artwork off the public marketplace without hard-deleting it
- * (firestore.rules never allows deleting a PUBLISHED document at all).
- * Reuses the exact same PUBLISHED -> SUBMITTED branch
- * `resubmitArtworkForReview` uses for an edited listing, but touches no
- * content field — `diff().affectedKeys()` stays inside
- * `['status','reviewedAt','rejectionReason','updatedAt']`, so the rule's
- * content/image validation passes trivially against the artwork's own
- * already-valid, unchanged data. The artwork disappears from
- * `subscribePublishedArtworks`/the public marketplace immediately (it is
- * no longer `status == 'PUBLISHED'`) while the document itself is fully
- * preserved — it simply re-enters the admin moderation queue rather than
- * being destroyed.
- */
-export async function removeArtworkFromSale(id: string): Promise<void> {
-  try {
-    await updateDoc(artworkDocRef(id), {
-      status: 'SUBMITTED',
-      reviewedAt: null,
-      rejectionReason: null,
-      updatedAt: serverTimestamp(),
-    })
-  } catch (error) {
-    throw toArtworkError(error)
-  }
+export async function removeArtworkFromSale(
+  id: string,
+): Promise<void> {
+  await rpc(
+    'save_artwork',
+    {
+      target: id,
+      operation: 'REMOVE',
+    },
+  )
 }
 
-/**
- * The single write path for every images-array change (add, remove,
- * reorder). Runs inside a transaction rather than a plain updateDoc() so two
- * uploads finishing back-to-back (e.g. a seller selecting several photos at
- * once) each apply their change on top of the other's, instead of the
- * second overwriting the array from a stale read — the same class of race a
- * plain read-then-updateDoc() would otherwise have. Firestore evaluates
- * security rules against this transaction's write exactly as it would any
- * other update, so an attempt to mutate images on an artwork that is no
- * longer DRAFT (e.g. submitted from another tab in between) is still
- * rejected server-side, not just guarded by the client-side check below.
- */
 export async function mutateArtworkImages(
   id: string,
-  updater: (images: ArtworkImage[]) => ArtworkImage[],
+  updater: (
+    images: ArtworkImage[],
+  ) => ArtworkImage[],
 ): Promise<ArtworkImage[]> {
-  try {
-    return await runTransaction(db, async (transaction) => {
-      const ref = artworkDocRef(id)
-      const snapshot = await transaction.get(ref)
-      if (!snapshot.exists()) {
-        throw { code: 'unknown', message: 'This artwork no longer exists.' } satisfies ArtworkError
-      }
-      const data = snapshot.data()
-      if (!isArtworkStatus(data.status) || data.status !== 'DRAFT') {
-        throw { code: 'permission-denied', message: 'This artwork can no longer be edited.' } satisfies ArtworkError
-      }
-      const nextImages = updater(mapToArtworkImages(data.images))
-      transaction.update(ref, { images: nextImages, updatedAt: serverTimestamp() })
-      return nextImages
-    })
-  } catch (error) {
-    if (isArtworkErrorLike(error)) throw error
-    throw toArtworkError(error)
-  }
-}
+  const current =
+    await getArtwork(id)
 
-// Distinguishes an ArtworkError literal thrown deliberately above from a raw
-// FirebaseError (also has `code`/`message`, but is an Error instance) — the
-// latter must still go through toArtworkError() for a safe, user-facing
-// message instead of leaking Firestore's own internal wording.
-function isArtworkErrorLike(error: unknown): error is ArtworkError {
-  return typeof error === 'object' && error !== null && !(error instanceof Error) && 'code' in error && 'message' in error
+  if (!current) {
+    throw dataError(null)
+  }
+
+  const next =
+    updater(current.images)
+
+  await rpc(
+    'update_artwork_images',
+    {
+      target: id,
+      images: next.map(
+        (image) => ({
+          id: image.id,
+        }),
+      ),
+    },
+  )
+
+  return next
 }

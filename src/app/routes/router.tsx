@@ -1,4 +1,5 @@
-import { lazy } from 'react'
+import { lazy, Suspense } from 'react'
+import { routeSupabaseReturn } from '@/features/auth/supabaseCompletion'
 import { createBrowserRouter, Navigate } from 'react-router'
 import { AppShell } from '@/app/layouts/AppShell'
 import { HomePage } from '@/app/routes/HomePage'
@@ -7,6 +8,9 @@ import { RequireRole } from '@/app/routes/guards/RequireRole'
 
 const SignInPage = lazy(() => import('@/app/routes/SignInPage').then((m) => ({ default: m.SignInPage })))
 const SignUpPage = lazy(() => import('@/app/routes/SignUpPage').then((m) => ({ default: m.SignUpPage })))
+const VerifyEmailPage = lazy(() =>
+  import('@/app/routes/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage })),
+)
 const AccountPage = lazy(() => import('@/app/routes/AccountPage').then((m) => ({ default: m.AccountPage })))
 const AddressBookPage = lazy(() =>
   import('@/app/routes/AddressBookPage').then((m) => ({ default: m.AddressBookPage })),
@@ -64,14 +68,19 @@ const RecommendationsPage = lazy(() =>
   import('@/app/routes/RecommendationsPage').then((m) => ({ default: m.RecommendationsPage })),
 )
 
+const SupabaseAuthPage = lazy(() => import('./SupabaseAuthPage').then(m => ({ default: m.SupabaseAuthPage })))
+routeSupabaseReturn()
 export const router = createBrowserRouter([
+  ...['/auth/callback', '/auth/recovery'].map(path => ({ path, element: <Suspense fallback={<p role="status">Loading account setup…</p>}><SupabaseAuthPage /></Suspense> })),
   {
     path: '/',
     element: <AppShell />,
     children: [
       { index: true, element: <HomePage /> },
       { path: 'sign-in', element: <SignInPage /> },
+      { path: 'login', element: <SignInPage /> },
       { path: 'sign-up', element: <SignUpPage /> },
+      { path: 'verify-email', element: <VerifyEmailPage /> },
       { path: 'explore', element: <MarketplacePage /> },
       // UI-04 — public, same as Explore/Artwork Detail: works whether or
       // not anyone is signed in.

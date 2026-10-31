@@ -99,7 +99,7 @@ export function ArtworkListItem({ artwork }: { artwork: Artwork }) {
         </div>
 
         <p className="text-xs text-text-muted">
-          {artwork.inventoryCount} in stock · Updated {formatUpdatedAt(artwork.updatedAt)}
+          {artwork.inventoryCount} physical · {artwork.reservedCount ?? 0} reserved · {Math.max(0, artwork.inventoryCount - (artwork.reservedCount ?? 0))} available · Updated {formatUpdatedAt(artwork.updatedAt)}
         </p>
 
         {(artwork.status === 'REJECTED' || artwork.status === 'SUSPENDED') && artwork.rejectionReason && (

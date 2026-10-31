@@ -1,7 +1,16 @@
 # ArtVault — Augmented Reality Architecture
 
-**Status: design only.** No AR viewer, asset pipeline, or `<ViewInAR>`
-component exists yet.
+**Current guide: [AR Gallery implementation and testing](AR_GALLERY.md).**
+The active shared viewer uses pinned model-viewer 4.3.1, automatic per-published-
+artwork framed GLBs, explicitly estimated sizing, manual Lock/Unlock, optional
+native anchors and local-lock fallback. It remains a development proof delivery
+pipeline, not a deployed production asset service. The owner previously reported
+successful Android use; the current repair pass has no attached physical device.
+
+Everything below is the archived design proposal. It must not be read as current
+implemented scope, particularly the real-measurement-only rule, Quick Look,
+proposed services or screenshot capabilities. AR_PHASE1_PROOF.md records the
+earlier calibration experiment and is also historical.
 
 ## Pipeline
 

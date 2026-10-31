@@ -1,121 +1,594 @@
-import { describe, expect, it, vi } from 'vitest'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
-const { doc, getDoc, increment, serverTimestamp, writeBatch } = vi.hoisted(() => ({
-  doc: vi.fn((...args: unknown[]) => ({ path: args.slice(1).join('/') })),
-  getDoc: vi.fn(),
-  increment: vi.fn((n: number) => ({ __increment: n })),
-  serverTimestamp: vi.fn(() => 'SERVER_TIMESTAMP'),
-  writeBatch: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  createClient:
+    vi.fn(),
+
+  from:
+    vi.fn(),
+
+  select:
+    vi.fn(),
+
+  eq:
+    vi.fn(),
+
+  maybeSingle:
+    vi.fn(),
+
+  insert:
+    vi.fn(),
+
+  deleteQuery:
+    vi.fn(),
+
+  result:
+    vi.fn(),
+
+  rpc:
+    vi.fn(),
 }))
 
-vi.mock('firebase/firestore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, doc, getDoc, increment, serverTimestamp, writeBatch }
-})
-vi.mock('@/lib/firebase/config', () => ({ db: {} }))
+vi.mock(
+  '@/lib/supabase/client',
+  () => ({
+    createClient:
+      mocks.createClient,
+  }),
+)
 
-const { getAuthoritativeLikeState, hasLiked, likeArtwork, toLikeError, unlikeArtwork } = await import('./likeRepository')
+vi.mock(
+  '@/lib/supabase/data',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('@/lib/supabase/data')
+      >()
 
-function fakeBatch() {
-  const batch = { set: vi.fn(), delete: vi.fn(), update: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) }
-  return batch
+    return {
+      ...actual,
+
+      result:
+        mocks.result,
+
+      rpc:
+        mocks.rpc,
+    }
+  },
+)
+
+const {
+  getAuthoritativeLikeState,
+  hasLiked,
+  likeArtwork,
+  toLikeError,
+  unlikeArtwork,
+} = await import(
+  './likeRepository'
+)
+
+const builder = {
+  select:
+    mocks.select,
+
+  eq:
+    mocks.eq,
+
+  maybeSingle:
+    mocks.maybeSingle,
+
+  insert:
+    mocks.insert,
+
+  delete:
+    mocks.deleteQuery,
 }
 
-describe('hasLiked', () => {
-  it('reads the caller-own like document and returns whether it exists', async () => {
-    getDoc.mockResolvedValueOnce({ exists: () => true })
-    await expect(hasLiked('a1', 'alice')).resolves.toBe(true)
-    expect(doc).toHaveBeenCalledWith(expect.anything(), 'likes', 'a1', 'by', 'alice')
+beforeEach(() => {
+  vi.clearAllMocks()
+
+  mocks.createClient.mockReturnValue({
+    from:
+      mocks.from,
   })
 
-  it('returns false when no like document exists', async () => {
-    getDoc.mockResolvedValueOnce({ exists: () => false })
-    await expect(hasLiked('a1', 'alice')).resolves.toBe(false)
-  })
+  mocks.from.mockReturnValue(
+    builder,
+  )
 
-  it('throws a typed error on failure', async () => {
-    getDoc.mockRejectedValueOnce({ code: 'permission-denied' })
-    await expect(hasLiked('a1', 'alice')).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'You do not have permission to do that.',
-    })
-  })
-})
+  mocks.select.mockReturnValue(
+    builder,
+  )
 
-describe('likeArtwork', () => {
-  it('commits one atomic batch: creates the like doc and increments likeCount by exactly 1', async () => {
-    const batch = fakeBatch()
-    writeBatch.mockReturnValueOnce(batch)
-    await likeArtwork('a1', 'alice')
+  mocks.eq.mockReturnValue(
+    builder,
+  )
 
-    expect(batch.set).toHaveBeenCalledWith(expect.anything(), { likedAt: 'SERVER_TIMESTAMP' })
-    expect(batch.update).toHaveBeenCalledWith(expect.anything(), { likeCount: { __increment: 1 } })
-    expect(batch.commit).toHaveBeenCalledTimes(1)
-  })
+  mocks.maybeSingle.mockReturnValue(
+    builder,
+  )
 
-  it('throws a typed error when the batch is rejected (e.g. by security rules)', async () => {
-    const batch = fakeBatch()
-    batch.commit.mockRejectedValueOnce({ code: 'permission-denied' })
-    writeBatch.mockReturnValueOnce(batch)
-    await expect(likeArtwork('a1', 'alice')).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'You do not have permission to do that.',
-    })
+  mocks.deleteQuery.mockReturnValue(
+    builder,
+  )
+
+  mocks.insert.mockResolvedValue({
+    data: null,
+    error: null,
   })
 })
 
-describe('unlikeArtwork', () => {
-  it('commits one atomic batch: deletes the like doc and decrements likeCount by exactly 1', async () => {
-    const batch = fakeBatch()
-    writeBatch.mockReturnValueOnce(batch)
-    await unlikeArtwork('a1', 'alice')
+describe(
+  'hasLiked',
+  () => {
+    it(
+      'returns true when the caller has a like row',
+      async () => {
+        mocks.result.mockResolvedValueOnce({
+          id: 'like-1',
+        })
 
-    expect(batch.delete).toHaveBeenCalledTimes(1)
-    expect(batch.update).toHaveBeenCalledWith(expect.anything(), { likeCount: { __increment: -1 } })
-    expect(batch.commit).toHaveBeenCalledTimes(1)
-  })
+        await expect(
+          hasLiked(
+            'a1',
+            'alice',
+          ),
+        ).resolves.toBe(true)
 
-  it('throws a typed error when the batch is rejected', async () => {
-    const batch = fakeBatch()
-    batch.commit.mockRejectedValueOnce({ code: 'unavailable' })
-    writeBatch.mockReturnValueOnce(batch)
-    await expect(unlikeArtwork('a1', 'alice')).rejects.toEqual({
-      code: 'network',
-      message: 'Network unavailable. Check your connection and try again.',
-    })
-  })
-})
+        expect(
+          mocks.from,
+        ).toHaveBeenCalledWith(
+          'likes',
+        )
 
-describe('getAuthoritativeLikeState', () => {
-  it('reports liked:true with the real likeCount when a like document exists', async () => {
-    getDoc.mockResolvedValueOnce({ exists: () => true }).mockResolvedValueOnce({ data: () => ({ likeCount: 7 }) })
-    await expect(getAuthoritativeLikeState('a1', 'alice')).resolves.toEqual({ liked: true, likeCount: 7 })
-  })
+        expect(
+          mocks.select,
+        ).toHaveBeenCalledWith(
+          'id',
+        )
 
-  it('reports liked:false when no like document exists', async () => {
-    getDoc.mockResolvedValueOnce({ exists: () => false }).mockResolvedValueOnce({ data: () => ({ likeCount: 3 }) })
-    await expect(getAuthoritativeLikeState('a1', 'alice')).resolves.toEqual({ liked: false, likeCount: 3 })
-  })
+        expect(
+          mocks.eq,
+        ).toHaveBeenNthCalledWith(
+          1,
+          'artwork_id',
+          'a1',
+        )
 
-  it('defensively falls back to a likeCount of 0 for a missing/malformed field — never trusts an impossible value', async () => {
-    getDoc.mockResolvedValueOnce({ exists: () => false }).mockResolvedValueOnce({ data: () => ({}) })
-    await expect(getAuthoritativeLikeState('a1', 'alice')).resolves.toEqual({ liked: false, likeCount: 0 })
+        expect(
+          mocks.eq,
+        ).toHaveBeenNthCalledWith(
+          2,
+          'user_id',
+          'alice',
+        )
 
-    getDoc.mockResolvedValueOnce({ exists: () => false }).mockResolvedValueOnce({ data: () => ({ likeCount: -5 }) })
-    await expect(getAuthoritativeLikeState('a1', 'alice')).resolves.toEqual({ liked: false, likeCount: 0 })
-  })
+        expect(
+          mocks.maybeSingle,
+        ).toHaveBeenCalledTimes(
+          1,
+        )
+      },
+    )
 
-  it('throws a typed error when the reconciliation read itself fails', async () => {
-    getDoc.mockRejectedValueOnce({ code: 'unavailable' })
-    await expect(getAuthoritativeLikeState('a1', 'alice')).rejects.toEqual({
-      code: 'network',
-      message: 'Network unavailable. Check your connection and try again.',
-    })
-  })
-})
+    it(
+      'returns false when no like row exists',
+      async () => {
+        mocks.result.mockResolvedValueOnce(
+          null,
+        )
 
-describe('toLikeError', () => {
-  it('falls back to unknown for an unrecognized error', () => {
-    expect(toLikeError(new Error('boom'))).toEqual({ code: 'unknown', message: 'Something went wrong. Please try again.' })
-  })
-})
+        await expect(
+          hasLiked(
+            'a1',
+            'alice',
+          ),
+        ).resolves.toBe(false)
+      },
+    )
+
+    it(
+      'propagates the typed error returned by the Supabase data layer',
+      async () => {
+        mocks.result.mockRejectedValueOnce({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+
+        await expect(
+          hasLiked(
+            'a1',
+            'alice',
+          ),
+        ).rejects.toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+  },
+)
+
+describe(
+  'likeArtwork',
+  () => {
+    it(
+      'inserts one like row for the artwork and user',
+      async () => {
+        mocks.insert.mockResolvedValueOnce({
+          data: null,
+          error: null,
+        })
+
+        await expect(
+          likeArtwork(
+            'a1',
+            'alice',
+          ),
+        ).resolves.toBeUndefined()
+
+        expect(
+          mocks.from,
+        ).toHaveBeenCalledWith(
+          'likes',
+        )
+
+        expect(
+          mocks.insert,
+        ).toHaveBeenCalledWith({
+          artwork_id:
+            'a1',
+
+          user_id:
+            'alice',
+        })
+      },
+    )
+
+    it(
+      'treats PostgreSQL unique violation as an idempotent already-liked operation',
+      async () => {
+        mocks.insert.mockResolvedValueOnce({
+          data: null,
+
+          error: {
+            code:
+              '23505',
+
+            message:
+              'duplicate key',
+          },
+        })
+
+        await expect(
+          likeArtwork(
+            'a1',
+            'alice',
+          ),
+        ).resolves.toBeUndefined()
+      },
+    )
+
+    it(
+      'maps a Supabase permission error to the shared typed error',
+      async () => {
+        mocks.insert.mockResolvedValueOnce({
+          data: null,
+
+          error: {
+            code:
+              '42501',
+
+            message:
+              'permission denied',
+          },
+        })
+
+        await expect(
+          likeArtwork(
+            'a1',
+            'alice',
+          ),
+        ).rejects.toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+  },
+)
+
+describe(
+  'unlikeArtwork',
+  () => {
+    it(
+      'deletes only the matching artwork/user like row',
+      async () => {
+        mocks.result.mockResolvedValueOnce(
+          [],
+        )
+
+        await expect(
+          unlikeArtwork(
+            'a1',
+            'alice',
+          ),
+        ).resolves.toBeUndefined()
+
+        expect(
+          mocks.from,
+        ).toHaveBeenCalledWith(
+          'likes',
+        )
+
+        expect(
+          mocks.deleteQuery,
+        ).toHaveBeenCalledTimes(
+          1,
+        )
+
+        expect(
+          mocks.eq,
+        ).toHaveBeenNthCalledWith(
+          1,
+          'artwork_id',
+          'a1',
+        )
+
+        expect(
+          mocks.eq,
+        ).toHaveBeenNthCalledWith(
+          2,
+          'user_id',
+          'alice',
+        )
+      },
+    )
+
+    it(
+      'propagates a typed network failure from the Supabase data layer',
+      async () => {
+        mocks.result.mockRejectedValueOnce({
+          code:
+            'network',
+
+          message:
+            'Network unavailable. Check your connection and try again.',
+        })
+
+        await expect(
+          unlikeArtwork(
+            'a1',
+            'alice',
+          ),
+        ).rejects.toEqual({
+          code:
+            'network',
+
+          message:
+            'Network unavailable. Check your connection and try again.',
+        })
+      },
+    )
+  },
+)
+
+describe(
+  'getAuthoritativeLikeState',
+  () => {
+    it(
+      'returns liked true together with the authoritative RPC like count',
+      async () => {
+        mocks.result.mockResolvedValueOnce({
+          id:
+            'like-1',
+        })
+
+        mocks.rpc.mockResolvedValueOnce(
+          7,
+        )
+
+        await expect(
+          getAuthoritativeLikeState(
+            'a1',
+            'alice',
+          ),
+        ).resolves.toEqual({
+          liked:
+            true,
+
+          likeCount:
+            7,
+        })
+
+        expect(
+          mocks.rpc,
+        ).toHaveBeenCalledWith(
+          'artwork_like_count',
+          {
+            target:
+              'a1',
+          },
+        )
+      },
+    )
+
+    it(
+      'returns liked false when no personal like row exists',
+      async () => {
+        mocks.result.mockResolvedValueOnce(
+          null,
+        )
+
+        mocks.rpc.mockResolvedValueOnce(
+          3,
+        )
+
+        await expect(
+          getAuthoritativeLikeState(
+            'a1',
+            'alice',
+          ),
+        ).resolves.toEqual({
+          liked:
+            false,
+
+          likeCount:
+            3,
+        })
+      },
+    )
+
+    it(
+      'defensively converts malformed or negative RPC counts to zero',
+      async () => {
+        mocks.result.mockResolvedValueOnce(
+          null,
+        )
+
+        mocks.rpc.mockResolvedValueOnce(
+          -5,
+        )
+
+        await expect(
+          getAuthoritativeLikeState(
+            'a1',
+            'alice',
+          ),
+        ).resolves.toEqual({
+          liked:
+            false,
+
+          likeCount:
+            0,
+        })
+
+        mocks.result.mockResolvedValueOnce(
+          null,
+        )
+
+        mocks.rpc.mockResolvedValueOnce(
+          'invalid',
+        )
+
+        await expect(
+          getAuthoritativeLikeState(
+            'a1',
+            'alice',
+          ),
+        ).resolves.toEqual({
+          liked:
+            false,
+
+          likeCount:
+            0,
+        })
+      },
+    )
+
+    it(
+      'propagates a typed failure when the authoritative count RPC fails',
+      async () => {
+        mocks.result.mockResolvedValueOnce(
+          null,
+        )
+
+        mocks.rpc.mockRejectedValueOnce({
+          code:
+            'network',
+
+          message:
+            'Network unavailable. Check your connection and try again.',
+        })
+
+        await expect(
+          getAuthoritativeLikeState(
+            'a1',
+            'alice',
+          ),
+        ).rejects.toEqual({
+          code:
+            'network',
+
+          message:
+            'Network unavailable. Check your connection and try again.',
+        })
+      },
+    )
+  },
+)
+
+describe(
+  'toLikeError',
+  () => {
+    it(
+      'maps PostgreSQL permission-denied errors',
+      () => {
+        expect(
+          toLikeError({
+            code:
+              '42501',
+          }),
+        ).toEqual({
+          code:
+            'permission-denied',
+
+          message:
+            'You do not have permission to do that.',
+        })
+      },
+    )
+
+    it(
+      'maps PostgreSQL/network failures',
+      () => {
+        expect(
+          toLikeError({
+            code:
+              '57014',
+          }),
+        ).toEqual({
+          code:
+            'network',
+
+          message:
+            'Network unavailable. Check your connection and try again.',
+        })
+      },
+    )
+
+    it(
+      'falls back to unknown for an unrecognized error',
+      () => {
+        expect(
+          toLikeError(
+            new Error(
+              'boom',
+            ),
+          ),
+        ).toEqual({
+          code:
+            'unknown',
+
+          message:
+            'Something went wrong. Please try again.',
+        })
+      },
+    )
+  },
+)

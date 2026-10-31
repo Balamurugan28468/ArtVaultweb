@@ -19,6 +19,7 @@ export function AddressFormModal({
   address,
   existingIds,
   onSaved,
+  initialValues,
 }: {
   open: boolean
   onClose: () => void
@@ -27,6 +28,7 @@ export function AddressFormModal({
   /** Every other saved address's id — never includes `address.id` itself. */
   existingIds: string[]
   onSaved?: (id: string) => void
+  initialValues?: AddressInput
 }) {
   const { user } = useAuth()
   const toast = useToast()
@@ -70,7 +72,7 @@ export function AddressFormModal({
       <AddressForm
         formId={formId}
         externalActions
-        initialAddress={address}
+        initialAddress={address ?? initialValues}
         submitLabel={address ? 'Save Changes' : 'Add Address'}
         pending={pending}
         onSubmit={(input) => void handleSubmit(input)}

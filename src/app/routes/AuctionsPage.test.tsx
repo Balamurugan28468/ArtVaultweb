@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { describe, expect, it, vi } from 'vitest'
 import type { Auction } from '@/features/auctions'
 
@@ -34,7 +34,7 @@ function buildAuction(overrides: Partial<Auction> = {}): Auction {
     bidIncrement: 10000,
     currentHighBid: null,
     bidCount: 0,
-    winnerUid: null,
+    isWinner: false,
     winningBidAmount: null,
     createdAt: ts(0),
     updatedAt: ts(0),

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp } from '@/lib/supabase/timestamp'
 import { describe, expect, it } from 'vitest'
 import type { Order } from '../types'
 import { OrderCard } from './OrderCard'
@@ -35,6 +35,10 @@ function renderCard(order: Order) {
 }
 
 describe('OrderCard', () => {
+  it('renders the resolved order snapshot thumbnail in history', () => {
+    const { container } = renderCard(buildOrder({ itemsPreview: [{ title: 'Sunset', imageUrl: 'https://storage.example/signed-snapshot', quantity: 1 }] }))
+    expect(container.querySelector('img')).toHaveAttribute('src', 'https://storage.example/signed-snapshot')
+  })
   it('shows a shortened order id, status badge, primary item title, and real total', () => {
     renderCard(buildOrder())
     expect(screen.getByText(/Order #/)).toBeInTheDocument()

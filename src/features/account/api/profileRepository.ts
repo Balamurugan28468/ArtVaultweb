@@ -1,102 +1,402 @@
-import {
-  doc,
-  getDoc,
-  onSnapshot,
-  serverTimestamp,
-  Timestamp,
-  updateDoc,
-  type Unsubscribe,
-} from 'firebase/firestore'
+import { createClient } from '@/lib/supabase/client'
+import { getCurrentRoleClaim } from '@/features/auth/api/roleClaim'
 import { isUserRole, type UserProfile } from '@/features/auth/types'
-import { db } from '@/lib/firebase/config'
 import type { AccountError, UpdateUserProfileInput } from '../types'
 
-function userDocRef(uid: string) {
-  return doc(db, 'users', uid)
+function getErrorCode(error: unknown): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error
+  ) {
+    return String(error.code)
+  }
+
+  return ''
 }
 
-function isFirestoreErrorLike(error: unknown): error is { code: string } {
-  return typeof error === 'object' && error !== null && 'code' in error
-}
+export function toAccountError(
+  error: unknown,
+): AccountError {
+  const code = getErrorCode(error)
 
-export function toAccountError(error: unknown): AccountError {
-  if (isFirestoreErrorLike(error)) {
-    if (error.code === 'permission-denied') {
-      return { code: 'permission-denied', message: 'You do not have permission to do that.' }
-    }
-    if (error.code === 'unavailable' || error.code === 'deadline-exceeded') {
-      return { code: 'network', message: 'Network unavailable. Check your connection and try again.' }
+  if (
+    code === '42501' ||
+    code === 'PGRST301' ||
+    code === 'permission-denied'
+  ) {
+    return {
+      code: 'permission-denied',
+      message: 'You do not have permission to do that.',
     }
   }
-  return { code: 'unknown', message: 'Something went wrong. Please try again.' }
-}
 
-/**
- * Defensive mapping from raw Firestore data to UserProfile — never assumes
- * every optional field exists, since a document created before this module
- * shipped predates phoneNumber/bio/profileCompleted. A missing or malformed
- * role is treated as an unreadable profile rather than crashing the UI.
- */
-function mapToProfile(uid: string, data: Record<string, unknown>): UserProfile | null {
-  if (!isUserRole(data.role)) return null
+  if (
+    error instanceof TypeError ||
+    code === '57014' ||
+    code === 'network' ||
+    code === 'unavailable'
+  ) {
+    return {
+      code: 'network',
+      message:
+        'Network unavailable. Check your connection and try again.',
+    }
+  }
+
+  if (
+    code === 'PGRST116' ||
+    code === 'not-found'
+  ) {
+    return {
+      code: 'not-found',
+      message: 'Profile not found.',
+    }
+  }
 
   return {
-    uid,
-    email: typeof data.email === 'string' ? data.email : null,
-    displayName: typeof data.displayName === 'string' ? data.displayName : null,
-    photoURL: typeof data.photoURL === 'string' ? data.photoURL : null,
-    role: data.role,
-    phoneNumber: typeof data.phoneNumber === 'string' ? data.phoneNumber : null,
-    bio: typeof data.bio === 'string' ? data.bio : null,
-    profileCompleted: data.profileCompleted === true,
-    createdAt: data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.now(),
-    updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : Timestamp.now(),
+    code: 'unknown',
+    message: 'Something went wrong. Please try again.',
   }
 }
 
-export async function getUserProfile(uid: string): Promise<UserProfile | null> {
+function toIsoTimestamp(
+  value: unknown,
+): string {
+  if (typeof value === 'string') {
+    const date = new Date(value)
+
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString()
+    }
+  }
+
+  return new Date().toISOString()
+}
+
+function optionalString(
+  value: unknown,
+): string | null {
+  return typeof value === 'string'
+    ? value
+    : null
+}
+
+async function getAuthenticatedUser(
+  expectedUid: string,
+) {
+  const supabase = createClient()
+
+  const {
+    data,
+    error,
+  } = await supabase.auth.getUser()
+
+  if (error) {
+    throw error
+  }
+
+  if (!data.user) {
+    throw {
+      code: 'permission-denied',
+    }
+  }
+
+  if (data.user.id !== expectedUid) {
+    throw {
+      code: 'permission-denied',
+    }
+  }
+
+  return data.user
+}
+
+async function mapToProfile(
+  uid: string,
+  data: Record<string, unknown>,
+): Promise<UserProfile> {
+  const authUser =
+    await getAuthenticatedUser(uid)
+
+  const resolvedRole =
+    await getCurrentRoleClaim()
+
+  const role =
+    isUserRole(resolvedRole)
+      ? resolvedRole
+      : 'CUSTOMER'
+
+  const metadata =
+    authUser.user_metadata ?? {}
+
+  const metadataPhotoURL =
+    typeof metadata.avatar_url === 'string'
+      ? metadata.avatar_url
+      : typeof metadata.photo_url === 'string'
+        ? metadata.photo_url
+        : null
+
+  return {
+    id: uid,
+    uid,
+
+    email:
+      authUser.email ?? null,
+
+    displayName:
+      optionalString(data.display_name),
+
+    phoneNumber:
+      optionalString(data.phone),
+
+    bio:
+      optionalString(data.bio),
+
+    photoPath:
+      optionalString(data.photo_path),
+
+    photoURL:
+      metadataPhotoURL,
+
+    role,
+
+    profileCompleted:
+      data.profile_completed === true,
+
+    createdAt:
+      toIsoTimestamp(
+        data.created_at,
+      ),
+
+    updatedAt:
+      toIsoTimestamp(
+        data.updated_at,
+      ),
+  }
+}
+
+export async function getUserProfile(
+  uid: string,
+): Promise<UserProfile | null> {
   try {
-    const snapshot = await getDoc(userDocRef(uid))
-    if (!snapshot.exists()) return null
-    return mapToProfile(uid, snapshot.data())
+    await getAuthenticatedUser(uid)
+
+    const supabase =
+      createClient()
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from('profiles')
+      .select(
+        `
+          id,
+          display_name,
+          phone,
+          bio,
+          photo_path,
+          profile_completed,
+          created_at,
+          updated_at
+        `,
+      )
+      .eq(
+        'id',
+        uid,
+      )
+      .maybeSingle()
+
+    if (error) {
+      throw error
+    }
+
+    if (!data) {
+      return null
+    }
+
+    return await mapToProfile(
+      uid,
+      data as Record<string, unknown>,
+    )
   } catch (error) {
     throw toAccountError(error)
   }
 }
 
-/** Exactly one Firestore listener per call — callers own cleanup via the returned Unsubscribe. */
 export function subscribeUserProfile(
   uid: string,
-  onData: (profile: UserProfile | null) => void,
-  onError: (error: AccountError) => void,
-): Unsubscribe {
-  return onSnapshot(
-    userDocRef(uid),
-    (snapshot) => {
-      onData(snapshot.exists() ? mapToProfile(uid, snapshot.data()) : null)
-    },
-    (error) => onError(toAccountError(error)),
+  onData: (
+    profile: UserProfile | null,
+  ) => void,
+  onError: (
+    error: AccountError,
+  ) => void,
+): () => void {
+  const supabase =
+    createClient()
+
+  let active = true
+  let generation = 0
+
+  const refresh = async () => {
+    const currentGeneration =
+      ++generation
+
+    try {
+      const profile =
+        await getUserProfile(uid)
+
+      if (
+        active &&
+        currentGeneration === generation
+      ) {
+        onData(profile)
+      }
+    } catch (error) {
+      if (
+        active &&
+        currentGeneration === generation
+      ) {
+        onError(
+          toAccountError(error),
+        )
+      }
+    }
+  }
+
+  const channel =
+    supabase
+      .channel(
+        `profile:${uid}`,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${uid}`,
+        },
+        () => {
+          void refresh()
+        },
+      )
+      .subscribe(
+        (status) => {
+          if (
+            status ===
+            'SUBSCRIBED'
+          ) {
+            void refresh()
+          }
+
+          if (
+            status ===
+              'CHANNEL_ERROR' ||
+            status ===
+              'TIMED_OUT'
+          ) {
+            onError({
+              code: 'network',
+              message:
+                'Network unavailable. Check your connection and try again.',
+            })
+          }
+        },
+      )
+
+  void refresh()
+
+  const handleFocus = () => {
+    void refresh()
+  }
+
+  window.addEventListener(
+    'focus',
+    handleFocus,
   )
+
+  return () => {
+    active = false
+    generation += 1
+
+    window.removeEventListener(
+      'focus',
+      handleFocus,
+    )
+
+    void supabase.removeChannel(
+      channel,
+    )
+  }
 }
 
-function deterministicProfileCompleted(input: UpdateUserProfileInput): boolean {
-  return Boolean(input.displayName.trim()) && Boolean(input.bio?.trim()) && Boolean(input.phoneNumber?.trim())
+function deterministicProfileCompleted(
+  input: UpdateUserProfileInput,
+): boolean {
+  return Boolean(
+    input.displayName.trim(),
+  ) &&
+    Boolean(
+      input.bio?.trim(),
+    ) &&
+    Boolean(
+      input.phoneNumber?.trim(),
+    )
 }
 
-/**
- * Writes only the fields a customer is allowed to change (see
- * firestore.rules for the server-enforced mirror of this allow-list — uid,
- * email, role, createdAt, and photoURL are never touched here).
- */
-export async function updateUserProfile(uid: string, input: UpdateUserProfileInput): Promise<void> {
+export async function updateUserProfile(
+  uid: string,
+  input: UpdateUserProfileInput,
+): Promise<void> {
   try {
-    await updateDoc(userDocRef(uid), {
-      displayName: input.displayName.trim(),
-      phoneNumber: input.phoneNumber?.trim() || null,
-      bio: input.bio?.trim() || null,
-      profileCompleted: deterministicProfileCompleted(input),
-      updatedAt: serverTimestamp(),
-    })
+    await getAuthenticatedUser(uid)
+
+    const supabase =
+      createClient()
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from('profiles')
+      .update({
+        display_name:
+          input.displayName.trim(),
+
+        phone:
+          input.phoneNumber?.trim() ||
+          null,
+
+        bio:
+          input.bio?.trim() ||
+          null,
+
+        profile_completed:
+          deterministicProfileCompleted(
+            input,
+          ),
+
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq(
+        'id',
+        uid,
+      )
+      .select('id')
+      .maybeSingle()
+
+    if (error) {
+      throw error
+    }
+
+    if (!data) {
+      throw {
+        code: 'not-found',
+      }
+    }
   } catch (error) {
     throw toAccountError(error)
   }

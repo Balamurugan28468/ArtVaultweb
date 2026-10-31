@@ -23,12 +23,15 @@ export function AddressPicker({
   defaultFullName,
   defaultPhone,
   onChange,
+  onSelectionChange,
 }: {
   defaultFullName?: string
   defaultPhone?: string
   onChange: (values: ShippingAddressFormValues, isComplete: boolean) => void
+  onSelectionChange?: (addressId: string | null) => void
 }) {
-  const state = useAddresses()
+  const [refreshKey, setRefreshKey] = useState(0)
+  const state = useAddresses(refreshKey)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [useOneOffAddress, setUseOneOffAddress] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
@@ -62,6 +65,10 @@ export function AddressPicker({
   const selectedAddress = addresses.find((address) => address.id === selectedId) ?? null
 
   useEffect(() => {
+    onSelectionChange?.(state.status === 'loaded' && !useOneOffAddress && !awaitingId && selectedAddress && shippingAddressSchema.safeParse(toFormValues(selectedAddress)).success ? selectedAddress.id : null)
+  }, [state.status, useOneOffAddress, awaitingId, selectedAddress, onSelectionChange])
+
+  useEffect(() => {
     if (useOneOffAddress || (state.status !== 'loading' && !awaitingId && !selectedAddress)) return
     const values = selectedAddress ? toFormValues(selectedAddress) : { fullName: '', addressLine1: '', addressLine2: '', city: '', state: '', postalCode: '', country: '', phone: '' }
     const result = shippingAddressSchema.safeParse(values)
@@ -69,8 +76,9 @@ export function AddressPicker({
   }, [selectedAddress, useOneOffAddress, awaitingId, state.status, onChange])
 
   const addModal = <AddressFormModal open={addModalOpen} onClose={() => setAddModalOpen(false)}
+    initialValues={draft ? { ...draft, isDefault: false } : undefined}
     existingIds={addresses.map((address) => address.id)}
-    onSaved={(id) => { setAwaitingId(id); setUseOneOffAddress(false) }} />
+    onSaved={(id) => { setAwaitingId(id); setUseOneOffAddress(false); setRefreshKey((value) => value + 1) }} />
 
   if (state.status === 'loading') {
     return (
@@ -86,9 +94,11 @@ export function AddressPicker({
   if (showFallbackForm) {
     return (
       <div className="flex flex-col gap-2">
-        {state.status === 'error' && <p role="alert" className="text-sm text-danger">Saved addresses could not be loaded. You can enter a temporary address below.</p>}
+        {state.status === 'error' && <p role="alert" className="text-sm text-danger">Saved addresses could not be loaded. You can retry loading them or save a new address below. Order creation requires a saved address.</p>}
+        {state.status === 'error' && <Button type="button" variant="secondary" onClick={() => setRefreshKey((value) => value + 1)}>Retry saved addresses</Button>}
         <ShippingAddressForm defaultFullName={defaultFullName} defaultPhone={defaultPhone} initialValues={draft} onChange={handleDraft} />
-        {state.status === 'loaded' && <Button type="button" variant="secondary" className="h-auto min-h-9 max-w-full self-start py-2" onClick={() => setAddModalOpen(true)}>Add new address</Button>}
+        {onSelectionChange && <p className="text-sm text-text-secondary">Save this address with Add new address before creating an order. Your entered details will be carried into the save form.</p>}
+        <Button type="button" variant="secondary" className="h-auto min-h-9 max-w-full self-start py-2" onClick={() => setAddModalOpen(true)}>Add new address</Button>
         {addModal}
         {state.status === 'loaded' && addresses.length > 0 && (
           <Button type="button" variant="secondary" size="sm" className="self-start" onClick={() => setUseOneOffAddress(false)}>

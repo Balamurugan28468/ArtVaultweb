@@ -1,20 +1,25 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { AssistantProvider } from '@/features/ai/context/AssistantProvider'
 import { AIAssistantPage } from './AIAssistantPage'
+
+vi.mock('@/app/providers/AuthProvider', () => ({ useAuth: () => ({ status: 'unauthenticated', user: null }) }))
+vi.mock('@/features/ai/api/assistantRepository', () => ({ listAssistantHistory: vi.fn(), getAssistantConversation: vi.fn(), sendAssistantMessage: vi.fn() }))
 
 function renderPage() {
   return render(
     <MemoryRouter>
-      <AIAssistantPage />
+      <AssistantProvider><AIAssistantPage /></AssistantProvider>
     </MemoryRouter>,
   )
 }
 
 describe('AIAssistantPage', () => {
-  it('renders the real heading and honest not-connected copy', () => {
+  it('renders the real heading and honest FAQ disclosure', () => {
     renderPage()
     expect(screen.getByText("Hello, I'm ArtVault AI")).toBeInTheDocument()
+    expect(screen.getByText(/Local FAQ guidance/)).toBeInTheDocument()
   })
 
   it('shows an honest "No saved conversations yet" state — never fabricated chat history', () => {
@@ -30,9 +35,10 @@ describe('AIAssistantPage', () => {
     expect(screen.getByRole('link', { name: /Order & Support/ })).toHaveAttribute('href', '/orders')
   })
 
-  it('disables sidebar/capability items with no real destination, with an honest explanation', () => {
+  it('makes Tips and Guides fill a real help question rather than inventing navigation', () => {
     renderPage()
-    expect(screen.getByText('Tips & Guides').closest('[aria-disabled="true"]')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Tips & Guides' }))
+    expect(screen.getByLabelText('Message ArtVault AI')).toHaveValue('How do I use ArtVault?')
   })
 
   it('a suggested chip fills the real message input — a genuine action, never a fabricated AI reply', () => {
@@ -41,11 +47,13 @@ describe('AIAssistantPage', () => {
     expect(screen.getByLabelText('Message ArtVault AI')).toHaveValue('Show me artworks under ₹5,000')
   })
 
-  it('Send is always disabled with an honest "not connected yet" explanation — never a fabricated reply', () => {
+  it('Send is disabled for an empty question and enables for actual input', () => {
     renderPage()
     const sendButton = screen.getByRole('button', { name: 'Send' })
     expect(sendButton).toBeDisabled()
-    expect(screen.getByText(/ArtVault AI isn't connected yet/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Message ArtVault AI'), { target: { value: 'How does checkout work?' } })
+    expect(sendButton).toBeEnabled()
+    expect(screen.getByText(/Local FAQ guidance/)).toBeInTheDocument()
   })
 
   it('the message input itself is genuinely typeable — only sending is disabled', () => {

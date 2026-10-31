@@ -1,6 +1,255 @@
 # ArtVault — Project State
 
-_Current UI-07 implementation checkpoint (2026-09-17): the owner approved
+## Module 09 — final V1.0 local integration QA, 2026-10-24
+
+Local QA completed without hosted changes or Git commits/pushes. A verified
+552-file source snapshot protects the starting working tree at
+`../artvault-source-backups/module09-finalization-20261024-105122`.
+Auth, AR, checkout/payment authority and all existing pending migrations remain
+unchanged. Missing/revoked order thumbnails now degrade without hiding purchases;
+auction catalog/detail recover missed updates on reconnect/focus. Unit tests block
+unmocked HTTP/WebSocket connections before networking.
+
+Isolated migration tests now apply/roll back/reapply all three pending migrations
+and check static frontend RPC arguments against the installed PostgreSQL catalog.
+PGlite uses a Cron registration stub; native workers, multi-connection contention
+and live Realtime are not claimed. Docker daemon was unavailable.
+
+Final checks: frontend **1,720 passed / 180 files**; SQL/RLS **162 passed**;
+payment handlers **36 passed**; scripts/AR/providers **46 passed**. All four suites
+have zero failures/skips. Typecheck/build/diff check passed. Lint remains **0 errors
+/ 66 existing warnings**. Browser fixture smoke in Edge passed 25 route/action
+checks plus four marketplace widths and the mobile address-save action, with no runtime exceptions and no hosted
+requests allowed. Targeted checks passed 43 tests and the broader 157-test group.
+
+See `docs/MODULE09_QA_REPORT.md`, `docs/V1_ACCEPTANCE_CHECKLIST.md` and
+`docs/V1_RELEASE_RUNBOOK.md` for defects, evidence, scope, backup/restore gates,
+pending migration order, owner smoke plan and college-demo checklist.
+
+**V1.0 is locally validated, not production accepted.** Modules 05–07 pending
+migrations require coordinated approved deployment and hosted acceptance; physical
+Android AR and authorized production AR asset delivery remain open. Real non-TEST
+fulfillment is deferred. No LIVE payments, UPI/QR or original-roadmap expansion
+was added. Preserve the existing accepted ₹5,500 TEST transaction as history.
+
+## AR Gallery repair/verification continuation — 2026-10-24
+
+The active pinned model-viewer engine and existing manual Lock/Unlock events
+were retained. Repairs block all size controls while locked, reject stale native
+anchor/input results across unlock/session/interruption races, hold the last
+tracked transform, clean owned listeners/sessions, and close sessions after failed
+or late setup. Startup is explicit, guarded against duplicate clicks and has safe
+permission/support feedback. Existing frames, estimated sizing and publication/
+Storage boundaries remain intact; the alternative custom viewer is not activated.
+
+A fresh verified 550-file source snapshot was created outside the repository at
+`../artvault-source-backups/ar-finalization-20261024-101321`. The three pending
+Module 05/06/assistant migrations and all unrelated implementation were preserved.
+There was no attached authorized Android device, so physical validation of these
+repairs is pending. Production asset delivery is still a separate undeployed task.
+See `docs/AR_GALLERY.md` for the current architecture, security, exact device
+checklist, limitations and final automated results. Older AR docs are historical.
+No hosted changes, dependency changes or Git commits/pushes were made.
+Final automated verification: focused AR 72 passed (7 files); full frontend
+1,713 passed (179 files); SQL/RLS 158 passed; payments 36 passed; scripts/AR/provider
+tests 46 passed. Zero failed/skipped tests. Typecheck, build and diff check passed.
+Lint remains 0 errors / 66 existing warnings. Build emitted only a non-failing
+Tailwind plugin-timing advisory. Physical Android acceptance is still required.
+
+## Assistant and customer recommendations — local continuation, 2026-10-23
+
+The floating/full-page assistant now provides explicitly labeled local FAQ
+guidance, guest memory-only chat, and verified-user private history through
+bounded, rate-limited, idempotent RPCs. It has no account-state lookup or commerce
+mutation tools. A mockable server-only intent-classifier contract is provided;
+no live model or paid provider is configured.
+
+Customer recommendations use one authorized eligibility/ranking RPC with own
+likes/wishlist/follows, unique public engagement, freshness and seller diversity.
+This is separate from Module 06's weekly Top 5 auction ranking. Related catalog
+cards reuse existing private asset delivery. The new local-only migration is
+`20261023154024_assistant_recommendations.sql`, after pending Modules 05/06.
+No hosted data/configuration/deployments or Git commits/pushes were performed.
+Auth, auction migrations, payments and the AR engine were preserved.
+
+See `docs/ASSISTANT_RECOMMENDATIONS.md` for architecture, limitations, security,
+test commands and the coordinated deployment/manual demonstration checklist.
+Final local verification: focused frontend 118 passed; full frontend 1,684 passed
+across 178 files; SQL/RLS 158 passed; payments 36 passed; scripts/AR/provider
+contracts 46 passed. Zero failed/skipped tests. Typecheck, build and diff check
+passed; lint remains 0 errors / 66 existing warnings. Auth, AR and pending
+Module 05/06 migration hashes match the pre-continuation source backup.
+
+## Module 06 local implementation — 2026-10-23
+
+Module 06 adds explainable heuristic artwork selection, private versioned runs,
+admin review and atomic scheduling of one weekly event with up to five lots.
+It reuses existing artwork analyses, roles, media, inventory and Module 05.
+There is no configured visual AI provider; fallback output is explicitly labeled
+Heuristic ranking. Preparation defaults to disabled and is designed for three
+local calendar days before the configured weekly start (Asia/Kolkata initially).
+
+The additive migration is
+`supabase/migrations/20261023142417_weekly_artwork_selection.sql`.
+It depends on the still-pending Module 05 integration/privacy migration
+`20261020153833_auction_e2e_lifecycle.sql`, which was preserved unchanged.
+Neither migration was deployed during Module 06. No hosted records, jobs,
+publications or secrets were changed. Auth and the working AR engine were
+preserved. All changes remain uncommitted for owner review.
+
+See `docs/MODULE06_WEEKLY_SELECTION.md` for architecture, scoring limitations,
+file manifest, verification and the coordinated deployment/manual checklist.
+Final local checks: frontend 1,627 passed; focused frontend 130 passed;
+SQL/RLS 145 passed; payment tests 36 passed; script/provider tests 39 passed.
+Typecheck, production build and diff check passed; lint has zero errors and
+66 existing warnings. True multi-backend contention, background cron timing,
+live Realtime and hosted manual E2E remain deployment-verification work.
+The older sections below are historical checkpoints, not the current task queue.
+
+## Module 3 owner-approved checkpoint — 2026-10-11
+
+Module 2 was committed/pushed as `2e2900f` to `origin/supabase-full-cutover` after
+owner-approved TEST payment verification. The owner accepted Module 3 for its
+implemented scope and approved its commit/push after manual Seller Studio review.
+Migration `20261011082427_manual_order_fulfillment.sql` was reviewed, dry-run and
+applied to the linked ArtVault project. It extends existing shipments with one
+seller/order constraint and trusted seller fulfillment projection/transition RPCs.
+Seller Studio shows owned paid items; buyer details show manual shipment facts.
+Live fulfillment progresses PROCESSING → SHIPPED → DELIVERED conservatively
+across all sellers. TEST orders are read-only and cannot be dispatched; the genuine
+paid TEST order/payment/inventory remain unchanged. No AR, UPI/QR or Module 4 work.
+
+Verification: SQL/RLS 105 passed; targeted frontend 185 passed; scripts 33 passed;
+typecheck/build passed; lint 57 existing warnings, zero errors. Hosted seller
+projection and TEST dispatch rejection verified without changing business data.
+Owner manual review confirmed order #4c0ef8b5, PAID status, the correct artwork,
+quantity 1, INR 5,500, thumbnail and TEST warning, with no real dispatch controls.
+Live fulfillment is covered by isolated SQL fixtures/UI mocks. Full end-to-end
+manual verification of PAID → PROCESSING → SHIPPED → DELIVERED remains required
+when a genuine non-TEST payment environment/order is available. The existing TEST
+order must not be modified to bypass the safeguard. Module 4 has not started.
+See `docs/MANUAL_ORDER_FULFILLMENT.md` for scope, limits and owner review steps.
+
+## Current continuation — 2026-10-10
+
+### Module 2 — Razorpay TEST integration, local implementation
+
+Owner-approved Module 1 and the verified AR changes were committed and pushed to
+`origin/supabase-full-cutover` as `d80d49e`. Neither `ar-physical-test-audit.txt` nor
+`ar-selection.json` was included. The working AR engine and lock/unlock events
+have not been changed during Module 2.
+
+Razorpay **TEST MODE** is the selected provider. The current uncommitted work
+extends the existing order/payment tables with protected test-payment RPCs, an
+Edge handler, signed callback/webhook verification, provider-state reconciliation,
+and a lazy-loaded test checkout on the order pages. Successful verified test
+captures atomically consume reserved inventory. Orders/history explicitly label
+test payments; real payment methods remain disabled. Shipping/tax pricing is not
+finalized and is not fabricated for sandbox orders.
+
+The migration also corrects a PL/pgSQL alias collision in reservation expiry and
+protects captures with order-row locking. Unknown creation/capture outcomes fail
+closed for reconciliation. With explicit owner approval, migration
+`20261010141111` and Edge Function `razorpay-test` version 1 were deployed to
+`fqxhjijxgdjfthmfokqk` on 2026-10-10. The dry run listed only that migration.
+Hosted readiness reports enabled TEST mode; unsigned webhooks, unauthenticated
+buyer calls and unapproved origins are denied. All four payment RPCs remain
+service-only and every public table has RLS. Counts before/after: 14 artworks,
+18 physical units, zero orders/payments/reservations, zero reserved units.
+No payment was initiated or captured. The ignored local TEST UI flag is enabled.
+Credential values found in the local payment guide were removed; they appeared
+in inspection output, so rotate test API/webhook secrets before manual payment.
+The following deployment counts and test totals describe earlier checkpoints.
+The owner subsequently confirmed the controlled browser TEST payment; see the
+accepted verification below. Multi-connection stress testing remains a limitation.
+See `docs/RAZORPAY_TEST_PAYMENTS.md` for architecture, configuration, recovery and
+the required owner test checklist.
+
+Local Module 2 verification: full frontend suite 163 files / 1,423 tests passed;
+Edge handler 36 tests passed; SQL/RLS 76 tests passed; script suite 33 tests
+passed. Typecheck and production build passed. Lint has zero errors and 57
+existing warnings. No provider credentials or hosted payment calls were used.
+The final refund guard was verified with the Edge and SQL suites after the full
+frontend run; frontend files were unchanged by that server-only correction.
+
+### Module 2 automatic expiry checkpoint — 2026-10-11
+
+Owner-approved migration `20261011075254_automatic_reservation_expiry.sql` was
+dry-run reviewed and applied only to `fqxhjijxgdjfthmfokqk`. Supabase pg_cron 1.6.4
+runs `artvault-expire-checkout-reservations` every minute as postgres, calling the
+private shared expiry worker with batch size 100. The public operator wrapper
+retains protected administrator authorization. No secrets or HTTP/Edge jobs were
+added. Browser roles cannot execute the worker or access Cron management.
+Actual hosted scheduled execution succeeded; existing capture/review locking and
+idempotent release logic are preserved.
+
+The owner's previous order `59d622ec-0387-42f5-af52-cbad4eae4751` remains
+CANCELLED / RESERVATION_EXPIRED with its RELEASED reservation retained. Its
+artwork has physical/reserved/available quantities 1/0/1, and payment rows remain
+zero. Earlier zero-order counts above are historical pre-test observations.
+Owner confirmed credential rotation and the first unpaid checkout in subsequent
+manual testing. No new checkout or payment was created during scheduler work.
+This paragraph records the pre-payment scheduler checkpoint.
+
+### Module 2 accepted payment verification ? 2026-10-11
+
+Owner approved checkpointing Module 2 after order
+`4c0ef8b5-bbae-47fd-818c-8f6f807f1129` completed its controlled ?5,500 TEST payment.
+Read-only hosted verification confirmed PAID, one SUCCEEDED/SETTLED TEST payment,
+550000 paise INR, one CONSUMED reservation, physical/reserved/available 0/0/0,
+two verified webhook events plus callback verification, and one PAID transition.
+Subsequent Cron runs preserved the paid order. The earlier CANCELLED order remains
+history. The order image mapper now signs the immutable image_path snapshot.
+No live payment, UPI/QR enablement, real fulfillment, refund or restock was added.
+Module 3 is approved next, with TEST transactions excluded from real fulfillment.
+
+### Module 1 checkpoint and earlier historical verification
+
+The application now runs on Supabase. Development resumed from a clean
+`supabase-full-cutover` branch at `0559e84`; the Firebase migration and subsequent
+Android AR work are already committed. The owner reports working physical wall
+placement, frame selection, resizing, and manual lock/unlock. AR dimensions are
+estimated display dimensions, not camera measurements. Older phase narratives
+below are historical and do not describe the current runtime.
+
+Module 1 (Cart & Checkout) already has persisted guest/account carts, saved
+address management and the transactional `create_checkout_order` RPC. This
+continuation fixes Supabase checkout rejection/recovery handling and adds removal
+of unavailable cart entries. Uncertain responses retain the original request key;
+malformed receipts cannot become local successes. Orders remain unpaid with
+reserved inventory. Payment providers, shipping charges and tax calculation are
+not connected. No database migration or hosted data mutation was performed.
+
+Local verification: the complete frontend suite passed (161 files, 1,399 tests),
+including the cart/checkout/address and AR regressions. The final focused checkout
+rerun passed 29 tests. All 58 SQL/RLS tests and 33 script tests passed. Typecheck,
+production build and lint passed (57 existing lint warnings). The initial fork
+test runner stalled; successful frontend runs used one thread worker. Browser
+retesting and real PostgreSQL multi-connection contention testing remain separate
+from these mocked/in-memory checks. Provider selection was pending at this
+checkpoint; the owner subsequently selected Razorpay test mode above.
+
+Regression review also identified pre-existing AR lint/test drift. The private
+non-React helper `useLocalLock` was renamed to `applyLocalLock` only; event names
+and AR behavior are unchanged. AR test fixtures/guidance now match the existing
+estimated, framed, per-artwork manifest and manual locking implementation.
+
+_Historical AR Phase 1 checkpoint (2026-09-17): UI-07 is complete, owner-approved,
+committed and pushed as `6f5ff05`. AR implementation is complete locally and
+desktop/browser verification is complete on Chrome 152.0.7977.83. One explicitly
+labelled development calibration print is prepared at an assigned 300 x 200 mm,
+excluding frame; this is not an owner-measured original artwork. The existing
+operator pipeline generated and verified its versioned GLB on the existing AR
+route. Physical Android wall-placement and scale validation remain PENDING.
+No claim of production-ready AR or physical tracking success is made. Only new
+demo-emulator fixture records/media were added; no real artwork/account, rules,
+Functions, Firebase configuration, or persistence implementation was changed.
+iOS Quick Look and production rollout remain disabled. See the AR implementation
+section and `docs/AR_PHASE1_PROOF.md` for verification and tomorrow's checklist.
+Phase 1 is uncommitted and awaiting owner physical review; Phase 2 and UI-08
+have not started._
+
+_Historical UI-07 implementation checkpoint (2026-09-17): the owner approved
 buyer-journey continuity and honest AR/order/payment readiness. Implementation
 is complete; verification results are recorded below. Owner manual review PASSED,
 and the owner approved the UI-07 commit and push. Pre-closeout baseline: `74598be`, on `main`
@@ -295,13 +544,12 @@ hosting or deployment).
 
 ## Current module
 
-**Latest completed phase: UI-06 — ArtVault UI improvements. COMPLETE,
-OWNER APPROVED, COMMITTED (`75f5a8f`), and PUSHED to `origin/main`.**
-Module 13 (Phases 1–4) and UI-01 through UI-05 remain complete and
-committed. UI-07 scope and implementation were subsequently owner-authorized.
-UI-07 is COMPLETE and OWNER APPROVED: owner manual review passed after final
-verification. The owner authorized its closeout commit and push to origin/main.
-UI-08 has not started.
+**Latest owner-approved and committed phase: UI-07 (`6f5ff05`), pushed to
+`origin/main`. Current work: AR Phase 1 local implementation complete,
+physical-device validation and owner approval pending; uncommitted.**
+Module 13 (Phases 1–4) and UI-01 through UI-06 remain complete and committed.
+UI-08 has not started. No ordering, payment, AI, or auction implementation is
+authorized by this AR checkpoint.
 
 Module 13 — Admin Control Center (Seller Application Review & Artwork
 Moderation) introduced ArtVault's first client-reachable callable Cloud
@@ -5454,13 +5702,16 @@ Checkpoint test totals in this section are historical, not current-run totals.
   These UI closeouts do not imply the deferred payment, bidding, AI, or AR
   backends are implemented.
 
-## Pending capabilities (no future module scope or order assigned)
+## Pending capabilities
+
+Owner priority is real AR, then ordering, then payment. Only AR Phase 1 is
+currently authorized; other future module scopes remain unassigned.
 
 The remaining work includes real payments and trusted order creation with
 inventory enforcement; shipping-rate integration; trusted bid placement,
 bid-history projection, and auction finalization; an AI provider/gateway,
-analysis generation, and conversation persistence; the AR viewer/asset
-pipeline; Follows and the unavailable follow/like-based recommendation
+analysis generation, and conversation persistence; production AR rollout beyond
+the local single-artwork proof; Follows and the unavailable follow/like-based recommendation
 paths; Reviews, Notifications, Analytics, and production deployment.
 Tag-based filtering/free-text search, a dedicated Inventory feature beyond
 `inventoryCount`, and avatar upload also remain deferred.
@@ -5576,8 +5827,62 @@ only.
 
 ## AR implementation
 
-None implemented. `<model-viewer>` is the design candidate; asset pipeline
-designed but not built. See `docs/AR_ARCHITECTURE.md`.
+Phase 1 adds a shared lazy `<model-viewer>` wrapper and an operator-generated
+measured GLB, restricted to one explicitly configured published development
+artwork. Local implementation and desktop/browser verification are complete;
+physical Android wall-placement validation remains pending. No production-ready
+AR claim, production rollout, or iOS USDZ support. See `docs/AR_PHASE1_PROOF.md`.
+
+### Local AR completion checkpoint — 2026-09-17
+
+- Owner authorized a controlled development fixture while the phone is unavailable.
+  No suitable published artwork existed in the current emulator. Created only
+  `artworks/ar-dev-calibration-300x200-v1`,
+  `artists/ar-dev-calibration-artist-v1`, and the fixture's `front.png` image in
+  `demo-artvault`. Clearly labelled, zero inventory, no real seller/Auth account.
+  Dimensions are explicitly assigned print dimensions (300 x 200 mm, no frame),
+  not inferred or represented as measurements of an owner's artwork.
+- Existing `ar:prepare` generated a 57,428-byte GLB: 0.300 x 0.200 m, zero depth,
+  XY plane with +Z front normal, embedded 900 x 600 JPEG. Source and model hashes
+  are recorded in `ar-proof.local/manifest.json` and `docs/AR_PHASE1_PROOF.md`.
+  Deterministic regeneration, geometry/UVs, complete embedded texture, no model
+  scale transform, live model/manifest/route, stale-manifest rejection and raw
+  operator-file denial were verified automatically.
+- Actual headless desktop Chrome 152.0.7977.83 rendered the model. Verified lazy
+  loading, displayed dimensions, honest unsupported-device wording, fixed-scale/
+  wall attributes, absence of fake AR controls, artwork/artist navigation, exit/
+  re-entry and model download failure/retry. Zero uncaught runtime exceptions.
+  Verified widths 302, 320, 350x515, 390, 768, 1024 and 1440, including scrolling
+  the viewer into view; no page horizontal overflow. Screenshots and reports
+  are ignored local artifacts under `ar-proof.local/`.
+- Browser testing exposed a genuine failed-load cache issue in model-viewer
+  4.3.1. The existing lazy adapter now evicts only the failed source on disposal,
+  allowing real retry recovery. Added regression tests for this adapter, retries,
+  late lazy-load cleanup, invalid height/images, texture mapping and manifests.
+- Verification: generator/boundary tests 28/28; final focused frontend tests
+  37/37 across six files. Typecheck and lint exit 0 (lint warnings remain).
+  Final full frontend suite: **1301/1301 passed across 153 files**, zero failed
+  or skipped, one worker/no parallel test files, **process exit 0**, 412.85 s.
+  Production build exit 0 (2368 modules); the development AR renderer is absent
+  from production output. Existing large-chunk warning remains (AuthProvider
+  chunk approximately 676 kB). Reports: `ar-proof.local/frontend-final.json`,
+  `frontend-exit.json`, `asset-verification.json`, `browser-verification.json`.
+- The request to run the existing `checkpoint:emulators` command was rejected
+  by automatic approval review because promoting live state could overwrite
+  prior checkpoints. The command did not execute; no checkpoint/backup was
+  changed. The fixture exists in the running emulator and local generated files
+  exist, but a new persisted snapshot is not claimed. The fixed-demo fixture
+  helper can recreate it if it is absent after restart. Checkpoint execution
+  requires owner approval of that specific action.
+- Firestore/Storage rules, Firebase configuration, Functions, existing real data,
+  and emulator persistence code remain unchanged. Existing rule suites were not
+  rerun or pointed at the persistent dev emulator; AR boundary unit tests and
+  actual middleware checks cover this change without extra emulators.
+- Android WebXR/Scene Viewer eligibility and launch paths are wired, but camera
+  permission, wall detection/placement, physical scale accuracy, repositioning,
+  session behavior and native localhost handoff require tomorrow's real phone.
+  No XR session was simulated. iOS USDZ, broader marketplace rollout and all
+  other functional milestones remain deferred. No commit or push authorized.
 
 ## External services
 
@@ -5886,9 +6191,11 @@ re-measured during this documentation task.
 
 ## Next action
 
-**UI-07 owner manual review PASSED; commit and push are explicitly authorized.
-Stop after the approved UI-07 closeout. Do not start UI-08 or another module
-until separately instructed by the owner.**
+**UI-07 is committed and pushed as `6f5ff05`. Physically test the prepared
+300 x 200 mm AR
+calibration proof on Android using `docs/AR_PHASE1_PROOF.md`. Stop for owner
+physical review; desktop success is not wall-placement approval.
+Do not commit, push, start Phase 2, UI-08, ordering, or payment.**
 UI-06 remains complete, owner-approved, committed as `75f5a8f`, and pushed;
 the project-state reconciliation was committed and pushed as `74598be`.
 Earlier module/UI closeouts remain historical records.
@@ -5896,8 +6203,9 @@ Earlier module/UI closeouts remain historical records.
 Intentionally deferred by UI-05 (real backend work,
 not yet scoped to any module): a trusted AI gateway Cloud Function (no
 provider/key/gateway exists — see docs/AI_ARCHITECTURE.md), AI artwork
-analysis generation, a real AR viewer/asset pipeline (see
-docs/AR_ARCHITECTURE.md), conversation persistence, the Follows feature
+analysis generation, a real AR viewer/asset pipeline (historical deferral;
+the local Phase 1 proof now exists, with production rollout still deferred),
+conversation persistence, the Follows feature
 itself (so "Artists You Follow" recommendations remain unavailable), and
 a safe per-user "which artworks has this viewer liked" query path (so
 "Based on Your Likes" recommendations remain unavailable). Intentionally

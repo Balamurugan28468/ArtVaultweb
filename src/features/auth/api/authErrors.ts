@@ -1,51 +1,106 @@
-import { FirebaseError } from 'firebase/app'
-import { env } from '@/config/env'
-
-const MESSAGES_BY_CODE: Record<string, string> = {
-  'auth/email-already-in-use': 'An account with this email already exists.',
-  'auth/invalid-email': 'Enter a valid email address.',
-  'auth/weak-password': 'Password does not meet the security requirements.',
-  // Security: never reveal *which* part was wrong (a non-existent email vs.
-  // the right email with the wrong password) — all three collapse to the
-  // same message so a sign-in failure can't be used to enumerate accounts.
-  // Modern Firebase Auth SDKs already return only auth/invalid-credential
-  // for both cases; the other two are mapped defensively in case an older
-  // SDK/emulator version ever returns them directly.
-  'auth/invalid-credential': 'Invalid email or password.',
-  'auth/user-not-found': 'Invalid email or password.',
-  'auth/wrong-password': 'Invalid email or password.',
-  'auth/user-disabled': 'This account is currently unavailable.',
-  'auth/operation-not-allowed': 'Sign-in is temporarily unavailable.',
-  'auth/too-many-requests': 'Too many attempts. Please try again later.',
-  'auth/network-request-failed': 'Network error — check your connection and try again.',
-}
-
-// A real user-facing internet-connectivity problem and "the local Firebase
-// emulator isn't running/reachable" surface as the exact same Firebase SDK
-// error code (auth/network-request-failed) — the SDK has no way to tell
-// them apart itself. Presenting the generic message in local dev actively
-// misleads: it sends a developer/reviewer to check their internet
-// connection when the real, actionable fix is starting the emulators (see
-// docs/DEPLOYMENT.md). Only override when the app is actually configured to
-// talk to the emulators, so a real production network failure still gets
-// the honest generic message.
-const EMULATOR_NETWORK_ERROR_MESSAGE =
-  'Cannot reach the Firebase emulator (expected at 127.0.0.1:9099 for Auth). ' +
-  'Start the Local Emulator Suite — see docs/DEPLOYMENT.md — then try again.'
-
-const FALLBACK_MESSAGE = 'Something went wrong. Please try again.'
+const registrationRetryMessage = 'Registration could not be completed. If you already have an account, sign in or use password recovery.'
 
 export function toAuthErrorMessage(error: unknown): string {
-  if (error instanceof FirebaseError) {
-    // Safe to log unconditionally: FirebaseError's own code/message never
-    // echo back credentials, tokens, or other request input — only a
-    // machine-readable failure reason (e.g. "auth/network-request-failed").
-    console.error('Firebase Auth error:', error.code, error.message)
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
+          ? error.message
+          : ''
 
-    if (error.code === 'auth/network-request-failed' && env.VITE_USE_FIREBASE_EMULATORS) {
-      return EMULATOR_NETWORK_ERROR_MESSAGE
-    }
-    return MESSAGES_BY_CODE[error.code] ?? FALLBACK_MESSAGE
+  const code = typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? error.code : ''
+  const messages: Record<string, string> = {
+    registration_session_mismatch: 'Verification no longer matches this registration. Please sign in or verify your email again.',
+    registration_profile_missing: 'Your account is verified, but its profile is unavailable. Please sign in and try again.',
+    email_confirmation_disabled: 'Email confirmation must be enabled before registration can continue. Please contact support.',
+    invalid_credentials: 'Invalid email or password.',
+    user_banned: 'This account is suspended. Please contact support.',
+    account_status_unavailable: 'Your account status could not be verified. Please try again.',
+    otp_invalid: 'The verification code is incorrect.',
+    email_not_confirmed: 'Please verify your email before signing in.',
+    user_already_exists: registrationRetryMessage,
+    email_exists: registrationRetryMessage,
+    weak_password: 'Your password does not meet the required security requirements.',
+    email_address_invalid: 'Enter a valid email address.',
+    email_address_not_authorized: 'Email delivery is restricted by the current authentication configuration. Please contact support.',
+    over_email_send_rate_limit: 'Too many requests. Please wait and try again.',
+    over_request_rate_limit: 'Too many requests. Please wait and try again.',
+    otp_expired: 'This verification code has expired. Request a new code.',
+    signup_disabled: 'New account registration is currently disabled.',
+    unexpected_failure: 'Account registration or verification is temporarily unavailable. Please try again later.',
   }
-  return FALLBACK_MESSAGE
+  if (code === 'unexpected_failure' && /sending.*(email|mail)|smtp/i.test(message)) {
+    return 'The verification email could not be sent. Please try again later or contact support.'
+  }
+  if (Object.hasOwn(messages, code)) return messages[code]
+  const normalized = message.toLowerCase()
+
+  if (
+    normalized.includes('invalid login credentials') ||
+    normalized.includes('invalid_credentials')
+  ) {
+    return 'Invalid email or password.'
+  }
+
+  if (
+    normalized.includes('user already registered') ||
+    normalized.includes('already been registered')
+  ) {
+    return registrationRetryMessage
+  }
+
+  if (
+    normalized.includes('email not confirmed') ||
+    normalized.includes('email_not_confirmed')
+  ) {
+    return 'Please verify your email before signing in.'
+  }
+
+  if (
+    normalized.includes('token has expired') ||
+    normalized.includes('otp expired') ||
+    normalized.includes('expired')
+  ) {
+    return 'This verification code has expired. Request a new code.'
+  }
+
+  if (
+    normalized.includes('invalid token') ||
+    normalized.includes('token is invalid') ||
+    normalized.includes('otp invalid') ||
+    normalized.includes('incorrect')
+  ) {
+    return 'The verification code is incorrect.'
+  }
+
+  if (
+    normalized.includes('password should be') ||
+    normalized.includes('weak password')
+  ) {
+    return 'Your password does not meet the required security requirements.'
+  }
+
+  if (
+    normalized.includes('rate limit') ||
+    normalized.includes('too many requests') ||
+    normalized.includes('once every') ||
+    normalized.includes('security purposes')
+  ) {
+    return 'Too many requests. Please wait and try again.'
+  }
+
+  if (
+    normalized.includes('signup is disabled') ||
+    normalized.includes('signups not allowed')
+  ) {
+    return 'New account registration is currently disabled.'
+  }
+
+  if (normalized.includes('network') || normalized.includes('fetch')) {
+    return 'Network error. Check your internet connection and try again.'
+  }
+
+  return 'Authentication failed. Please try again.'
 }

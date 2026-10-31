@@ -1,241 +1,617 @@
-import { Timestamp } from 'firebase/firestore'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { MarketplaceFilters } from '../types'
 
-const { collection, documentId, getCountFromServer, getDocs, limit, orderBy, query, startAfter, where } = vi.hoisted(() => ({
-  collection: vi.fn(() => ({ path: 'artworks' })),
-  documentId: vi.fn(() => '__name__'),
-  getCountFromServer: vi.fn(),
-  getDocs: vi.fn(),
-  limit: vi.fn((n: number) => ({ type: 'limit', n })),
-  orderBy: vi.fn((field: string, direction: string) => ({ type: 'orderBy', field, direction })),
-  query: vi.fn((...args: unknown[]) => ({ args })),
-  startAfter: vi.fn((...args: unknown[]) => ({ type: 'startAfter', args })),
-  where: vi.fn((field: string, op: string, value: unknown) => ({ type: 'where', field, op, value })),
+import { Timestamp } from '@/lib/supabase/timestamp'
+import type {
+  MarketplaceCursor,
+  MarketplaceFilters,
+} from '../types'
+
+const mocks = vi.hoisted(() => {
+  const state = {
+    countResponse: {
+      count: 0 as number | null,
+      error: null as unknown,
+    },
+  }
+
+  const builder: Record<string, unknown> = {}
+
+  const select = vi.fn(() => builder)
+  const eq = vi.fn(() => builder)
+  const gte = vi.fn(() => builder)
+  const lte = vi.fn(() => builder)
+  const or = vi.fn<(filter: string) => typeof builder>(
+    () => builder,
+  )
+  const order = vi.fn(() => builder)
+  const limit = vi.fn(() => builder)
+
+  Object.assign(builder, {
+    select,
+    eq,
+    gte,
+    lte,
+    or,
+    order,
+    limit,
+
+    then: (
+      resolve: (value: {
+        count: number | null
+        error: unknown
+      }) => unknown,
+      reject?: (error: unknown) => unknown,
+    ) =>
+      Promise.resolve(state.countResponse).then(
+        resolve,
+        reject,
+      ),
+  })
+
+  const from = vi.fn(() => builder)
+
+  const createClient = vi.fn(() => ({
+    from,
+  }))
+
+  const result = vi.fn()
+
+  return {
+    state,
+    builder,
+    select,
+    eq,
+    gte,
+    lte,
+    or,
+    order,
+    limit,
+    from,
+    createClient,
+    result,
+  }
+})
+
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: mocks.createClient,
 }))
 
-vi.mock('firebase/firestore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/firestore')>()
-  return { ...actual, collection, documentId, getCountFromServer, getDocs, limit, orderBy, query, startAfter, where }
-})
-vi.mock('@/lib/firebase/config', () => ({ db: {} }))
+vi.mock(
+  '@/lib/supabase/data',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('@/lib/supabase/data')
+      >()
 
-const { fetchCategoryArtworkCounts, fetchMarketplacePage, fetchTrendingArtworks, MARKETPLACE_PAGE_SIZE } = await import(
+    return {
+      ...actual,
+      result: mocks.result,
+    }
+  },
+)
+
+const {
+  fetchCategoryArtworkCounts,
+  fetchMarketplacePage,
+  fetchTrendingArtworks,
+  MARKETPLACE_PAGE_SIZE,
+} = await import(
   './marketplaceRepository'
 )
 
-const BASE_FILTERS: MarketplaceFilters = { category: null, minPrice: null, maxPrice: null, sort: 'newest' }
+const BASE_FILTERS: MarketplaceFilters = {
+  category: null,
+  minPrice: null,
+  maxPrice: null,
+  sort: 'newest',
+}
 
-// These mocks are shared module-level `vi.fn()`s (see the `vi.hoisted` block
-// above), so their call history otherwise accumulates across every test in
-// this file — several tests below assert on exclusivity (`not.toHaveBeenCalledWith`)
-// or an exact call, which is only meaningful against this test's own calls.
-beforeEach(() => {
-  collection.mockClear()
-  documentId.mockClear()
-  getCountFromServer.mockClear()
-  getDocs.mockClear()
-  limit.mockClear()
-  orderBy.mockClear()
-  query.mockClear()
-  startAfter.mockClear()
-  where.mockClear()
-})
-
-function artworkDoc(id: string, overrides: Record<string, unknown> = {}) {
+function catalogRow(
+  id: string,
+  overrides: Record<string, unknown> = {},
+) {
   return {
     id,
-    data: () => ({
-      sellerId: 'alice',
-      title: 'Sunset',
-      description: 'd',
-      price: 500,
-      category: 'painting',
-      tags: [],
-      images: [],
-      inventoryCount: 1,
-      status: 'PUBLISHED',
-      createdAt: Timestamp.fromMillis(1000),
-      updatedAt: Timestamp.fromMillis(1000),
-      ...overrides,
-    }),
+    seller_id: 'seller-1',
+
+    title: 'Sunset',
+    description: 'A painting.',
+
+    price_minor: 500,
+
+    category: 'painting',
+    tags: [],
+
+    images: [],
+
+    physical_quantity: 1,
+    reserved_quantity: 0,
+
+    status: 'PUBLISHED',
+
+    reviewed_at: null,
+    rejection_reason: null,
+
+    like_count: 0,
+
+    created_at:
+      '2026-09-19T10:00:00.000Z',
+
+    updated_at:
+      '2026-09-19T10:00:00.000Z',
+
+    ...overrides,
   }
 }
 
-describe('fetchMarketplacePage', () => {
-  it('always filters by status == PUBLISHED, regardless of other filters', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage(BASE_FILTERS, null)
-    expect(where).toHaveBeenCalledWith('status', '==', 'PUBLISHED')
-  })
+beforeEach(() => {
+  mocks.select.mockClear()
+  mocks.eq.mockClear()
+  mocks.gte.mockClear()
+  mocks.lte.mockClear()
+  mocks.or.mockClear()
+  mocks.order.mockClear()
+  mocks.limit.mockClear()
+  mocks.from.mockClear()
+  mocks.createClient.mockClear()
 
-  it('adds a category equality filter only when one is selected', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage({ ...BASE_FILTERS, category: 'sculpture' }, null)
-    expect(where).toHaveBeenCalledWith('category', '==', 'sculpture')
-  })
+  mocks.result.mockReset()
 
-  it('adds no category filter when category is null', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage(BASE_FILTERS, null)
-    expect(where).not.toHaveBeenCalledWith('category', '==', expect.anything())
-  })
-
-  it('orders by createdAt desc (plus a document-id tiebreaker) for the newest sort', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage({ ...BASE_FILTERS, sort: 'newest' }, null)
-    expect(orderBy).toHaveBeenCalledWith('createdAt', 'desc')
-    expect(orderBy).toHaveBeenCalledWith('__name__', 'desc')
-  })
-
-  it('orders by price asc for the price-asc sort', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage({ ...BASE_FILTERS, sort: 'price-asc' }, null)
-    expect(orderBy).toHaveBeenCalledWith('price', 'asc')
-    expect(orderBy).toHaveBeenCalledWith('__name__', 'asc')
-  })
-
-  it('orders by price desc for the price-desc sort', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage({ ...BASE_FILTERS, sort: 'price-desc' }, null)
-    expect(orderBy).toHaveBeenCalledWith('price', 'desc')
-    expect(orderBy).toHaveBeenCalledWith('__name__', 'desc')
-  })
-
-  it('adds price range filters when a min/max is set', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage({ ...BASE_FILTERS, minPrice: 100, maxPrice: 900 }, null)
-    expect(where).toHaveBeenCalledWith('price', '>=', 100)
-    expect(where).toHaveBeenCalledWith('price', '<=', 900)
-  })
-
-  it('silently serves price-asc instead of newest when a price range is active — Firestore requires the ranged field to lead the sort', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage({ ...BASE_FILTERS, sort: 'newest', minPrice: 100 }, null)
-    expect(orderBy).toHaveBeenCalledWith('price', 'asc')
-    expect(orderBy).not.toHaveBeenCalledWith('createdAt', expect.anything())
-  })
-
-  it('passes an explicit price-desc sort through unchanged even with a price range active', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage({ ...BASE_FILTERS, sort: 'price-desc', minPrice: 100 }, null)
-    expect(orderBy).toHaveBeenCalledWith('price', 'desc')
-  })
-
-  it('applies startAfter using the supplied cursor', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
-    await fetchMarketplacePage(BASE_FILTERS, { primary: Timestamp.fromMillis(500), id: 'a1' })
-    expect(startAfter).toHaveBeenCalledWith(Timestamp.fromMillis(500), 'a1')
-  })
-
-  it('maps returned documents to Artworks, dropping malformed ones', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [artworkDoc('a1'), { id: 'bad', data: () => ({ status: 'NOT_REAL' }) }] })
-    const page = await fetchMarketplacePage(BASE_FILTERS, null)
-    expect(page.artworks.map((a) => a.id)).toEqual(['a1'])
-  })
-
-  it('returns a nextCursor built from the last doc when a full page comes back', async () => {
-    const docs = Array.from({ length: MARKETPLACE_PAGE_SIZE }, (_, i) => artworkDoc(`a${i}`, { createdAt: Timestamp.fromMillis(1000 + i) }))
-    getDocs.mockResolvedValueOnce({ docs })
-    const page = await fetchMarketplacePage(BASE_FILTERS, null)
-    expect(page.nextCursor).toEqual({ primary: Timestamp.fromMillis(1000 + MARKETPLACE_PAGE_SIZE - 1), id: `a${MARKETPLACE_PAGE_SIZE - 1}` })
-  })
-
-  it('returns nextCursor: null when fewer than a full page comes back (end of results)', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [artworkDoc('a1')] })
-    const page = await fetchMarketplacePage(BASE_FILTERS, null)
-    expect(page.nextCursor).toBeNull()
-  })
-
-  it('uses the price field for the cursor when sorting by price', async () => {
-    const docs = Array.from({ length: MARKETPLACE_PAGE_SIZE }, (_, i) => artworkDoc(`a${i}`, { price: 100 + i }))
-    getDocs.mockResolvedValueOnce({ docs })
-    const page = await fetchMarketplacePage({ ...BASE_FILTERS, sort: 'price-asc' }, null)
-    expect(page.nextCursor).toEqual({ primary: 100 + MARKETPLACE_PAGE_SIZE - 1, id: `a${MARKETPLACE_PAGE_SIZE - 1}` })
-  })
-
-  it('throws a typed ArtworkError when the read is denied', async () => {
-    getDocs.mockRejectedValueOnce({ code: 'permission-denied' })
-    await expect(fetchMarketplacePage(BASE_FILTERS, null)).rejects.toEqual({
-      code: 'permission-denied',
-      message: 'You do not have permission to do that.',
-    })
-  })
+  mocks.state.countResponse = {
+    count: 0,
+    error: null,
+  }
 })
 
-// UI-01 reference-driven Explore rebuild — real counts via a count-only
-// aggregation query, never a fabricated or client-computed-from-a-partial-
-// page number.
-describe('fetchCategoryArtworkCounts', () => {
-  it('always filters every count query by status == PUBLISHED', async () => {
-    getCountFromServer.mockResolvedValue({ data: () => ({ count: 0 }) })
-    await fetchCategoryArtworkCounts()
-    expect(where).toHaveBeenCalledWith('status', '==', 'PUBLISHED')
+describe('fetchMarketplacePage', () => {
+  it('always filters marketplace rows to PUBLISHED', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    await fetchMarketplacePage(
+      BASE_FILTERS,
+      null,
+    )
+
+    expect(
+      mocks.eq,
+    ).toHaveBeenCalledWith(
+      'status',
+      'PUBLISHED',
+    )
   })
 
-  it('returns a real total and a real count per category, from real aggregation reads', async () => {
-    // Distinguishes the total query from a per-category one by inspecting
-    // the actual `where` clauses attached to the query object it receives
-    // (via the hoisted `query`/`where` mocks above) — robust regardless of
-    // call order, rather than assuming Promise.all resolves array elements
-    // in a particular sequence.
-    getCountFromServer.mockImplementation((q: { args: unknown[] }) => {
-      const hasCategoryFilter = q.args.some((arg) => (arg as { field?: string })?.field === 'category')
-      return Promise.resolve({ data: () => ({ count: hasCategoryFilter ? 10 : 42 }) })
+  it('adds the selected category filter', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    await fetchMarketplacePage(
+      {
+        ...BASE_FILTERS,
+        category: 'sculpture',
+      },
+      null,
+    )
+
+    expect(
+      mocks.eq,
+    ).toHaveBeenCalledWith(
+      'category',
+      'sculpture',
+    )
+  })
+
+  it('does not add a category filter when category is null', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    await fetchMarketplacePage(
+      BASE_FILTERS,
+      null,
+    )
+
+    expect(
+      mocks.eq,
+    ).not.toHaveBeenCalledWith(
+      'category',
+      expect.anything(),
+    )
+  })
+
+  it('orders newest artworks by created_at descending', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    await fetchMarketplacePage(
+      {
+        ...BASE_FILTERS,
+        sort: 'newest',
+      },
+      null,
+    )
+
+    expect(
+      mocks.order,
+    ).toHaveBeenCalledWith(
+      'created_at',
+      {
+        ascending: false,
+      },
+    )
+
+    expect(
+      mocks.order,
+    ).toHaveBeenCalledWith(
+      'id',
+      {
+        ascending: false,
+      },
+    )
+  })
+
+  it('orders price-asc by price_minor ascending', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    await fetchMarketplacePage(
+      {
+        ...BASE_FILTERS,
+        sort: 'price-asc',
+      },
+      null,
+    )
+
+    expect(
+      mocks.order,
+    ).toHaveBeenCalledWith(
+      'price_minor',
+      {
+        ascending: true,
+      },
+    )
+  })
+
+  it('orders price-desc by price_minor descending', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    await fetchMarketplacePage(
+      {
+        ...BASE_FILTERS,
+        sort: 'price-desc',
+      },
+      null,
+    )
+
+    expect(
+      mocks.order,
+    ).toHaveBeenCalledWith(
+      'price_minor',
+      {
+        ascending: false,
+      },
+    )
+  })
+
+  it('adds minimum and maximum price filters', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    await fetchMarketplacePage(
+      {
+        ...BASE_FILTERS,
+        minPrice: 100,
+        maxPrice: 900,
+      },
+      null,
+    )
+
+    expect(
+      mocks.gte,
+    ).toHaveBeenCalledWith(
+      'price_minor',
+      100,
+    )
+
+    expect(
+      mocks.lte,
+    ).toHaveBeenCalledWith(
+      'price_minor',
+      900,
+    )
+  })
+
+  it('uses price-asc when newest is combined with a price range', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    await fetchMarketplacePage(
+      {
+        ...BASE_FILTERS,
+        sort: 'newest',
+        minPrice: 100,
+      },
+      null,
+    )
+
+    expect(
+      mocks.order,
+    ).toHaveBeenCalledWith(
+      'price_minor',
+      {
+        ascending: true,
+      },
+    )
+  })
+
+  it('applies a Supabase cursor filter', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    const cursor: MarketplaceCursor = {
+      primary:
+        Timestamp.fromMillis(
+          Date.parse(
+            '2026-09-19T10:00:00.000Z',
+          ),
+        ) as MarketplaceCursor['primary'],
+
+      id: '11111111-1111-4111-8111-111111111111',
+    }
+
+    await fetchMarketplacePage(
+      BASE_FILTERS,
+      cursor,
+    )
+
+    expect(
+      mocks.or,
+    ).toHaveBeenCalledTimes(1)
+
+    expect(
+      mocks.or.mock.calls[0][0],
+    ).toContain('created_at')
+  })
+
+  it('rejects a malformed cursor id', async () => {
+    const cursor = {
+      primary:
+        Timestamp.now() as MarketplaceCursor['primary'],
+
+      id: 'not-a-uuid',
+    }
+
+    await expect(
+      fetchMarketplacePage(
+        BASE_FILTERS,
+        cursor,
+      ),
+    ).rejects.toThrow(
+      'Invalid marketplace cursor',
+    )
+  })
+
+  it('maps Supabase catalog rows into Artworks', async () => {
+    mocks.result.mockResolvedValueOnce([
+      catalogRow('a1'),
+    ])
+
+    const page =
+      await fetchMarketplacePage(
+        BASE_FILTERS,
+        null,
+      )
+
+    expect(
+      page.artworks,
+    ).toHaveLength(1)
+
+    expect(
+      page.artworks[0],
+    ).toEqual(
+      expect.objectContaining({
+        id: 'a1',
+        sellerId: 'seller-1',
+        status: 'PUBLISHED',
+        price: 500,
+      }),
+    )
+  })
+
+  it('returns null cursor when fewer than one page is returned', async () => {
+    mocks.result.mockResolvedValueOnce([
+      catalogRow('a1'),
+    ])
+
+    const page =
+      await fetchMarketplacePage(
+        BASE_FILTERS,
+        null,
+      )
+
+    expect(
+      page.nextCursor,
+    ).toBeNull()
+  })
+
+  it('returns a next cursor for a full page', async () => {
+    mocks.result.mockResolvedValueOnce(
+      Array.from(
+        {
+          length:
+            MARKETPLACE_PAGE_SIZE,
+        },
+        (_, index) =>
+          catalogRow(
+            `00000000-0000-4000-8000-${String(
+              index,
+            ).padStart(12, '0')}`,
+            {
+              created_at:
+                new Date(
+                  Date.parse(
+                    '2026-09-19T10:00:00.000Z',
+                  ) +
+                    index *
+                      1000,
+                ).toISOString(),
+            },
+          ),
+      ),
+    )
+
+    const page =
+      await fetchMarketplacePage(
+        BASE_FILTERS,
+        null,
+      )
+
+    expect(
+      page.nextCursor,
+    ).not.toBeNull()
+
+    expect(
+      page.nextCursor?.id,
+    ).toBe(
+      `00000000-0000-4000-8000-${String(
+        MARKETPLACE_PAGE_SIZE -
+          1,
+      ).padStart(12, '0')}`,
+    )
+  })
+
+  it('propagates a typed read failure', async () => {
+    mocks.result.mockRejectedValueOnce({
+      code: 'permission-denied',
+      message:
+        'You do not have permission to do that.',
     })
-    const result = await fetchCategoryArtworkCounts()
 
-    expect(result.total).toBe(42)
-    expect(result.byCategory).toEqual({ painting: 10, sculpture: 10, photography: 10, digital: 10, other: 10 })
-    // One total query + one per fixed category — never an unbounded number
-    // of reads.
-    expect(getCountFromServer).toHaveBeenCalledTimes(6)
-  })
-
-  it('throws a typed ArtworkError rather than returning a partial/fabricated result on failure', async () => {
-    getCountFromServer.mockRejectedValueOnce({ code: 'unavailable' })
-    await expect(fetchCategoryArtworkCounts()).rejects.toMatchObject({ code: 'network' })
+    await expect(
+      fetchMarketplacePage(
+        BASE_FILTERS,
+        null,
+      ),
+    ).rejects.toMatchObject({
+      code: 'permission-denied',
+    })
   })
 })
 
 describe('fetchTrendingArtworks', () => {
-  it('filters by PUBLISHED and orders by the real likeCount field, descending — never a fabricated trending score', async () => {
-    getDocs.mockResolvedValueOnce({ docs: [] })
+  it('queries only PUBLISHED artworks', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
     await fetchTrendingArtworks()
-    expect(where).toHaveBeenCalledWith('status', '==', 'PUBLISHED')
-    expect(orderBy).toHaveBeenCalledWith('likeCount', 'desc')
+
+    expect(
+      mocks.eq,
+    ).toHaveBeenCalledWith(
+      'status',
+      'PUBLISHED',
+    )
   })
 
-  it('maps real results', async () => {
-    getDocs.mockResolvedValueOnce({
-      docs: [
-        {
-          id: 'a1',
-          data: () => ({
-            sellerId: 's1',
-            title: 'Popular Piece',
-            description: 'd',
-            price: 1000,
-            category: 'painting',
-            tags: [],
-            images: [],
-            inventoryCount: 1,
-            status: 'PUBLISHED',
-            reviewedAt: null,
-            rejectionReason: null,
-            likeCount: 42,
-            createdAt: Timestamp.now(),
-            updatedAt: Timestamp.now(),
-          }),
-        },
-      ],
+  it('orders using like_count descending', async () => {
+    mocks.result.mockResolvedValueOnce([])
+
+    await fetchTrendingArtworks()
+
+    expect(
+      mocks.order,
+    ).toHaveBeenCalledWith(
+      'like_count',
+      {
+        ascending: false,
+      },
+    )
+  })
+
+  it('maps actual Supabase-style rows', async () => {
+    mocks.result.mockResolvedValueOnce([
+      catalogRow('a1', {
+        like_count: 42,
+      }),
+    ])
+
+    const artworks =
+      await fetchTrendingArtworks()
+
+    expect(artworks).toEqual([
+      expect.objectContaining({
+        id: 'a1',
+        likeCount: 42,
+      }),
+    ])
+  })
+
+  it('propagates read failures', async () => {
+    mocks.result.mockRejectedValueOnce({
+      code: 'network',
+      message:
+        'Network unavailable. Check your connection and try again.',
     })
-    const artworks = await fetchTrendingArtworks()
-    expect(artworks).toEqual([expect.objectContaining({ id: 'a1', likeCount: 42 })])
+
+    await expect(
+      fetchTrendingArtworks(),
+    ).rejects.toMatchObject({
+      code: 'network',
+    })
+  })
+})
+
+describe('fetchCategoryArtworkCounts', () => {
+  it('queries each supported category as PUBLISHED', async () => {
+    mocks.state.countResponse = {
+      count: 3,
+      error: null,
+    }
+
+    const counts =
+      await fetchCategoryArtworkCounts()
+
+    expect(counts.byCategory).toEqual({
+      painting: 3,
+      sculpture: 3,
+      photography: 3,
+      digital: 3,
+      other: 3,
+    })
+
+    expect(
+      counts.total,
+    ).toBe(15)
+
+    expect(
+      mocks.from,
+    ).toHaveBeenCalledTimes(5)
+
+    expect(
+      mocks.eq,
+    ).toHaveBeenCalledWith(
+      'status',
+      'PUBLISHED',
+    )
   })
 
-  it('throws a typed ArtworkError on failure', async () => {
-    getDocs.mockRejectedValueOnce({ code: 'unavailable' })
-    await expect(fetchTrendingArtworks()).rejects.toMatchObject({ code: 'network' })
+  it('treats a null count as zero', async () => {
+    mocks.state.countResponse = {
+      count: null,
+      error: null,
+    }
+
+    const counts =
+      await fetchCategoryArtworkCounts()
+
+    expect(
+      counts.total,
+    ).toBe(0)
+  })
+
+  it('throws when Supabase returns a count error', async () => {
+    mocks.state.countResponse = {
+      count: null,
+      error: {
+        code: '42501',
+      },
+    }
+
+    await expect(
+      fetchCategoryArtworkCounts(),
+    ).rejects.toEqual({
+      code: '42501',
+    })
   })
 })

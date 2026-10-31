@@ -7,8 +7,8 @@ import type { UserRole } from '@/features/auth/types'
  * the router (see router.tsx), so by the time this renders, `status` is
  * already 'authenticated' and `role` is already resolved; this only adds
  * the role check on top. Purely a UX/redirect concern — the real authority
- * is firestore.rules, which independently rejects any write this guard
- * failed to prevent someone from attempting.
+ * is Supabase PostgreSQL RLS and protected RPCs, which reject unauthorized
+ * access regardless of this client-side route guard.
  */
 export function RequireRole({ allow }: { allow: UserRole[] }) {
   const { role } = useAuth()

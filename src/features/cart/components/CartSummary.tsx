@@ -22,7 +22,7 @@ export function CartSummary({
           <span>
             Subtotal ({itemCount} item{itemCount === 1 ? '' : 's'})
           </span>
-          <span className="text-text-primary">₹{(subtotal / 100).toFixed(0)}</span>
+          <span className="text-text-primary">₹{subtotal / 100}</span>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 text-text-secondary">
           <span>Shipping</span>
@@ -36,7 +36,7 @@ export function CartSummary({
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
         <span className="text-sm font-medium text-text-primary">Artwork subtotal</span>
-        <span className="font-display text-xl font-medium text-accent-gold">₹{(subtotal / 100).toFixed(0)}</span>
+        <span className="font-display text-xl font-medium text-accent-gold">₹{subtotal / 100}</span>
       </div>
       <p className="text-xs text-text-muted">Shipping and taxes are unavailable. This is not a final payable total.</p>
 

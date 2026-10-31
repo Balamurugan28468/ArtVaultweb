@@ -17,17 +17,7 @@ const TABS: { id: AnalysisTab; label: string }[] = [
   { id: 'similar', label: 'Similar Artworks' },
 ]
 
-/**
- * UI-05 — AI Artwork Analysis. Reads a real `artworkAnalyses/{artworkId}`
- * document if one exists (see firestore.rules/useArtworkAnalysis — public
- * read, write always false, since no AI gateway has ever populated this
- * collection yet). Every tab renders the honest "AI analysis isn't
- * available yet" empty state today — never a fabricated score, style
- * label, or description. "Similar Artworks" is the one tab that already
- * has a real, non-AI data source (useRelatedArtworks — plain "more in
- * this category", explicitly never labeled AI-produced) and renders it
- * unconditionally.
- */
+/** Reads supported analysis fields; metadata fallback is explicitly labeled. */
 export function ArtworkAnalysisPage() {
   const { artworkId } = useParams()
   const artworkQuery = usePublicArtwork(artworkId)
@@ -84,7 +74,9 @@ export function ArtworkAnalysisPage() {
                   <Sparkles aria-hidden="true" className="h-5 w-5" />
                 </span>
                 <div>
-                  <p className="font-medium text-text-primary">AI Analysis</p>
+                  <p className="font-medium text-text-primary">{analysisState.status==='loaded'&&analysisState.analysis.analysisMethod==='HEURISTIC'?'Heuristic ranking':'AI Analysis'}</p>
+                  {analysisState.status==='loaded'&&analysisState.analysis.analysisMethod==='HEURISTIC'&&
+                    <p className="text-sm text-accent-gold">Heuristic ranking — no visual AI model executed.</p>}
                   <p className="text-sm text-text-secondary">Detailed insights about this artwork</p>
                 </div>
               </div>

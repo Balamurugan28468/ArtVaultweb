@@ -1,210 +1,747 @@
-import { render, screen } from '@testing-library/react'
-import { act } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthProvider, useAuth } from './AuthProvider'
+import {
+  act,
+  render,
+  screen,
+} from '@testing-library/react'
+import type {
+  AuthChangeEvent,
+  Session,
+} from '@supabase/supabase-js'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
+import {
+  AuthProvider,
+  useAuth,
+} from './AuthProvider'
 
-type AuthStateCallback = (user: { uid: string } | null) => void
+type AuthStateCallback = (
+  event: AuthChangeEvent,
+  session: Session | null,
+) => void
 
-const authStateCallbacks: AuthStateCallback[] = []
-const getIdTokenResult = vi.fn()
-const ensureUserProfile = vi.fn()
+const mocks = vi.hoisted(() => {
+  const getAccountStatus = vi.fn()
+  const signOut = vi.fn()
+  const getSession = vi.fn()
+  const onAuthStateChange = vi.fn()
+  const unsubscribe = vi.fn()
 
-vi.mock('@/lib/firebase/config', () => ({ auth: { currentUser: null } }))
-vi.mock('firebase/auth', () => ({
-  onAuthStateChanged: (_auth: unknown, callback: AuthStateCallback) => {
-    authStateCallbacks.push(callback)
-    return () => {}
-  },
-  getIdTokenResult: (...args: unknown[]) => getIdTokenResult(...args),
-}))
-vi.mock('@/features/auth/api/ensureUserProfile', () => ({
-  ensureUserProfile: (...args: unknown[]) => ensureUserProfile(...args),
-}))
+  const ensureUserProfile = vi.fn()
+  const waitForRoleClaim = vi.fn()
+  const getCurrentRoleClaim = vi.fn()
+
+  const mapSupabaseUser = vi.fn(
+    (user: {
+      email_confirmed_at: '2026-10-20T00:00:00Z',
+      id: string
+      email?: string
+    }) => ({
+      id: user.id,
+      uid: user.id,
+      email: user.email ?? null,
+      displayName: null,
+      photoURL: null,
+      phoneNumber: null,
+      emailVerified: true,
+      createdAt: null,
+    }),
+  )
+
+  const supabase = {
+    auth: {
+      signOut,
+      getSession,
+      onAuthStateChange,
+    },
+  }
+
+  return {
+    getAccountStatus,
+    signOut,
+    getSession,
+    onAuthStateChange,
+    unsubscribe,
+    ensureUserProfile,
+    waitForRoleClaim,
+    getCurrentRoleClaim,
+    mapSupabaseUser,
+    supabase,
+  }
+})
+
+vi.mock('@/features/auth/api/accountAccess', () => ({ getAccountStatus: mocks.getAccountStatus }))
+
+vi.mock(
+  '@/lib/supabase/client',
+  () => ({
+    createClient: () =>
+      mocks.supabase,
+  }),
+)
+
+vi.mock(
+  '@/features/auth/api/ensureUserProfile',
+  () => ({
+    ensureUserProfile:
+      mocks.ensureUserProfile,
+  }),
+)
+
+vi.mock(
+  '@/features/auth/api/roleClaim',
+  () => ({
+    waitForRoleClaim:
+      mocks.waitForRoleClaim,
+
+    getCurrentRoleClaim:
+      mocks.getCurrentRoleClaim,
+  }),
+)
+
+vi.mock(
+  '@/features/auth/api/userMapper',
+  () => ({
+    mapSupabaseUser:
+      mocks.mapSupabaseUser,
+  }),
+)
+
+let authStateCallback:
+  | AuthStateCallback
+  | undefined
+
+function makeSession(
+  id = 'alice',
+): Session {
+  return {
+    user: {
+      email_confirmed_at: '2026-10-20T00:00:00Z',
+      id,
+      email: `${id}@example.com`,
+    },
+  } as unknown as Session
+}
 
 function Probe() {
-  const { status, role } = useAuth()
+  const {
+    status,
+    role,
+    user,
+  } = useAuth()
+
   return (
-    <p>
-      {status}:{role ?? 'none'}
-    </p>
+    <div>
+      <p>
+        {status}:{role ?? 'none'}
+      </p>
+
+      <p data-testid="user-id">
+        {user?.id ?? 'none'}
+      </p>
+    </div>
   )
 }
 
 beforeEach(() => {
-  authStateCallbacks.length = 0
-  getIdTokenResult.mockReset()
-  ensureUserProfile.mockReset().mockResolvedValue(undefined)
-  vi.spyOn(console, 'error').mockImplementation(() => {})
+  mocks.getAccountStatus.mockReset().mockResolvedValue('ACTIVE')
+  mocks.signOut.mockReset().mockResolvedValue({ error: null })
+  authStateCallback = undefined
+
+  mocks.getSession.mockReset()
+  mocks.onAuthStateChange.mockReset()
+  mocks.unsubscribe.mockReset()
+
+  mocks.ensureUserProfile.mockReset()
+  mocks.waitForRoleClaim.mockReset()
+  mocks.getCurrentRoleClaim.mockReset()
+  mocks.mapSupabaseUser.mockClear()
+
+  mocks.ensureUserProfile.mockResolvedValue(
+    undefined,
+  )
+
+  mocks.waitForRoleClaim.mockResolvedValue(
+    'CUSTOMER',
+  )
+
+  mocks.getCurrentRoleClaim.mockResolvedValue(
+    'CUSTOMER',
+  )
+
+  mocks.onAuthStateChange.mockImplementation(
+    (
+      callback: AuthStateCallback,
+    ) => {
+      authStateCallback = callback
+
+      return {
+        data: {
+          subscription: {
+            unsubscribe:
+              mocks.unsubscribe,
+          },
+        },
+      }
+    },
+  )
+
+  vi.spyOn(
+    console,
+    'error',
+  ).mockImplementation(() => {})
 })
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
-describe('AuthProvider', () => {
-  it('starts loading, then reflects unauthenticated when there is no restored session', async () => {
-    render(
-      <AuthProvider>
-        <Probe />
-      </AuthProvider>,
-    )
+it('does not carry an ADMIN role into a new customer session while identity is pending', async () => {
+  mocks.getSession.mockResolvedValueOnce({ data: { session: makeSession('admin') }, error: null })
+  mocks.waitForRoleClaim.mockResolvedValueOnce('ADMIN').mockResolvedValueOnce('CUSTOMER')
+  let releaseAccountStatus: ((status: string) => void) | undefined
+  mocks.getAccountStatus.mockResolvedValueOnce('ACTIVE').mockImplementationOnce(
+    () => new Promise<string>(resolve => { releaseAccountStatus = resolve }),
+  )
+  render(<AuthProvider><Probe /></AuthProvider>)
+  expect(await screen.findByText('authenticated:ADMIN')).toBeInTheDocument()
+  act(() => { authStateCallback?.('SIGNED_IN', makeSession('customer')) })
+  expect(await screen.findByText('loading:none')).toBeInTheDocument()
+  expect(screen.getByTestId('user-id')).toHaveTextContent('none')
+  await act(async () => { releaseAccountStatus?.('ACTIVE') })
+  expect(await screen.findByText('authenticated:CUSTOMER')).toBeInTheDocument()
+  expect(screen.getByTestId('user-id')).toHaveTextContent('customer')
+})
 
-    expect(screen.getByText('loading:none')).toBeInTheDocument()
+it('ignores a stale initial getSession snapshot after SIGNED_OUT', async () => {
+  let finishInitialRead: ((result: { data: { session: Session | null }; error: null }) => void) | undefined
+  mocks.getSession.mockReturnValueOnce(new Promise(resolve => { finishInitialRead = resolve }))
+  render(<AuthProvider><Probe /></AuthProvider>)
+  act(() => { authStateCallback?.('SIGNED_OUT', null) })
+  expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
+  await act(async () => { finishInitialRead?.({ data: { session: makeSession('admin') }, error: null }) })
+  expect(screen.getByText('unauthenticated:none')).toBeInTheDocument()
+  expect(screen.getByTestId('user-id')).toHaveTextContent('none')
+  expect(mocks.getAccountStatus).not.toHaveBeenCalled()
+})
 
-    act(() => authStateCallbacks[0]?.(null))
+it('blocks a restored suspended session without exposing authenticated routes or roles', async () => {
+  mocks.getSession.mockResolvedValueOnce({ data: { session: makeSession('alice') }, error: null })
+  mocks.getAccountStatus.mockResolvedValueOnce('SUSPENDED')
+  render(<AuthProvider><Probe /></AuthProvider>)
+  expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
+  expect(screen.getByTestId('user-id')).toHaveTextContent('none')
+  expect(mocks.signOut).toHaveBeenCalledExactlyOnceWith({ scope: 'local' })
+  expect(mocks.waitForRoleClaim).not.toHaveBeenCalled()
+})
 
-    expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
-    expect(ensureUserProfile).not.toHaveBeenCalled()
-  })
+it('fails closed when protected account status cannot be read without treating credentials as wrong', async () => {
+  mocks.getSession.mockResolvedValueOnce({ data: { session: makeSession('alice') }, error: null })
+  mocks.getAccountStatus.mockRejectedValueOnce(new Error('Account status unavailable'))
+  render(<AuthProvider><Probe /></AuthProvider>)
+  expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
+  expect(mocks.waitForRoleClaim).not.toHaveBeenCalled()
+})
 
-  it('reflects authenticated with the role claim once a session is restored', async () => {
-    getIdTokenResult.mockResolvedValue({ claims: { role: 'CUSTOMER' } })
+describe(
+  'AuthProvider',
+  () => {
+    it('starts loading and becomes unauthenticated when Supabase restores no session', async () => {
+      let resolveGetSession:
+        | ((
+            value: {
+              data: {
+                session: null
+              }
+              error: null
+            },
+          ) => void)
+        | undefined
 
-    render(
-      <AuthProvider>
-        <Probe />
-      </AuthProvider>,
-    )
-
-    act(() => authStateCallbacks[0]?.({ uid: 'alice' }))
-
-    expect(await screen.findByText('authenticated:CUSTOMER')).toBeInTheDocument()
-  })
-
-  it('ignores a stale role lookup from a superseded auth-state change', async () => {
-    let resolveFirstLookup!: (value: { claims: { role: string } }) => void
-    getIdTokenResult
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveFirstLookup = resolve
-          }),
+      mocks.getSession.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveGetSession = resolve
+        }),
       )
-      .mockResolvedValueOnce({ claims: { role: 'SELLER' } })
-
-    render(
-      <AuthProvider>
-        <Probe />
-      </AuthProvider>,
-    )
-
-    // First auth-state change (slow lookup, not resolved yet), immediately
-    // superseded by a second one (fast lookup, resolves first).
-    act(() => authStateCallbacks[0]?.({ uid: 'alice' }))
-    act(() => authStateCallbacks[0]?.({ uid: 'bob' }))
-
-    expect(await screen.findByText('authenticated:SELLER')).toBeInTheDocument()
-
-    // The stale first lookup finally resolves — must not overwrite bob's role.
-    await act(async () => {
-      resolveFirstLookup({ claims: { role: 'CUSTOMER' } })
-    })
-
-    expect(screen.getByText('authenticated:SELLER')).toBeInTheDocument()
-  })
-
-  // Regression coverage: users/{uid} used to depend entirely on the
-  // asynchronous onUserCreate Cloud Function trigger. AuthProvider now
-  // guarantees the canonical profile exists — for both a normal sign-in and
-  // a persisted-session restore, since both fire through this same
-  // onAuthStateChanged handler — before ever exposing "authenticated".
-  describe('canonical profile guarantee', () => {
-    it('calls ensureUserProfile with the resolved CUSTOMER claim before becoming authenticated', async () => {
-      getIdTokenResult.mockResolvedValue({ claims: { role: 'CUSTOMER' } })
 
       render(
         <AuthProvider>
           <Probe />
         </AuthProvider>,
       )
-      act(() => authStateCallbacks[0]?.({ uid: 'alice' }))
 
-      await screen.findByText('authenticated:CUSTOMER')
-      expect(ensureUserProfile).toHaveBeenCalledWith({ uid: 'alice' }, { role: 'CUSTOMER' })
-    })
-
-    it('preserves a trusted SELLER claim — recovery never downgrades a real seller to CUSTOMER', async () => {
-      getIdTokenResult.mockResolvedValue({ claims: { role: 'SELLER' } })
-
-      render(
-        <AuthProvider>
-          <Probe />
-        </AuthProvider>,
-      )
-      act(() => authStateCallbacks[0]?.({ uid: 'alice' }))
-
-      await screen.findByText('authenticated:SELLER')
-      expect(ensureUserProfile).toHaveBeenCalledWith({ uid: 'alice' }, { role: 'SELLER' })
-    })
-
-    it('defaults to CUSTOMER when no role claim exists at all yet', async () => {
-      // waitForRoleClaim genuinely retries for ~6s (12 × 500ms) in real time
-      // before giving up when the claim never appears — fake timers avoid
-      // actually waiting that long, and avoid leaving real setTimeout
-      // callbacks pending into later tests.
-      vi.useFakeTimers()
-      getIdTokenResult.mockResolvedValue({ claims: {} })
-
-      render(
-        <AuthProvider>
-          <Probe />
-        </AuthProvider>,
-      )
-      act(() => authStateCallbacks[0]?.({ uid: 'alice' }))
+      expect(
+        screen.getByText(
+          'loading:none',
+        ),
+      ).toBeInTheDocument()
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(12 * 500)
+        resolveGetSession?.({
+          data: {
+            session: null,
+          },
+          error: null,
+        })
       })
 
-      expect(screen.getByText('authenticated:none')).toBeInTheDocument()
-      expect(ensureUserProfile).toHaveBeenCalledWith({ uid: 'alice' }, { role: 'CUSTOMER' })
+      expect(
+        await screen.findByText(
+          'unauthenticated:none',
+        ),
+      ).toBeInTheDocument()
 
-      vi.useRealTimers()
+      expect(
+        mocks.ensureUserProfile,
+      ).not.toHaveBeenCalled()
     })
 
-    it('still resolves to authenticated (no infinite loading) when profile provisioning genuinely fails', async () => {
-      getIdTokenResult.mockResolvedValue({ claims: { role: 'CUSTOMER' } })
-      ensureUserProfile.mockRejectedValueOnce(new Error('Firestore unreachable'))
+    it('restores an authenticated Supabase session with its authoritative role', async () => {
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session:
+            makeSession('alice'),
+        },
+        error: null,
+      })
+
+      mocks.waitForRoleClaim.mockResolvedValueOnce(
+        'CUSTOMER',
+      )
 
       render(
         <AuthProvider>
           <Probe />
         </AuthProvider>,
       )
-      act(() => authStateCallbacks[0]?.({ uid: 'alice' }))
 
-      expect(await screen.findByText('authenticated:CUSTOMER')).toBeInTheDocument()
-      // eslint-disable-next-line no-console -- asserting the failure was logged, not silently swallowed
-      expect(console.error).toHaveBeenCalledWith('Failed to ensure user profile:', expect.any(Error))
+      expect(
+        await screen.findByText(
+          'authenticated:CUSTOMER',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        screen.getByTestId(
+          'user-id',
+        ),
+      ).toHaveTextContent(
+        'alice',
+      )
     })
-  })
 
-  // Real incident (owner-reported): a browser holding a persisted Firebase
-  // session whose refresh token the Auth backend no longer recognizes (e.g.
-  // the local emulator was restarted/wiped since the session was created)
-  // made `getIdTokenResult(user, true)` — required by `waitForRoleClaim` —
-  // reject. Previously nothing caught that rejection, so the
-  // `setStatus('authenticated')` call a few lines later in the same async
-  // function never ran and `status` stayed 'loading' forever: no Sign
-  // in/Create Account (unauthenticated never renders either), no avatar, no
-  // console error — just a permanently empty/skeleton auth slot.
-  describe('unrefreshable session (regression)', () => {
-    it('degrades to unauthenticated — never stuck in loading — when the token refresh backing the role-claim lookup rejects', async () => {
-      getIdTokenResult.mockRejectedValue(new Error('auth/network-request-failed'))
+    it('verifies the server-provisioned profile before resolving the application role', async () => {
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session:
+            makeSession('alice'),
+        },
+        error: null,
+      })
+
+      mocks.waitForRoleClaim.mockResolvedValueOnce(
+        'SELLER',
+      )
 
       render(
         <AuthProvider>
           <Probe />
         </AuthProvider>,
       )
-      act(() => authStateCallbacks[0]?.({ uid: 'alice' }))
 
-      expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
-      // eslint-disable-next-line no-console -- asserting the failure was logged, not silently swallowed
-      expect(console.error).toHaveBeenCalledWith(
-        'Failed to resolve the signed-in session (token refresh/role claim failed):',
-        expect.any(Error),
+      expect(
+        await screen.findByText(
+          'authenticated:SELLER',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        mocks.ensureUserProfile,
+      ).toHaveBeenCalledTimes(1)
+
+      expect(
+        mocks.ensureUserProfile,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'alice',
+          uid: 'alice',
+        }),
+      )
+
+      expect(
+        mocks.waitForRoleClaim,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'alice',
+          uid: 'alice',
+        }),
+      )
+
+      expect(
+        mocks.ensureUserProfile.mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(
+        mocks.waitForRoleClaim.mock
+          .invocationCallOrder[0],
       )
     })
-  })
+
+    it('uses CUSTOMER as a safe UI fallback when no authoritative role is available', async () => {
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session:
+            makeSession('alice'),
+        },
+        error: null,
+      })
+
+      mocks.waitForRoleClaim.mockResolvedValueOnce(
+        null,
+      )
+
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      )
+
+      expect(
+        await screen.findByText(
+          'authenticated:CUSTOMER',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('does not let caller-controlled profile options promote a user', async () => {
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session:
+            makeSession('alice'),
+        },
+        error: null,
+      })
+
+      mocks.waitForRoleClaim.mockResolvedValueOnce(
+        'SELLER',
+      )
+
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      )
+
+      expect(
+        await screen.findByText(
+          'authenticated:SELLER',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        mocks.ensureUserProfile,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'alice',
+          uid: 'alice',
+        }),
+      )
+
+      expect(
+        mocks.ensureUserProfile,
+      ).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          role: 'SELLER',
+        }),
+      )
+    })
+
+    it('keeps authentication valid when profile verification temporarily fails', async () => {
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session:
+            makeSession('alice'),
+        },
+        error: null,
+      })
+
+      const profileError =
+        new Error(
+          'Supabase profile unavailable',
+        )
+
+      mocks.ensureUserProfile.mockRejectedValueOnce(
+        profileError,
+      )
+
+      mocks.waitForRoleClaim.mockResolvedValueOnce(
+        'CUSTOMER',
+      )
+
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      )
+
+      expect(
+        await screen.findByText(
+          'authenticated:CUSTOMER',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        console.error,
+      ).toHaveBeenCalledWith(
+        'Failed to verify Supabase user profile:',
+      )
+    })
+
+    it('keeps the valid session authenticated with CUSTOMER fallback when role resolution fails', async () => {
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session:
+            makeSession('alice'),
+        },
+        error: null,
+      })
+
+      const roleError =
+        new Error(
+          'role RPC unavailable',
+        )
+
+      mocks.waitForRoleClaim.mockRejectedValueOnce(
+        roleError,
+      )
+
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      )
+
+      expect(
+        await screen.findByText(
+          'authenticated:CUSTOMER',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        console.error,
+      ).toHaveBeenCalledWith(
+        'Failed to resolve Supabase application role:',
+      )
+    })
+
+    it('degrades to unauthenticated when initial Supabase session restoration fails', async () => {
+      const restoreError =
+        new Error(
+          'session restoration failed',
+        )
+
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session: null,
+        },
+        error: restoreError,
+      })
+
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      )
+
+      expect(
+        await screen.findByText(
+          'unauthenticated:none',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        console.error,
+      ).toHaveBeenCalledWith(
+        'Failed to restore Supabase session:',
+      )
+    })
+
+    it('ignores a stale role lookup from a superseded Supabase auth-state event', async () => {
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session: null,
+        },
+        error: null,
+      })
+
+      let resolveFirstRole:
+        | ((
+            value:
+              | 'CUSTOMER'
+              | null,
+          ) => void)
+        | undefined
+
+      mocks.waitForRoleClaim
+        .mockImplementationOnce(
+          () =>
+            new Promise(
+              (resolve) => {
+                resolveFirstRole =
+                  resolve
+              },
+            ),
+        )
+        .mockResolvedValueOnce(
+          'SELLER',
+        )
+
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      )
+
+      expect(
+        await screen.findByText(
+          'unauthenticated:none',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        authStateCallback,
+      ).toBeTypeOf('function')
+
+      act(() => {
+        authStateCallback?.(
+          'SIGNED_IN',
+          makeSession('alice'),
+        )
+
+        authStateCallback?.(
+          'SIGNED_IN',
+          makeSession('bob'),
+        )
+      })
+
+      expect(
+        await screen.findByText(
+          'authenticated:SELLER',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        screen.getByTestId(
+          'user-id',
+        ),
+      ).toHaveTextContent(
+        'bob',
+      )
+
+      await act(async () => {
+        resolveFirstRole?.(
+          'CUSTOMER',
+        )
+      })
+
+      expect(
+        screen.getByText(
+          'authenticated:SELLER',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        screen.getByTestId(
+          'user-id',
+        ),
+      ).toHaveTextContent(
+        'bob',
+      )
+    })
+
+    it('reacts to a Supabase SIGNED_OUT event', async () => {
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session:
+            makeSession('alice'),
+        },
+        error: null,
+      })
+
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      )
+
+      expect(
+        await screen.findByText(
+          'authenticated:CUSTOMER',
+        ),
+      ).toBeInTheDocument()
+
+      act(() => {
+        authStateCallback?.(
+          'SIGNED_OUT',
+          null,
+        )
+      })
+
+      expect(
+        await screen.findByText(
+          'unauthenticated:none',
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        screen.getByTestId(
+          'user-id',
+        ),
+      ).toHaveTextContent(
+        'none',
+      )
+    })
+
+    it('unsubscribes from Supabase auth events when the provider unmounts', async () => {
+      mocks.getSession.mockResolvedValueOnce({
+        data: {
+          session: null,
+        },
+        error: null,
+      })
+
+      const {
+        unmount,
+      } = render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      )
+
+      await screen.findByText(
+        'unauthenticated:none',
+      )
+
+      unmount()
+
+      expect(
+        mocks.unsubscribe,
+      ).toHaveBeenCalledTimes(1)
+    })
+  },
+)
+it('does not authenticate an unverified session or resolve a privileged role', async () => {
+  const session = makeSession('pending')
+  delete session.user.email_confirmed_at
+  mocks.getSession.mockResolvedValueOnce({ data: { session }, error: null })
+  render(<AuthProvider><Probe /></AuthProvider>)
+  expect(await screen.findByText('unauthenticated:none')).toBeInTheDocument()
+  expect(mocks.ensureUserProfile).not.toHaveBeenCalled()
+  expect(mocks.waitForRoleClaim).not.toHaveBeenCalled()
 })

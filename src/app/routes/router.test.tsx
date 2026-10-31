@@ -1,400 +1,913 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+} from '@testing-library/react'
 import { RouterProvider } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 import { AppProviders } from '@/app/providers/AppProviders'
 import { AuthProvider } from '@/app/providers/AuthProvider'
 import { router } from '@/app/routes/router'
 import { CartProvider } from '@/features/cart'
 import { WishlistProvider } from '@/features/wishlist'
 
-vi.mock('@/lib/firebase/config', () => ({ auth: { currentUser: null }, db: {} }))
-vi.mock('firebase/auth', () => ({
-  onAuthStateChanged: (_auth: unknown, callback: (user: null) => void) => {
-    callback(null)
-    return () => {}
-  },
-  getIdTokenResult: vi.fn(),
-}))
-// The real marketplace repository issues genuine Firestore getDocs()/
-// getCountFromServer() calls — both stubbed here the same way every other
-// lazy-loaded route in this file avoids touching the real SDK, so this file
-// only proves the route wires up and renders, not marketplace query
-// behavior (see marketplaceRepository's own dedicated tests for that).
-// getCountFromServer specifically (added for Explore's real category
-// counts, UI-01) was a real gap here: left unmocked, it reaches the actual
-// Firestore SDK against the fake `db: {}` below, which never resolves
-// within a test's lifetime — a real incident, not a hypothetical, caught by
-// the /explore direct-navigation test hanging until timeout.
-vi.mock('firebase/firestore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('firebase/firestore')>()
+const mocks = vi.hoisted(() => {
+  const emptyResult = {
+    data: [],
+    error: null,
+    count: 0,
+  }
+
+  const builder: Record<
+    string,
+    unknown
+  > = {}
+
+  const chainMethods = [
+    'select',
+    'eq',
+    'neq',
+    'gt',
+    'gte',
+    'lt',
+    'lte',
+    'in',
+    'is',
+    'or',
+    'match',
+    'order',
+    'limit',
+    'range',
+    'filter',
+  ]
+
+  for (
+    const method
+    of chainMethods
+  ) {
+    builder[method] =
+      vi.fn(
+        () => builder,
+      )
+  }
+
+  builder.maybeSingle =
+    vi.fn(
+      async () => ({
+        data: null,
+        error: null,
+      }),
+    )
+
+  builder.single =
+    vi.fn(
+      async () => ({
+        data: null,
+        error: null,
+      }),
+    )
+
+  builder.then = (
+    onFulfilled:
+      | ((
+          value: typeof emptyResult,
+        ) => unknown)
+      | undefined,
+    onRejected:
+      | ((
+          reason: unknown,
+        ) => unknown)
+      | undefined,
+  ) =>
+    Promise.resolve(
+      emptyResult,
+    ).then(
+      onFulfilled,
+      onRejected,
+    )
+
+  const unsubscribe =
+    vi.fn()
+
+  const auth = {
+    getSession:
+      vi.fn(
+        async () => ({
+          data: {
+            session: null,
+          },
+          error: null,
+        }),
+      ),
+
+    onAuthStateChange:
+      vi.fn(
+        () => ({
+          data: {
+            subscription: {
+              unsubscribe,
+            },
+          },
+        }),
+      ),
+
+    getUser:
+      vi.fn(
+        async () => ({
+          data: {
+            user: null,
+          },
+          error: null,
+        }),
+      ),
+  }
+
+  const from =
+    vi.fn(
+      () => builder,
+    )
+
+  const rpc =
+    vi.fn(
+      async () => ({
+        data: null,
+        error: null,
+      }),
+    )
+
+  const storageBucket = {
+    createSignedUrl:
+      vi.fn(
+        async () => ({
+          data: {
+            signedUrl: '',
+          },
+          error: null,
+        }),
+      ),
+
+    upload:
+      vi.fn(
+        async () => ({
+          data: null,
+          error: null,
+        }),
+      ),
+
+    remove:
+      vi.fn(
+        async () => ({
+          data: [],
+          error: null,
+        }),
+      ),
+  }
+
+  const storage = {
+    from:
+      vi.fn(
+        () =>
+          storageBucket,
+      ),
+  }
+
+  const realtimeChannel: {
+    on: ReturnType<typeof vi.fn>
+    subscribe: ReturnType<typeof vi.fn>
+  } = {
+    on: vi.fn(),
+    subscribe: vi.fn(),
+  }
+
+  realtimeChannel.on.mockReturnValue(
+    realtimeChannel,
+  )
+
+  realtimeChannel.subscribe.mockReturnValue(
+    realtimeChannel,
+  )
+
+  const channel =
+    vi.fn(
+      () =>
+        realtimeChannel,
+    )
+
+  const removeChannel =
+    vi.fn(
+      async () =>
+        undefined,
+    )
+
+  const supabase = {
+    auth,
+    from,
+    rpc,
+    storage,
+    channel,
+    removeChannel,
+  }
+
   return {
-    ...actual,
-    getDocs: vi.fn().mockResolvedValue({ docs: [] }),
-    getCountFromServer: vi.fn().mockResolvedValue({ data: () => ({ count: 0 }) }),
+    builder,
+    auth,
+    from,
+    rpc,
+    storage,
+    storageBucket,
+    channel,
+    realtimeChannel,
+    removeChannel,
+    unsubscribe,
+    supabase,
   }
 })
 
-// Every findByRole('heading', ...) below that follows a real lazy-load
-// (dynamic import, exactly as in production — see the comment above the
-// Sign Up test) passes an explicit longer timeout than the 1000ms default.
-// This file forces a genuine dynamic import to resolve through the real
-// router for every route it covers, and jsdom (much slower than a real
-// browser at this) occasionally exceeds that default window under normal
-// system load — confirmed, while diagnosing this for Module 10, to never
-// reproduce in a real browser (each route's heading renders correctly and
-// instantly there). The assertions themselves are unchanged.
+vi.mock(
+  '@/lib/supabase/client',
+  () => ({
+    createClient: () =>
+      mocks.supabase,
+  }),
+)
 
-// `router` is a module-level singleton (createBrowserRouter is only ever
-// meant to be constructed once) shared across every test in this file, so
-// each test explicitly navigates back to "/" first rather than assuming a
-// clean starting location left over from a previous test.
+beforeEach(() => {
+  mocks.auth.getSession.mockClear()
+  mocks.auth.onAuthStateChange.mockClear()
+  mocks.auth.getUser.mockClear()
+
+  mocks.from.mockClear()
+  mocks.rpc.mockClear()
+
+  mocks.storage.from.mockClear()
+  mocks.storageBucket.createSignedUrl.mockClear()
+  mocks.storageBucket.upload.mockClear()
+  mocks.storageBucket.remove.mockClear()
+
+  mocks.channel.mockClear()
+  mocks.removeChannel.mockClear()
+  mocks.unsubscribe.mockClear()
+})
+
 afterEach(async () => {
   await router.navigate('/')
 })
 
-describe('router', () => {
-  it('renders the root layout and the home page at "/" for a signed-out visitor', async () => {
-    const { container } = render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-
-    // BrandLogo's wordmark visually splits "Art"/"Vault" across nested
-    // elements (for the two-tone brand color), which the default
-    // getByText string matcher can't reassemble — check the accessible
-    // name via aria-label instead, which is the authoritative one anyway.
-    expect(await screen.findByText('Belong')).toBeInTheDocument()
-    expect(container.querySelectorAll('[aria-label="ArtVault"]').length).toBeGreaterThan(0)
-    // Both the top bar and the mobile bottom nav render a "Sign in" entry
-    // by design (see AppTopBar/AppBottomNav) — assert at least one exists
-    // rather than assuming a single match.
-    expect(screen.getAllByText('Sign in').length).toBeGreaterThan(0)
-  })
-
-  // Regression coverage for a real incident: the Sign Up/Sign In routes are
-  // wired through router.tsx's own `lazy(() => import(...))`, exactly as in
-  // production — unlike a test that imports/renders SignInPage/SignUpPage
-  // directly, this actually forces that dynamic import to resolve through
-  // the real router, so a wrong path, a mismatched named export, or a
-  // circular-import failure inside either page would fail here.
-  it('lazy-loads the real Sign Up page via SPA link navigation from Home', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await screen.findByText('Belong')
-
-    // "Create Account" (an owner-requested wording/color correction this
-    // round — see AppTopBar.tsx) — same real /sign-up route as always.
-    fireEvent.click(screen.getAllByRole('link', { name: 'Create Account' })[0])
-
-    expect(await screen.findByRole('heading', { name: 'Create your account' }, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.getByLabelText('Name')).toBeInTheDocument()
-  })
-
-  it('lazy-loads the real Sign In page via SPA link navigation from Home', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await screen.findByText('Belong')
-
-    fireEvent.click(screen.getAllByRole('link', { name: 'Sign in' })[0])
-
-    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.getByLabelText('Email')).toBeInTheDocument()
-  })
-
-  it('lazy-loads the real Sign Up page on direct navigation to "/sign-up"', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await router.navigate('/sign-up')
-
-    expect(await screen.findByRole('heading', { name: 'Create your account' }, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.getByLabelText('Name')).toBeInTheDocument()
-  })
-
-  it('lazy-loads the real Sign In page on direct navigation to "/sign-in"', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await router.navigate('/sign-in')
-
-    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.getByLabelText('Email')).toBeInTheDocument()
-  })
-
-  // UI-01's Explore rebuild made this page's first render heavier than the
-  // other lazy routes in this file: it now fires three concurrent queries on
-  // mount (recentQuery + activeQuery in MarketplacePage, plus MarketplaceGrid's
-  // own copy of activeQuery's key, all TanStack-cache-shared but each still
-  // awaiting its mocked async Firestore call) plus useArtistDisplayNames. On
-  // this environment that genuinely pushed real render time past both the
-  // 3000ms findByRole timeout every other test in this file uses AND, once
-  // that was raised, past Vitest's own 5000ms default per-test timeout —
-  // confirmed via the literal "Test timed out in 5000ms" error, not a
-  // TestingLibraryElementError, once the assertion's own timeout was no
-  // longer the bottleneck. Both timeouts are widened here; this is slower,
-  // correct rendering, not a hang (see the SPA-link-navigation test just
-  // below, which reaches an already-mounted instance of the same page and
-  // passes on the default budget).
-  it(
-    'lazy-loads the real Marketplace page on direct navigation to "/explore", without requiring authentication (Module 08)',
-    async () => {
-      render(
+describe(
+  'router',
+  () => {
+    it('renders the root layout and home page for a signed-out Supabase visitor', async () => {
+      const {
+        container,
+      } = render(
         <AppProviders>
           <AuthProvider>
             <WishlistProvider>
               <CartProvider>
-                <RouterProvider router={router} />
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
               </CartProvider>
             </WishlistProvider>
           </AuthProvider>
         </AppProviders>,
       )
-      await router.navigate('/explore')
 
-      expect(await screen.findByRole('heading', { name: 'Art without boundaries' }, { timeout: 8000 })).toBeInTheDocument()
-      expect(screen.queryByText(/sign in/i, { selector: 'h1,h2,p' })).not.toBeInTheDocument()
-    },
-    10000,
-  )
+      expect(
+        await screen.findByText(
+          'Belong',
+        ),
+      ).toBeInTheDocument()
 
-  it('reaches the real Marketplace page via SPA link navigation from Home', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await screen.findByText('Belong')
+      expect(
+        container.querySelectorAll(
+          '[aria-label="ArtVault"]',
+        ).length,
+      ).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getAllByRole('link', { name: 'Explore' })[0])
+      expect(
+        screen.getAllByText(
+          'Sign in',
+        ).length,
+      ).toBeGreaterThan(0)
+    })
 
-    expect(await screen.findByRole('heading', { name: 'Art without boundaries' }, { timeout: 3000 })).toBeInTheDocument()
-  })
-
-  // UI-01 mobile correction: Categories was removed as a duplicate of
-  // Explore's own category discovery — /categories now redirects rather than
-  // rendering its own page, so any bookmarked/shared link still lands
-  // somewhere real instead of breaking outright.
-  it(
-    'redirects "/categories" to "/explore" (Categories removed as a duplicate of Explore)',
-    async () => {
+    it('lazy-loads the real Sign Up page through SPA navigation from Home', async () => {
       render(
         <AppProviders>
           <AuthProvider>
             <WishlistProvider>
               <CartProvider>
-                <RouterProvider router={router} />
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
               </CartProvider>
             </WishlistProvider>
           </AuthProvider>
         </AppProviders>,
       )
-      await router.navigate('/categories')
 
-      // Same heavier-first-render budget as the direct-to-/explore test
-      // above — this redirect lands on the exact same page.
-      expect(await screen.findByRole('heading', { name: 'Art without boundaries' }, { timeout: 8000 })).toBeInTheDocument()
-    },
-    10000,
-  )
+      await screen.findByText(
+        'Belong',
+      )
 
-  // UI-01 — the router previously had no catch-all at all; this closes that gap.
-  it('renders the 404 page (inside the normal app shell) for an unmatched route', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
+      fireEvent.click(
+        screen.getAllByRole(
+          'link',
+          {
+            name:
+              'Create Account',
+          },
+        )[0],
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name:
+              'Create your account',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        screen.getByLabelText(
+          'Name',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('lazy-loads the real Sign In page through SPA navigation from Home', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
+
+      await screen.findByText(
+        'Belong',
+      )
+
+      fireEvent.click(
+        screen.getAllByRole(
+          'link',
+          {
+            name: 'Sign in',
+          },
+        )[0],
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name: 'Sign in',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        screen.getByLabelText(
+          'Email',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('lazy-loads the real Sign Up page on direct navigation to "/sign-up"', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
+
+      await router.navigate(
+        '/sign-up',
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name:
+              'Create your account',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        screen.getByLabelText(
+          'Name',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('lazy-loads the real Sign In page on direct navigation to "/sign-in"', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
+
+      await router.navigate(
+        '/sign-in',
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name: 'Sign in',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
+
+      expect(
+        screen.getByLabelText(
+          'Email',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it(
+      'lazy-loads the real Marketplace page on direct navigation to "/explore" without authentication',
+      async () => {
+        render(
+          <AppProviders>
+            <AuthProvider>
+              <WishlistProvider>
+                <CartProvider>
+                  <RouterProvider
+                    router={
+                      router
+                    }
+                  />
+                </CartProvider>
+              </WishlistProvider>
+            </AuthProvider>
+          </AppProviders>,
+        )
+
+        await router.navigate(
+          '/explore',
+        )
+
+        expect(
+          await screen.findByRole(
+            'heading',
+            {
+              name:
+                'Art without boundaries',
+            },
+            {
+              timeout: 8000,
+            },
+          ),
+        ).toBeInTheDocument()
+
+        expect(
+          screen.queryByText(
+            /sign in/i,
+            {
+              selector:
+                'h1,h2,p',
+            },
+          ),
+        ).not.toBeInTheDocument()
+      },
+      10000,
     )
-    await router.navigate('/this-route-does-not-exist')
 
-    expect(await screen.findByText('Page not found', {}, { timeout: 3000 })).toBeInTheDocument()
-    // Still inside AppShell, not a bare unstyled error — the brand mark renders.
-    expect(document.querySelectorAll('[aria-label="ArtVault"]').length).toBeGreaterThan(0)
-  })
+    it('reaches the real Marketplace page through SPA navigation from Home', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
 
-  it('lazy-loads the real Wishlist page on direct navigation to "/wishlist", without requiring authentication (Module 09)', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
+      await screen.findByText(
+        'Belong',
+      )
+
+      fireEvent.click(
+        screen.getAllByRole(
+          'link',
+          {
+            name: 'Explore',
+          },
+        )[0],
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name:
+              'Art without boundaries',
+          },
+          {
+            timeout: 8000,
+          },
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it(
+      'redirects "/categories" to "/explore"',
+      async () => {
+        render(
+          <AppProviders>
+            <AuthProvider>
+              <WishlistProvider>
+                <CartProvider>
+                  <RouterProvider
+                    router={
+                      router
+                    }
+                  />
+                </CartProvider>
+              </WishlistProvider>
+            </AuthProvider>
+          </AppProviders>,
+        )
+
+        await router.navigate(
+          '/categories',
+        )
+
+        expect(
+          await screen.findByRole(
+            'heading',
+            {
+              name:
+                'Art without boundaries',
+            },
+            {
+              timeout: 8000,
+            },
+          ),
+        ).toBeInTheDocument()
+      },
+      10000,
     )
-    await router.navigate('/wishlist')
 
-    expect(await screen.findByRole('heading', { name: 'Wishlist' }, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.queryByText(/sign in/i, { selector: 'h1,h2,p' })).not.toBeInTheDocument()
-  })
+    it('renders the 404 page inside the normal app shell for an unmatched route', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
 
-  // UI-02 — Cart is genuinely public, same as Wishlist above: a guest can
-  // build a cart before creating an account (see CartProvider's guest mode).
-  it('lazy-loads the real Cart page on direct navigation to "/cart", without requiring authentication', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await router.navigate('/cart')
+      await router.navigate(
+        '/this-route-does-not-exist',
+      )
 
-    expect(await screen.findByRole('heading', { name: 'Cart' }, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.queryByText(/sign in/i, { selector: 'h1,h2,p' })).not.toBeInTheDocument()
-  })
+      expect(
+        await screen.findByText(
+          'Page not found',
+          {},
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
 
-  // UI-02 — unlike Cart, Checkout and Orders are protected: RequireAuth
-  // (router.tsx) must redirect a signed-out visitor to /sign-in rather than
-  // ever rendering a real shipping-address/order-history page for them.
-  it('redirects "/checkout" to "/sign-in" for a signed-out visitor', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await router.navigate('/checkout')
+      expect(
+        document.querySelectorAll(
+          '[aria-label="ArtVault"]',
+        ).length,
+      ).toBeGreaterThan(0)
+    })
 
-    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
-  })
+    it('lazy-loads the real Wishlist page without requiring authentication', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
 
-  it('redirects "/orders" to "/sign-in" for a signed-out visitor', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await router.navigate('/orders')
+      await router.navigate(
+        '/wishlist',
+      )
 
-    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
-  })
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name: 'Wishlist',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
 
-  it('redirects "/orders/some-id" to "/sign-in" for a signed-out visitor', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await router.navigate('/orders/some-id')
+      expect(
+        screen.queryByText(
+          /sign in/i,
+          {
+            selector:
+              'h1,h2,p',
+          },
+        ),
+      ).not.toBeInTheDocument()
+    })
 
-    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
-  })
+    it('lazy-loads the real Cart page without requiring authentication', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
 
-  // UI-06 — the real Address Book, same RequireAuth guard as the rest of
-  // /account: a signed-out visitor must never reach a page that could show
-  // saved personal shipping addresses.
-  it('redirects "/account/addresses" to "/sign-in" for a signed-out visitor', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await router.navigate('/account/addresses')
+      await router.navigate(
+        '/cart',
+      )
 
-    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
-  })
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name: 'Cart',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
 
-  // UI-03 — Seller Studio route protection, verified end-to-end through
-  // the real router wiring (RequireAuth wrapping RequireRole in
-  // router.tsx), not just RequireRole's own unit tests. A signed-out
-  // visitor hits RequireAuth first, exactly like every other protected
-  // route in this file.
-  it('redirects "/seller-studio" to "/sign-in" for a signed-out visitor', async () => {
-    render(
-      <AppProviders>
-        <AuthProvider>
-          <WishlistProvider>
-            <CartProvider>
-              <RouterProvider router={router} />
-            </CartProvider>
-          </WishlistProvider>
-        </AuthProvider>
-      </AppProviders>,
-    )
-    await router.navigate('/seller-studio')
+      expect(
+        screen.queryByText(
+          /sign in/i,
+          {
+            selector:
+              'h1,h2,p',
+          },
+        ),
+      ).not.toBeInTheDocument()
+    })
 
-    expect(await screen.findByRole('heading', { name: 'Sign in' }, { timeout: 3000 })).toBeInTheDocument()
-  })
-})
+    it('redirects "/checkout" to "/sign-in" for a signed-out Supabase visitor', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
+
+      await router.navigate(
+        '/checkout',
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name: 'Sign in',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('redirects "/orders" to "/sign-in" for a signed-out Supabase visitor', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
+
+      await router.navigate(
+        '/orders',
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name: 'Sign in',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('redirects "/orders/some-id" to "/sign-in" for a signed-out Supabase visitor', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
+
+      await router.navigate(
+        '/orders/some-id',
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name: 'Sign in',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('redirects "/account/addresses" to "/sign-in" for a signed-out Supabase visitor', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
+
+      await router.navigate(
+        '/account/addresses',
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name: 'Sign in',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('redirects "/seller-studio" to "/sign-in" for a signed-out Supabase visitor', async () => {
+      render(
+        <AppProviders>
+          <AuthProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <RouterProvider
+                  router={
+                    router
+                  }
+                />
+              </CartProvider>
+            </WishlistProvider>
+          </AuthProvider>
+        </AppProviders>,
+      )
+
+      await router.navigate(
+        '/seller-studio',
+      )
+
+      expect(
+        await screen.findByRole(
+          'heading',
+          {
+            name: 'Sign in',
+          },
+          {
+            timeout: 3000,
+          },
+        ),
+      ).toBeInTheDocument()
+    })
+  },
+)

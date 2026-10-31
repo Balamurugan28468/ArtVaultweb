@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { deriveAuctionStatus, minimumNextBid } from './types'
 
 function ts(ms: number) {
-  return { toMillis: () => ms } as unknown as import('firebase/firestore').Timestamp
+  return { toMillis: () => ms } as unknown as import('@/lib/supabase/timestamp').Timestamp
 }
 
 describe('deriveAuctionStatus', () => {
@@ -19,6 +19,11 @@ describe('deriveAuctionStatus', () => {
   it('is ENDED at or after endAt', () => {
     expect(deriveAuctionStatus(auction, new Date(2000))).toBe('ENDED')
     expect(deriveAuctionStatus(auction, new Date(9999))).toBe('ENDED')
+  })
+  it('waits for trusted activation and honors trusted cancellation', () => {
+    expect(deriveAuctionStatus({ ...auction, auctionStatus:'SCHEDULED' },new Date(1500))).toBe('SCHEDULED')
+    expect(deriveAuctionStatus({ ...auction, auctionStatus:'LIVE' },new Date(1500))).toBe('LIVE')
+    expect(deriveAuctionStatus({ ...auction, auctionStatus:'CANCELLED' },new Date(1500))).toBe('ENDED')
   })
 })
 

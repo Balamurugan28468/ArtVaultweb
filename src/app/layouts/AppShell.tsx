@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router'
-import { AIAssistantLauncher } from '@/features/ai'
+import { AIAssistantLauncher, AssistantProvider } from '@/features/ai'
 import { Spinner, Toaster } from '@/shared/ui'
 import { AppBottomNav } from './AppBottomNav'
 import { AppSidebar } from './AppSidebar'
@@ -49,7 +49,7 @@ export function AppShell() {
     // naturally renders before the user scrolls.) At `lg`+ there's no bottom
     // nav to protect against, so the page reverts to plain, unbounded
     // whole-page scroll — the original, approved desktop behavior.
-    <div className="flex h-screen flex-col overflow-hidden bg-bg text-text-primary lg:h-auto lg:min-h-screen lg:overflow-visible">
+    <AssistantProvider><div className="flex h-screen flex-col overflow-hidden bg-bg text-text-primary lg:h-auto lg:min-h-screen lg:overflow-visible">
       <AppTopBar onOpenDrawer={() => setDrawerOpen(true)} />
       <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
 
@@ -68,6 +68,6 @@ export function AppShell() {
       <AppBottomNav />
       <AIAssistantLauncher />
       <Toaster />
-    </div>
+    </div></AssistantProvider>
   )
 }

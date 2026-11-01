@@ -6,6 +6,7 @@ import { useNavItems } from '@/app/navigation/useNavItems'
 import { BrandLogo } from '@/app/branding/BrandLogo'
 import { SignOutButton } from '@/features/auth'
 import { useCart } from '@/features/cart'
+import { useNotifications } from '@/features/notifications'
 import { Avatar, buttonClassName, Dropdown, dropdownItemClassName, IconButton, SearchInput, Skeleton } from '@/shared/ui'
 
 // Rendered inline in the top bar, not `home`/`wishlist`/`cart`/`account` —
@@ -29,6 +30,7 @@ export function AppTopBar({ onOpenDrawer }: { onOpenDrawer: () => void }) {
   // main.tsx) — itemCount reflects a guest's local cart too, matching
   // Cart itself being genuinely public (UI-02).
   const { itemCount } = useCart()
+  const { unreadCount } = useNotifications()
 
   // UI-01 — a real shortcut into Explore's own (already-real) search/filter
   // handling, not a second search implementation: this only ever navigates,
@@ -125,13 +127,22 @@ export function AppTopBar({ onOpenDrawer }: { onOpenDrawer: () => void }) {
               </span>
             )}
           </Link>
-          <span
-            aria-disabled="true"
-            title="Notifications — coming soon"
-            className="hidden h-11 w-11 cursor-not-allowed items-center justify-center rounded-md text-text-muted opacity-60 sm:inline-flex"
+          <Link
+            to="/account/notifications"
+            aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+            title="Notifications"
+            className="relative hidden h-11 w-11 items-center justify-center rounded-md text-text-secondary transition-colors duration-150 ease-standard hover:bg-surface-elevated hover:text-text-primary sm:inline-flex"
           >
             <Bell className="h-5 w-5" aria-hidden="true" />
-          </span>
+            {unreadCount > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-primary px-1 text-[10px] font-semibold text-white"
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </Link>
           {status === 'loading' && (
             // Real regression fix: this slot previously rendered nothing at
             // all while status is 'loading' (AuthProvider's own initial

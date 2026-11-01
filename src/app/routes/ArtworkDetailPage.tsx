@@ -7,6 +7,7 @@ import { ArtworkGallery, ArtworkIdField, PublicArtworkCard, toArtworkError, useP
 import { AddToCartButton, useCart } from '@/features/cart'
 import { LikeButton } from '@/features/likes'
 import { useArtistDisplayNames, useRelatedArtworks } from '@/features/marketplace'
+import { ArtworkReviewsList, useArtworkReviews } from '@/features/reviews'
 import { WishlistButton } from '@/features/wishlist'
 import { useDocumentMeta } from '@/shared/hooks/useDocumentMeta'
 import {
@@ -68,6 +69,13 @@ export function ArtworkDetailPage() {
   // second/duplicated data source.
   const artistProfileState = useArtistProfile(sellerId)
   const artistBio = artistProfileState.status === 'loaded' ? artistProfileState.profile.bio : null
+
+  const {
+    reviews,
+    summary: reviewSummary,
+    eligibility: reviewEligibility,
+    refresh: refreshReviews,
+  } = useArtworkReviews(artwork?.id, artwork?.sellerId)
 
   // UI-01 — "More in {category}", not "AI recommended": see
   // useRelatedArtworks' own comment on why that distinction matters.
@@ -153,21 +161,14 @@ export function ArtworkDetailPage() {
                 <ShareButton url={canonicalUrl} title={artwork.title} text={`${artwork.title} on ArtVault`} />
               </div>
 
-              {/* AI + AR entry points (UI-01 product-wide requirement) —
-                  color-coded (purple = AI, blue = AR) and visually
-                  distinct cards, matching how the two capabilities are
-                  presented everywhere else in the app. UI-05: both now
-                  navigate to their own real, dedicated page
-                  (ArtworkAnalysisPage/ArtworkArPage) instead of opening an
-                  inline modal — each of those pages renders the same
-                  honest "not connected yet" state on its own. */}
+              {/* AI + AR entry points */}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
                 <div className="flex flex-col gap-1.5 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 sm:gap-2 sm:p-4">
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand-primary/20 text-brand-primary-on-dark sm:h-9 sm:w-9">
                     <Sparkles aria-hidden="true" className="h-4 w-4" />
                   </span>
                   <p className="text-sm font-medium text-text-primary">AI Artwork Analysis</p>
-                  <p className="hidden text-xs text-text-secondary sm:block">Get AI-powered insights about this artwork's style and medium.</p>
+                  <p className="hidden text-xs text-text-secondary sm:block">Explore stylistic breakdown, palette, and composition insights.</p>
                   <Link to={`/artworks/${artwork.id}/analysis`} className={buttonClassName('primary', 'sm', 'mt-1 self-start')}>
                     Analyze with AI
                   </Link>
@@ -184,14 +185,7 @@ export function ArtworkDetailPage() {
                 </div>
               </div>
 
-              {/* Commerce area — deliberately separated from the actions
-                  above. Add to Cart is now real (UI-02): AddToCartButton
-                  writes a genuine cart line (see CartProvider), and Add & review cart
-                  adds the item then takes the shopper straight to /cart.
-                  Checkout itself still can't complete a real purchase (no
-                  payment integration exists yet — see CheckoutPage's own
-                  PaymentSection), so neither button ever pretends a
-                  purchase completed. */}
+              {/* Commerce area */}
               <div className="flex flex-col gap-2 border-t border-border pt-3 sm:pt-4">
                 <div className="flex flex-wrap gap-2">
                   <AddToCartButton artworkId={artwork.id} inventoryCount={availableInventory(artwork)} size="md" />
@@ -291,7 +285,28 @@ export function ArtworkDetailPage() {
             </div>
 
             <div role="tabpanel" id="artwork-panel-reviews" aria-labelledby="artwork-tab-reviews" hidden={activeTab !== 'reviews'}>
-              <p className="text-sm text-text-secondary">Reviews aren't connected yet.</p>
+              {activeTab === 'reviews' && (
+                reviews.length === 0 ? (
+                  <div className="flex flex-col gap-4">
+                    <p className="text-sm text-text-secondary">Reviews aren't connected yet.</p>
+                    <ArtworkReviewsList
+                      artworkId={artwork.id}
+                      reviews={reviews}
+                      summary={reviewSummary}
+                      eligibility={reviewEligibility}
+                      onRefresh={refreshReviews}
+                    />
+                  </div>
+                ) : (
+                  <ArtworkReviewsList
+                    artworkId={artwork.id}
+                    reviews={reviews}
+                    summary={reviewSummary}
+                    eligibility={reviewEligibility}
+                    onRefresh={refreshReviews}
+                  />
+                )
+              )}
             </div>
           </div>
         )}

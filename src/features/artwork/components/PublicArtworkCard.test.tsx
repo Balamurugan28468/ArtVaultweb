@@ -110,14 +110,12 @@ describe('PublicArtworkCard', () => {
     expect(screen.getByRole('link', { name: 'Alice Fine Art' })).toHaveAttribute('href', '/artists/alice')
   })
 
-  // UI-01's AR+AI product-wide requirement — compact, honest, inert
-  // indicators on every artwork card (real actions live on Artwork Detail).
-  it('shows compact, honestly-disabled View in AR and AI Artwork Analysis indicators — never a working action here', () => {
+  it('provides functional View in AR and AI Artwork Analysis action buttons', () => {
     renderCard({ artwork: buildArtwork() })
-    const arBadge = screen.getByTitle('AR preview unavailable')
-    const aiBadge = screen.getByTitle('AI Artwork Analysis — coming soon')
-    expect(arBadge).toHaveAttribute('role', 'img')
-    expect(aiBadge).toHaveAttribute('aria-disabled', 'true')
+    const arButton = screen.getByRole('button', { name: 'View in AR' })
+    const aiButton = screen.getByRole('button', { name: 'AI Artwork Analysis' })
+    expect(arButton).toBeInTheDocument()
+    expect(aiButton).toBeInTheDocument()
   })
 
   it('Module 11: the wishlist control renders inside the artwork Link\'s DOM subtree, and still receives clicks normally', () => {

@@ -1,6 +1,6 @@
 import { Box, ImageOff, Sparkles } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 // Imports the concrete file, not the `@/features/wishlist` barrel:
 // WishlistGrid (that barrel's other consumer-facing export) needs Artwork
 // data from *this* feature's own barrel, and importing the wishlist
@@ -55,6 +55,7 @@ export function PublicArtworkCard({
   artwork: Artwork
   artistDisplayName?: string | null
 }) {
+  const navigate = useNavigate()
   const cover = artwork.images[0]
   const [imageFailed, setImageFailed] = useState(false)
   const showImage = cover && !imageFailed
@@ -78,27 +79,34 @@ export function PublicArtworkCard({
             overlays text on the image — currently unused decoratively, kept
             deliberately subtle (a premium gallery card, not a poster). */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/35 to-transparent opacity-0 transition-opacity duration-200 ease-standard group-hover:opacity-100" />
-        {/* Color convention (UI-01): blue = AR, purple = AI — reused
-            everywhere either appears (this card, ArtworkDetailPage, the
-            AI Assistant launcher) so the two capabilities stay visually
-            distinct at a glance, never interchangeable. */}
-        <div className="absolute top-2 left-2 flex gap-1">
-          <span
-            role="img"
-            aria-label="AR preview unavailable"
-            title="AR preview unavailable"
-            className="inline-flex h-6 w-6 cursor-not-allowed items-center justify-center rounded-full bg-blue-600/90 text-white backdrop-blur-sm sm:h-7 sm:w-7"
+        {/* Color convention (UI-01): blue = AR, purple = AI */}
+        <div className="absolute top-2 left-2 flex gap-1 z-10">
+          <button
+            type="button"
+            aria-label="View in AR"
+            title="View in AR"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              navigate(`/artworks/${artwork.id}/ar`)
+            }}
+            className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-blue-600/90 text-white backdrop-blur-sm transition-transform hover:scale-110 hover:bg-blue-600 sm:h-7 sm:w-7"
           >
             <Box aria-hidden="true" className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-          </span>
-          <span
-            role="button"
-            aria-disabled="true"
-            title="AI Artwork Analysis — coming soon"
-            className="inline-flex h-6 w-6 cursor-not-allowed items-center justify-center rounded-full bg-brand-primary/90 text-white backdrop-blur-sm sm:h-7 sm:w-7"
+          </button>
+          <button
+            type="button"
+            aria-label="AI Artwork Analysis"
+            title="AI Artwork Analysis"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              navigate(`/artworks/${artwork.id}/analysis`)
+            }}
+            className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-brand-primary/90 text-white backdrop-blur-sm transition-transform hover:scale-110 hover:bg-brand-primary sm:h-7 sm:w-7"
           >
             <Sparkles aria-hidden="true" className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-          </span>
+          </button>
         </div>
         {/* Now nested inside the artwork Link above (previously nested
             inside a Card with no ancestor Link at all) — WishlistButton's

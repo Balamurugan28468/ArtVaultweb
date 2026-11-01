@@ -1,4 +1,10 @@
-export { getArtworkAnalysis, mapToArtworkAnalysis, toArtworkAnalysisError } from './api/artworkAnalysisRepository'
+export {
+  getArtworkAnalysis,
+  mapToArtworkAnalysis,
+  toArtworkAnalysisError,
+  generateAndSaveArtworkAnalysis,
+  type ArtworkAnalysisInput,
+} from './api/artworkAnalysisRepository'
 export { useArtworkAnalysis } from './hooks/useArtworkAnalysis'
 export {
   isArtworkAnalysisError,

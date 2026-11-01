@@ -15,6 +15,21 @@ const AccountPage = lazy(() => import('@/app/routes/AccountPage').then((m) => ({
 const AddressBookPage = lazy(() =>
   import('@/app/routes/AddressBookPage').then((m) => ({ default: m.AddressBookPage })),
 )
+const PaymentMethodsPage = lazy(() =>
+  import('@/app/routes/PaymentMethodsPage').then((m) => ({ default: m.PaymentMethodsPage })),
+)
+const NotificationsPage = lazy(() =>
+  import('@/app/routes/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
+)
+const SecurityPage = lazy(() =>
+  import('@/app/routes/SecurityPage').then((m) => ({ default: m.SecurityPage })),
+)
+const AccountReviewsPage = lazy(() =>
+  import('@/app/routes/AccountReviewsPage').then((m) => ({ default: m.AccountReviewsPage })),
+)
+const SettingsPage = lazy(() =>
+  import('@/app/routes/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+)
 const SellerApplicationPage = lazy(() =>
   import('@/app/routes/SellerApplicationPage').then((m) => ({ default: m.SellerApplicationPage })),
 )
@@ -110,6 +125,11 @@ export const router = createBrowserRouter([
         children: [
           { path: 'account', element: <AccountPage /> },
           { path: 'account/addresses', element: <AddressBookPage /> },
+          { path: 'account/payment-methods', element: <PaymentMethodsPage /> },
+          { path: 'account/notifications', element: <NotificationsPage /> },
+          { path: 'account/security', element: <SecurityPage /> },
+          { path: 'account/reviews', element: <AccountReviewsPage /> },
+          { path: 'account/settings', element: <SettingsPage /> },
           { path: 'checkout', element: <CheckoutPage /> },
           { path: 'checkout/confirmation/:orderId', element: <OrderConfirmationPage /> },
           { path: 'orders', element: <OrdersPage /> },

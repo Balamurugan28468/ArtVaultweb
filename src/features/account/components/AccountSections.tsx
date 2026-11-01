@@ -1,32 +1,8 @@
 import { Bell, CreditCard, Heart, LogOut, MapPin, Package, Settings, ShieldCheck, Star, Store } from 'lucide-react'
-import type { ComponentType } from 'react'
 import { Link } from 'react-router'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { SignOutButton } from '@/features/auth'
 import { useSellerStatus } from '@/features/seller-studio'
-
-interface FutureSection {
-  id: string
-  label: string
-  icon: ComponentType<{ className?: string }>
-}
-
-// Reserves the account information architecture for later modules without
-// any fake/dead functionality — each renders as a genuinely disabled native
-// <button>, not a clickable "coming soon" affordance (see
-// ARTVAULT_PROJECT_STATE.md → Module 02 planning decisions, applied here).
-// 'seller' is absent as of Module 04 (real SellerSectionCard below);
-// 'orders'/'wishlist' are absent as of UI-02 (real OrdersSectionCard /
-// WishlistSectionCard below); 'addresses' is absent as of UI-06 (real
-// AddressesSectionCard below, backed by the real `addresses/{uid}/entries`
-// Firestore collection).
-const FUTURE_SECTIONS: FutureSection[] = [
-  { id: 'payment-methods', label: 'Payment methods', icon: CreditCard },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'security', label: 'Security', icon: ShieldCheck },
-  { id: 'reviews', label: 'Reviews', icon: Star },
-  { id: 'settings', label: 'Settings', icon: Settings },
-]
 
 const TILE_CLASSES =
   'flex flex-col items-start gap-2 rounded-xl border border-border bg-surface p-4 text-left shadow-card transition-colors hover:border-brand-primary'
@@ -34,20 +10,8 @@ const TILE_CLASSES_DISABLED =
   'flex cursor-not-allowed flex-col items-start gap-2 rounded-xl border border-border bg-surface p-4 text-left opacity-60 shadow-card'
 
 /**
- * The one genuinely functional entry in this grid — everything else stays a
- * disabled placeholder. Label/destination/subtext all reflect the real
- * seller-application state (never-applied / pending / approved), so this
- * never implies more access than the viewer actually has.
- *
- * ADMIN/SUPER_ADMIN never see this card at all — "Become a seller" is a
- * CUSTOMER-facing growth action, not a real account action for a platform
- * administrator, and prior to this fix it rendered for any signed-in role
- * with no `sellers/{uid}` document at all (useSellerStatus has no concept
- * of role — it only reflects application state), which showed the same
- * generic "Become a seller" invite to an ADMIN as to a real customer.
  * Sourced from the verified Auth custom claim (useAuth().role), never a
- * Firestore-mirrored field, matching how every privileged/role-gated
- * decision in this app is made.
+ * mirrored field, matching how every privileged/role-gated decision in this app is made.
  */
 function SellerSectionCard() {
   const { role } = useAuth()
@@ -86,14 +50,7 @@ function SellerSectionCard() {
   )
 }
 
-/**
- * UI-02 — a real entry point into My Orders. CUSTOMER/SELLER only, same
- * audience restriction Cart/Orders already carry everywhere else in the
- * app (top bar, bottom nav "More" menu — see navItems.ts) — an
- * ADMIN/SUPER_ADMIN has no commerce identity of their own to place or view
- * orders with, so this tile simply doesn't exist for them, never a
- * disabled placeholder implying it someday will.
- */
+/** Entry point into My Orders. */
 function OrdersSectionCard() {
   const { role } = useAuth()
   if (role !== 'CUSTOMER' && role !== 'SELLER') return null
@@ -107,7 +64,7 @@ function OrdersSectionCard() {
   )
 }
 
-/** UI-06 — a real entry point into the Address Book, available to every signed-in role. */
+/** Entry point into the Address Book. */
 function AddressesSectionCard() {
   return (
     <Link to="/account/addresses" className={TILE_CLASSES}>
@@ -118,7 +75,7 @@ function AddressesSectionCard() {
   )
 }
 
-/** UI-02 — Wishlist is available to every signed-in role, same as its own nav entry (navItems.ts). */
+/** Wishlist entry point. */
 function WishlistSectionCard() {
   return (
     <Link to="/wishlist" className={TILE_CLASSES}>
@@ -129,7 +86,62 @@ function WishlistSectionCard() {
   )
 }
 
-/** A real sign-out entry point on the Account page itself, alongside the top bar/drawer's own — same SignOutButton, not a second implementation. */
+/** Payment Methods entry point. */
+function PaymentMethodsSectionCard() {
+  return (
+    <Link to="/account/payment-methods" className={TILE_CLASSES}>
+      <CreditCard aria-hidden="true" className="h-5 w-5 text-accent-gold" />
+      <span className="text-sm font-medium text-text-primary">Payment methods</span>
+      <span className="text-xs text-text-muted">UPI, Cards, and COD options</span>
+    </Link>
+  )
+}
+
+/** Notifications entry point. */
+function NotificationsSectionCard() {
+  return (
+    <Link to="/account/notifications" className={TILE_CLASSES}>
+      <Bell aria-hidden="true" className="h-5 w-5 text-brand-primary" />
+      <span className="text-sm font-medium text-text-primary">Notifications</span>
+      <span className="text-xs text-text-muted">Order updates & alerts</span>
+    </Link>
+  )
+}
+
+/** Security entry point. */
+function SecuritySectionCard() {
+  return (
+    <Link to="/account/security" className={TILE_CLASSES}>
+      <ShieldCheck aria-hidden="true" className="h-5 w-5 text-accent-gold" />
+      <span className="text-sm font-medium text-text-primary">Security</span>
+      <span className="text-xs text-text-muted">Passwords & credentials</span>
+    </Link>
+  )
+}
+
+/** Reviews entry point. */
+function ReviewsSectionCard() {
+  return (
+    <Link to="/account/reviews" className={TILE_CLASSES}>
+      <Star aria-hidden="true" className="h-5 w-5 text-brand-primary" />
+      <span className="text-sm font-medium text-text-primary">Reviews</span>
+      <span className="text-xs text-text-muted">Your collector feedback</span>
+    </Link>
+  )
+}
+
+/** Settings entry point. */
+function SettingsSectionCard() {
+  return (
+    <Link to="/account/settings" className={TILE_CLASSES}>
+      <Settings aria-hidden="true" className="h-5 w-5 text-text-secondary" />
+      <span className="text-sm font-medium text-text-primary">Settings</span>
+      <span className="text-xs text-text-muted">Profile & preferences</span>
+    </Link>
+  )
+}
+
+/** Sign-out entry point. */
 function SignOutSectionCard() {
   return (
     <SignOutButton
@@ -152,20 +164,11 @@ export function AccountSections() {
         <OrdersSectionCard />
         <WishlistSectionCard />
         <AddressesSectionCard />
-        {FUTURE_SECTIONS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            disabled
-            aria-disabled="true"
-            title={`${label} — available in a later module`}
-            className={TILE_CLASSES_DISABLED}
-          >
-            <Icon aria-hidden="true" className="h-5 w-5 text-text-muted" />
-            <span className="text-sm font-medium text-text-primary">{label}</span>
-            <span className="text-xs text-text-muted">Available in a later module</span>
-          </button>
-        ))}
+        <PaymentMethodsSectionCard />
+        <NotificationsSectionCard />
+        <SecuritySectionCard />
+        <ReviewsSectionCard />
+        <SettingsSectionCard />
         <SignOutSectionCard />
       </div>
     </section>

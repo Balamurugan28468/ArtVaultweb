@@ -253,6 +253,10 @@ export function AuthProvider({
   )
 }
 
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext) ?? null
+}
+
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext)
 

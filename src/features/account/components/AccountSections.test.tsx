@@ -22,27 +22,23 @@ function renderWithRouter() {
 }
 
 describe('AccountSections', () => {
-  it('renders every still-unimplemented future section as a genuinely disabled, non-interactive control', () => {
+  it('renders all account sections as real, working links', () => {
     useSellerStatus.mockReturnValue({ status: 'not-applied' })
     renderWithRouter()
 
-    for (const label of ['Payment methods', 'Notifications', 'Security', 'Reviews', 'Settings']) {
-      const button = screen.getByRole('button', { name: new RegExp(label) })
-      expect(button).toBeDisabled()
-      expect(button).toHaveAttribute('aria-disabled', 'true')
-    }
+    expect(screen.getByRole('link', { name: /payment methods/i })).toHaveAttribute('href', '/account/payment-methods')
+    expect(screen.getByRole('link', { name: /notifications/i })).toHaveAttribute('href', '/account/notifications')
+    expect(screen.getByRole('link', { name: /security/i })).toHaveAttribute('href', '/account/security')
+    expect(screen.getByRole('link', { name: /reviews/i })).toHaveAttribute('href', '/account/reviews')
+    expect(screen.getByRole('link', { name: /settings/i })).toHaveAttribute('href', '/account/settings')
   })
 
-  // UI-02: Orders and Wishlist became real, working entries (previously
-  // disabled placeholders); Sign out is a new real entry too. Seller
-  // Studio/"Become a seller" was already the one real entry before this.
-  // UI-06: Addresses became a real, working entry too.
-  it('renders exactly the real links this role should see: seller entry, Orders, Wishlist, and Addresses', () => {
+  it('renders exactly the real links this role should see: seller entry, Orders, Wishlist, Addresses, and account sections', () => {
     useSellerStatus.mockReturnValue({ status: 'not-applied' })
     renderWithRouter()
 
     const links = screen.getAllByRole('link')
-    expect(links).toHaveLength(4)
+    expect(links).toHaveLength(9)
     expect(screen.getByRole('link', { name: /become a seller/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Orders/ })).toHaveAttribute('href', '/orders')
     expect(screen.getByRole('link', { name: /Wishlist/ })).toHaveAttribute('href', '/wishlist')

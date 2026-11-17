@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import type { Artwork } from '@/features/artwork'
 import { Button } from '@/shared/ui'
 import type { ArProof } from '../proof'
 import {
@@ -23,9 +24,11 @@ type ExperienceMode =
   | 'error'
 
 interface ArtworkWebXrViewerProps {
-  proof: ArProof
-  title: string
+  artwork?: Artwork
+  proof?: ArProof | null
+  title?: string
   poster?: string
+  onExit?: () => void
 }
 
 interface WallTransform {
@@ -141,9 +144,11 @@ function wallTransformFromPose(
 }
 
 export function ArtworkWebXrViewer({
+  artwork,
   proof,
-  title,
-  poster,
+  title = artwork?.title || 'Artwork',
+  poster = artwork?.images[0]?.url,
+  onExit,
 }: ArtworkWebXrViewerProps) {
   const canvasHostRef = useRef<HTMLDivElement>(null)
   const overlayRootRef = useRef<HTMLDivElement>(null)
@@ -187,9 +192,13 @@ export function ArtworkWebXrViewer({
   const [error, setError] = useState<string | null>(null)
   const [useFallback, setUseFallback] = useState(false)
 
+  const widthMm = proof?.widthMm ?? 600
+  const heightMm = proof?.heightMm ?? 800
+  const imageUrl = poster || artwork?.images[0]?.url
+
   const size = useMemo(
-    () => scaleDisplaySize(proof.widthMm, proof.heightMm, scale),
-    [proof.widthMm, proof.heightMm, scale],
+    () => scaleDisplaySize(widthMm, heightMm, scale),
+    [widthMm, heightMm, scale],
   )
 
   const scaleProgress = useMemo(
@@ -302,6 +311,7 @@ export function ArtworkWebXrViewer({
       setPresenting(false)
       setAnchored(false)
       setExperienceMode(modelReadyRef.current ? 'ready' : 'loading')
+      onExit?.()
     }
   }
 
@@ -420,29 +430,97 @@ export function ArtworkWebXrViewer({
     reticleRef.current = reticle
     scene.add(reticle)
 
-    const loader = new GLTFLoader()
-    void loader.loadAsync(proof.modelUrl).then(
-      (gltf) => {
-        if (disposed) {
-          disposeObject(gltf.scene)
-          return
-        }
+    const createDirectMesh = (url: string) => {
+      const artGroup = new THREE.Group()
+      const wM = (widthMm / 1000) * 0.9
+      const hM = (heightMm / 1000) * 0.9
+      const frameGeo = new THREE.BoxGeometry(wM + 0.06, hM + 0.06, 0.03)
+      const frameMat = new THREE.MeshStandardMaterial({
+        color: 0x1a1a1a,
+        roughness: 0.4,
+      })
+      const frameMesh = new THREE.Mesh(frameGeo, frameMat)
+      artGroup.add(frameMesh)
 
-        loadedModelRef.current = gltf.scene
-        adjustmentGroup.add(gltf.scene)
-        resetAdjustment()
-        modelReadyRef.current = true
-        setModelReady(true)
-        setExperienceMode('ready')
-      },
-      () => {
-        if (disposed) return
-        modelReadyRef.current = false
-        setModelReady(false)
-        setError('The ArtVault AR model could not be loaded.')
-        setExperienceMode('error')
-      },
-    )
+      const canvasGeo = new THREE.PlaneGeometry(wM, hM)
+      const textureLoader = new THREE.TextureLoader()
+      textureLoader.load(
+        url,
+        (texture) => {
+          if (disposed) {
+            disposeObject(artGroup)
+            return
+          }
+          texture.colorSpace = THREE.SRGBColorSpace
+          const canvasMat = new THREE.MeshBasicMaterial({ map: texture })
+          const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat)
+          canvasMesh.position.z = 0.016
+          artGroup.add(canvasMesh)
+
+          loadedModelRef.current = artGroup
+          adjustmentGroup.add(artGroup)
+          resetAdjustment()
+          modelReadyRef.current = true
+          setModelReady(true)
+          setExperienceMode('ready')
+        },
+        undefined,
+        () => {
+          if (disposed) {
+            disposeObject(artGroup)
+            return
+          }
+          const canvasMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
+          const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat)
+          canvasMesh.position.z = 0.016
+          artGroup.add(canvasMesh)
+
+          loadedModelRef.current = artGroup
+          adjustmentGroup.add(artGroup)
+          resetAdjustment()
+          modelReadyRef.current = true
+          setModelReady(true)
+          setExperienceMode('ready')
+        },
+      )
+    }
+
+    if (proof?.modelUrl) {
+      const loader = new GLTFLoader()
+      void loader.loadAsync(proof.modelUrl).then(
+        (gltf) => {
+          if (disposed) {
+            disposeObject(gltf.scene)
+            return
+          }
+
+          loadedModelRef.current = gltf.scene
+          adjustmentGroup.add(gltf.scene)
+          resetAdjustment()
+          modelReadyRef.current = true
+          setModelReady(true)
+          setExperienceMode('ready')
+        },
+        () => {
+          if (disposed) return
+          if (imageUrl) {
+            createDirectMesh(imageUrl)
+          } else {
+            modelReadyRef.current = false
+            setModelReady(false)
+            setError('The ArtVault AR model could not be loaded.')
+            setExperienceMode('error')
+          }
+        },
+      )
+    } else if (imageUrl) {
+      createDirectMesh(imageUrl)
+    } else {
+      modelReadyRef.current = false
+      setModelReady(false)
+      setError('The ArtVault AR model could not be loaded.')
+      setExperienceMode('error')
+    }
 
     return () => {
       disposed = true
@@ -465,7 +543,7 @@ export function ArtworkWebXrViewer({
       anchorGroupRef.current = null
       adjustmentGroupRef.current = null
     }
-  }, [proof.modelUrl])
+  }, [proof?.modelUrl, imageUrl])
 
   const renderXrFrame = (frame: XRFrame) => {
     const renderer = rendererRef.current
@@ -558,9 +636,9 @@ export function ArtworkWebXrViewer({
 
     try {
       session = await xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test', 'dom-overlay'],
-        optionalFeatures: ['anchors'],
-        domOverlay: { root: overlayRootRef.current },
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['dom-overlay', 'anchors', 'local-floor'],
+        domOverlay: overlayRootRef.current ? { root: overlayRootRef.current } : undefined,
       })
       sessionRef.current = session
 
@@ -802,7 +880,13 @@ export function ArtworkWebXrViewer({
   }
 
   if (useFallback || webXrSupported === false) {
-    return <ArtworkArViewer proof={proof} title={title} poster={poster} />
+    if (onExit) {
+      onExit()
+      return null
+    }
+    if (proof) {
+      return <ArtworkArViewer proof={proof} title={title} poster={poster} />
+    }
   }
 
   return (
@@ -819,8 +903,8 @@ export function ArtworkWebXrViewer({
 
       <p className="text-sm text-text-secondary">
         Estimated starting display size:{' '}
-        {formatArCentimetres(proof.widthMm / 10)} ×{' '}
-        {formatArCentimetres(proof.heightMm / 10)} cm including the frame.
+        {formatArCentimetres(widthMm / 10)} ×{' '}
+        {formatArCentimetres(heightMm / 10)} cm including the frame.
       </p>
 
       <p className="text-xs text-text-muted">

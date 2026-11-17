@@ -36,6 +36,7 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
   const [rotationY, setRotationY] = useState(0)
   const [webXrSupported, setWebXrSupported] = useState<boolean | null>(null)
   const [showInstructions, setShowInstructions] = useState(false)
+  const [xrLaunchMessage, setXrLaunchMessage] = useState<string | null>(null)
 
   // Three.js scene refs
   const sceneRef = useRef<THREE.Scene | null>(null)
@@ -73,6 +74,14 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     const width = container.clientWidth || 600
     const height = container.clientHeight || 420
 
+    let renderer: THREE.WebGLRenderer
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    } catch {
+      // In headless environments without WebGL (e.g. jsdom in automated tests), skip WebGL rendering gracefully
+      return
+    }
+
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0f1115)
     sceneRef.current = scene
@@ -81,7 +90,6 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     camera.position.set(0, 0, 3.2)
     cameraRef.current = camera
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setSize(width, height)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     rendererRef.current = renderer
@@ -409,7 +417,9 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
               variant="info"
               size="sm"
               onClick={() => {
-                alert('Launching WebXR AR session... Please grant camera permission when prompted.')
+                setXrLaunchMessage(
+                  'WebXR detected. Grant camera permission if prompted by your browser to scan walls.',
+                )
               }}
               className="text-xs"
             >
@@ -421,6 +431,12 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
             </span>
           )}
         </div>
+
+        {xrLaunchMessage && (
+          <div role="status" className="rounded-lg border border-cyan-500/30 bg-cyan-950/40 p-3 text-xs text-cyan-200">
+            {xrLaunchMessage}
+          </div>
+        )}
       </Card>
     </div>
   )

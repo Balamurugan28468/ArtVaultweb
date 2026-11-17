@@ -59,15 +59,16 @@ describe('ArtworkArPage', () => {
     expect(screen.getByText('Artwork not found')).toBeInTheDocument()
   })
 
-  it('shows the artwork image and explicitly unavailable AR capabilities', () => {
+  it('renders the artwork preview, interactive 3D wall simulation, and placement controls', () => {
     usePublicArtwork.mockReturnValue({ status: 'success', data: buildArtwork() })
     renderPage()
     expect(screen.getByText('Starry Reflections')).toBeInTheDocument()
     expect(screen.getByText('Artwork image preview')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('not available yet')
-    expect(screen.queryByText('Point your camera')).not.toBeInTheDocument()
-    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Start AR|Sample Room|Rotate|Resize|Reset/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/3D Gallery Wall Simulation/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /UNLOCKED \(ADJUSTABLE\)|LOCKED TO WALL/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Rotate/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Reset/i })).toBeInTheDocument()
+    expect(screen.getByText(/WebXR camera pass-through not detected|WebXR immersive-ar supported/i)).toBeInTheDocument()
   })
 
   it('links to the real artist profile in both navigation layouts', () => {

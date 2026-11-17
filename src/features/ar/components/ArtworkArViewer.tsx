@@ -1916,14 +1916,7 @@ export function ArtworkArViewer({
       {loaded &&
         !capable && (
           <p role="status">
-            AR launch is
-            unavailable in this
-            browser. This is a
-            3D preview, not camera
-            placement. iPhone and
-            iPad Quick Look are not
-            enabled in this
-            development proof.
+            AR launch is unavailable in this browser. This is a 3D preview, not camera placement. iPhone and iPad Quick Look are not enabled in this development proof.
           </p>
         )}
 

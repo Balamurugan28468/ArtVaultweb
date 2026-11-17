@@ -168,6 +168,7 @@ export function ArtworkWebXrViewer({
   const trackingLostRef = useRef(false)
   const modeRef = useRef<ExperienceMode>('loading')
   const scaleRef = useRef(1)
+  const rotationDegRef = useRef(0)
   const offsetXRef = useRef(0)
   const offsetYRef = useRef(0)
   const pointersRef = useRef<Map<number, PointerPoint>>(new Map())
@@ -182,6 +183,7 @@ export function ArtworkWebXrViewer({
   const [trackingLost, setTrackingLost] = useState(false)
   const [anchored, setAnchored] = useState(false)
   const [scale, setScale] = useState(1)
+  const [rotationDeg, setRotationDeg] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [useFallback, setUseFallback] = useState(false)
 
@@ -235,6 +237,7 @@ export function ArtworkWebXrViewer({
       WALL_OFFSET_METRES,
     )
     group.scale.setScalar(scaleRef.current)
+    group.rotation.z = THREE.MathUtils.degToRad(rotationDegRef.current)
   }
 
   const clearPointers = () => {
@@ -245,9 +248,13 @@ export function ArtworkWebXrViewer({
 
   const resetAdjustment = () => {
     scaleRef.current = 1
+    rotationDegRef.current = 0
     offsetXRef.current = 0
     offsetYRef.current = 0
-    if (mountedRef.current) setScale(1)
+    if (mountedRef.current) {
+      setScale(1)
+      setRotationDeg(0)
+    }
     clearPointers()
     applyAdjustment()
   }
@@ -256,6 +263,13 @@ export function ArtworkWebXrViewer({
     const next = clampArScale(requested)
     scaleRef.current = next
     if (mountedRef.current) setScale(next)
+    applyAdjustment()
+  }
+
+  const rotateArtwork = (deltaDegrees: number) => {
+    const next = (rotationDegRef.current + deltaDegrees + 360) % 360
+    rotationDegRef.current = next
+    if (mountedRef.current) setRotationDeg(next)
     applyAdjustment()
   }
 
@@ -348,11 +362,18 @@ export function ArtworkWebXrViewer({
     const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 20)
     cameraRef.current = camera
 
-    const renderer = new THREE.WebGLRenderer({
-      alpha: true,
-      antialias: true,
-      powerPreference: 'high-performance',
-    })
+    let renderer: THREE.WebGLRenderer
+    try {
+      renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: true,
+        powerPreference: 'high-performance',
+      })
+    } catch {
+      setError('WebGL is not supported in this browser environment.')
+      setExperienceMode('error')
+      return
+    }
     rendererRef.current = renderer
     renderer.xr.enabled = true
     renderer.xr.setReferenceSpaceType('local')
@@ -578,7 +599,7 @@ export function ArtworkWebXrViewer({
       renderer.setAnimationLoop((_time, frame) => {
         if (frame) renderXrFrame(frame)
       })
-    } catch {
+    } catch (cause: unknown) {
       if (session && sessionRef.current === session) {
         try {
           await session.end()
@@ -589,9 +610,15 @@ export function ArtworkWebXrViewer({
 
       finishSessionState()
       if (mountedRef.current) {
-        setError(
-          'ArtVault AR 2.0 could not start. WebXR hit-test and DOM-overlay support are required.',
-        )
+        const name = cause instanceof DOMException ? cause.name : ''
+        const errorMessage = name === 'NotAllowedError'
+          ? 'Camera/AR permission was denied. Please allow camera permissions in your browser settings and try again.'
+          : name === 'SecurityError'
+            ? 'Camera AR requires a secure connection (HTTPS). Please access ArtVault over HTTPS or localhost.'
+            : name === 'NotSupportedError'
+              ? 'WebXR immersive AR with hit-test is not supported on this device. You can use the 3D gallery preview instead.'
+              : 'ArtVault AR could not start. Please ensure WebXR and camera permissions are available, or use the 3D gallery preview.'
+        setError(errorMessage)
         setExperienceMode('error')
       }
     }
@@ -832,10 +859,10 @@ export function ArtworkWebXrViewer({
           <p>{error}</p>
           <div className="flex flex-wrap gap-2">
             <Button variant="info" onClick={startAr} disabled={!modelReady}>
-              Retry AR 2.0
+              Retry Immersive AR
             </Button>
             <Button onClick={() => setUseFallback(true)}>
-              Use compatibility AR
+              Use 3D Gallery Preview
             </Button>
           </div>
         </div>
@@ -1043,9 +1070,30 @@ export function ArtworkWebXrViewer({
                   <>
                     <p className="text-center text-xs text-white/65">
                       Drag with one finger to reposition. Pinch with two
-                      fingers to resize. The artwork stays unlocked until
-                      you press Lock position.
+                      fingers to resize. Use rotate buttons to adjust angle.
+                      The artwork stays unlocked until you press Lock position.
                     </p>
+                    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
+                      <span>Rotation: {rotationDeg}°</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => rotateArtwork(-15)}
+                          className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20"
+                          aria-label="Rotate counter-clockwise 15 degrees"
+                        >
+                          ↺ -15°
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rotateArtwork(15)}
+                          className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20"
+                          aria-label="Rotate clockwise 15 degrees"
+                        >
+                          ↻ +15°
+                        </button>
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={lockPosition}

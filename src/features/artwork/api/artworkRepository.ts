@@ -157,54 +157,32 @@ export async function mapCatalogRow(
     ? row.images.filter(isRecord)
     : []
 
-  const images: ArtworkImage[] = []
+  const validImages = rawImages
+    .map((image) => {
+      const id = typeof image.id === 'string' ? image.id : null
+      const path = typeof image.path === 'string' ? image.path : null
+      const contentType = image.contentType ?? image.content_type
+      const order = numberOrZero(image.order ?? image.sort_order)
+      const size = numberOrZero(image.size ?? image.size_bytes)
 
-  for (const image of rawImages) {
-    const id =
-      typeof image.id === 'string'
-        ? image.id
-        : null
+      if (!id || !path || !isArtworkImageContentType(contentType)) {
+        return null
+      }
 
-    const path =
-      typeof image.path === 'string'
-        ? image.path
-        : null
-
-    const contentType =
-      image.contentType ??
-      image.content_type
-
-    const order =
-      numberOrZero(
-        image.order ??
-          image.sort_order,
-      )
-
-    const size =
-      numberOrZero(
-        image.size ??
-          image.size_bytes,
-      )
-
-    if (
-      !id ||
-      !path ||
-      !isArtworkImageContentType(
-        contentType,
-      )
-    ) {
-      continue
-    }
-
-    images.push({
-      id,
-      path,
-      url: await signedImage(path),
-      order,
-      contentType,
-      size,
+      return { id, path, order, contentType, size }
     })
-  }
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+
+  const images: ArtworkImage[] = await Promise.all(
+    validImages.map(async (entry) => ({
+      id: entry.id,
+      path: entry.path,
+      url: await signedImage(entry.path),
+      order: entry.order,
+      contentType: entry.contentType,
+      size: entry.size,
+    })),
+  )
 
   const mapped = mapToArtwork(
     String(row.id),

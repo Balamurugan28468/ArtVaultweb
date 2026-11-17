@@ -5,7 +5,8 @@ import type { Address } from '@/features/address'
 import { AddressPicker } from './AddressPicker'
 
 const useAddresses = vi.fn()
-vi.mock('@/features/address', () => ({
+vi.mock('@/features/address', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/address')>()),
   useAddresses: () => useAddresses(),
   AddressFormModal: ({ open, onSaved, onClose }: { open: boolean; onSaved?: (id: string) => void; onClose: () => void }) => (open ? <div><p>Add Address Modal</p><button onClick={() => { onSaved?.('new'); onClose() }}>Complete save</button></div> : null),
 }))
@@ -55,6 +56,21 @@ describe('AddressPicker', () => {
     expect(screen.getByText('Bob Bell')).toBeInTheDocument()
     expect(screen.getByText('Default')).toBeInTheDocument()
     expect(screen.queryByLabelText('Full name')).not.toBeInTheDocument()
+  })
+
+  it('deduplicates identical saved addresses so each unique destination is shown only once', () => {
+    useAddresses.mockReturnValue({
+      status: 'loaded',
+      addresses: [
+        buildAddress({ id: 'a1', fullName: 'Ada Lovelace', isDefault: false }),
+        buildAddress({ id: 'a2', fullName: 'Ada Lovelace', isDefault: true }),
+      ],
+    })
+    render(<AddressPicker onChange={vi.fn()} />)
+
+    const matches = screen.getAllByText('Ada Lovelace')
+    expect(matches).toHaveLength(1)
+    expect(screen.getByText('Default')).toBeInTheDocument()
   })
 
   it('auto-selects the Default saved address and reports it as complete', () => {

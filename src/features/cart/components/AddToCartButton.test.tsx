@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from 'vitest'
 const getQuantity = vi.fn()
 const addItem = vi.fn()
 const success = vi.fn()
+const useOptionalAuth = vi.fn(() => null)
+vi.mock('@/app/providers/AuthProvider', () => ({ useOptionalAuth: () => useOptionalAuth() }))
 vi.mock('../context/CartProvider', () => ({ useCart: () => ({ getQuantity, addItem }) }))
 vi.mock('@/shared/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/shared/ui')>()
@@ -22,6 +24,18 @@ function renderButton(artworkId = 'a1', inventoryCount = 5) {
 }
 
 describe('AddToCartButton', () => {
+  it('shows "Your artwork" disabled when the logged-in user is the seller of the artwork', () => {
+    useOptionalAuth.mockReturnValueOnce({ user: { uid: 'seller1' } } as never)
+    render(
+      <MemoryRouter>
+        <AddToCartButton artworkId="a1" sellerId="seller1" inventoryCount={5} />
+      </MemoryRouter>,
+    )
+    const button = screen.getByRole('button', { name: 'Your artwork' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('title', 'You cannot purchase your own artwork')
+  })
+
   it('shows "Sold out", disabled, when inventoryCount is 0 — never adds a line for stock that does not exist', () => {
     getQuantity.mockReturnValue(0)
     renderButton('a1', 0)

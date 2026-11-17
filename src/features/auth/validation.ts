@@ -1,11 +1,36 @@
 import { emailField } from '@/shared/validation/fields'
 
 export const EMAIL_OTP_LENGTH = 6
-const gmailTypos = new Set(['gmal.com', 'gmial.com', 'gmai.com', 'gmail.con', 'gmali.com'])
+
+const DOMAIN_TYPO_MAP: Record<string, string> = {
+  // Gmail typos
+  'gmal.com': 'gmail.com',
+  'gmial.com': 'gmail.com',
+  'gmai.com': 'gmail.com',
+  'gmail.con': 'gmail.com',
+  'gmali.com': 'gmail.com',
+  'gmail.co': 'gmail.com',
+
+  // Yahoo typos
+  'yaho.com': 'yahoo.com',
+  'yahooo.com': 'yahoo.com',
+  'yaho.co': 'yahoo.com',
+  'yahoo.co': 'yahoo.com',
+
+  // Hotmail typos
+  'hotmail.co': 'hotmail.com',
+  'hotmial.com': 'hotmail.com',
+  'hotmai.com': 'hotmail.com',
+
+  // Outlook typos
+  'outlok.com': 'outlook.com',
+  'outlook.co': 'outlook.com',
+}
 
 export function getEmailDomainSuggestion(email: string): string | null {
   const parts = email.trim().toLowerCase().split('@')
-  return parts.length === 2 && parts[0] && gmailTypos.has(parts[1]) ? 'gmail.com' : null
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null
+  return DOMAIN_TYPO_MAP[parts[1]] ?? null
 }
 
 /** Syntax only; mailbox ownership is established by Supabase OTP verification. */

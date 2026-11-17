@@ -322,14 +322,22 @@ describe(
         'Belong',
       )
 
+      // Wait for auth status to settle to 'unauthenticated' before the
+      // Create Account link appears (AuthProvider resolves asynchronously
+      // via getSession even when session is null).
+      const createAccountLinks = await screen.findAllByRole(
+        'link',
+        {
+          name:
+            'Create Account',
+        },
+        {
+          timeout: 3000,
+        },
+      )
+
       fireEvent.click(
-        screen.getAllByRole(
-          'link',
-          {
-            name:
-              'Create Account',
-          },
-        )[0],
+        createAccountLinks[0],
       )
 
       expect(
@@ -373,13 +381,19 @@ describe(
         'Belong',
       )
 
+      // Wait for auth status to settle before the Sign in link appears.
+      const signInLinks = await screen.findAllByRole(
+        'link',
+        {
+          name: 'Sign in',
+        },
+        {
+          timeout: 3000,
+        },
+      )
+
       fireEvent.click(
-        screen.getAllByRole(
-          'link',
-          {
-            name: 'Sign in',
-          },
-        )[0],
+        signInLinks[0],
       )
 
       expect(

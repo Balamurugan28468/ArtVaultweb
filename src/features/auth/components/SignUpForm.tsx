@@ -27,7 +27,7 @@ export function SignUpForm({ onSuccess }: { onSuccess: () => void | Promise<void
     mode: 'onTouched',
   })
   const values = useWatch({ control })
-  const suggestGmail = getEmailDomainSuggestion(values.email ?? '')
+  const suggestedDomain = getEmailDomainSuggestion(values.email ?? '')
   const valid = signUpSchema.safeParse(values).success
   const emailVerified = Boolean(attempt && verifiedUserId === attempt.userId)
   const busy = isSubmitting || otpBusy || clearingSession
@@ -143,24 +143,24 @@ export function SignUpForm({ onSuccess }: { onSuccess: () => void | Promise<void
           autoComplete="email"
           aria-invalid={!!errors.email}
           aria-describedby={
-            [errors.email && 'sign-up-email-error', suggestGmail && 'sign-up-email-suggestion'].filter(Boolean).join(' ') || undefined
+            [errors.email && 'sign-up-email-error', suggestedDomain && 'sign-up-email-suggestion'].filter(Boolean).join(' ') || undefined
           }
           {...register('email')}
         />
 
-        {suggestGmail && (
+        {suggestedDomain && (
           <div id="sign-up-email-suggestion" className="flex flex-wrap items-center gap-2 text-sm text-text-secondary">
-            <span>Did you mean @gmail.com? Confirm the spelling before sending a code.</span>
+            <span>Did you mean @{suggestedDomain}? Confirm the spelling before sending a code.</span>
             <button
               type="button"
               disabled={busy || Boolean(attempt)}
               className="font-semibold text-brand-primary-on-dark underline-offset-2 hover:underline"
               onClick={() => {
                 const localPart = (values.email ?? '').trim().split('@')[0]
-                setValue('email', `${localPart}@gmail.com`, { shouldValidate: true, shouldDirty: true, shouldTouch: true })
+                setValue('email', `${localPart}@${suggestedDomain}`, { shouldValidate: true, shouldDirty: true, shouldTouch: true })
               }}
             >
-              Use gmail.com
+              Use {suggestedDomain}
             </button>
           </div>
         )}

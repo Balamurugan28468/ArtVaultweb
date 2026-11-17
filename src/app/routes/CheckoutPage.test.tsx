@@ -173,3 +173,19 @@ it('blocks checkout when the remaining stock is reserved', () => {
   expect(screen.getByRole('button', { name: 'Create unpaid order' })).toBeDisabled()
   expect(submit).not.toHaveBeenCalled()
 })
+
+it('blocks checkout and shows an alert when an artwork in the cart was created by the buyer', () => {
+  useAuth.mockReturnValue({ user: { uid: 'seller-alice', email: 'alice@example.com' } })
+  useUserProfile.mockReturnValue({ status: 'loaded', profile: { phoneNumber: null, displayName: 'Alice' } })
+  useCartLines.mockReturnValue({
+    lines: [{ artwork: buildArtwork({ sellerId: 'seller-alice' }), quantity: 1, lineTotal: 150000 }],
+    subtotal: 150000,
+    isLoading: false,
+    unavailableCount: 0,
+  })
+  renderPage()
+  fireEvent.click(screen.getByRole('button', { name: 'Select saved address' }))
+  expect(screen.getByRole('button', { name: 'Create unpaid order' })).toBeDisabled()
+  expect(screen.getByText('Your cart contains artwork you created. Please remove your artwork before checking out.')).toBeInTheDocument()
+  expect(submit).not.toHaveBeenCalled()
+})

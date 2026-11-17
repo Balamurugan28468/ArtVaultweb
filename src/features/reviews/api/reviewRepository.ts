@@ -142,6 +142,7 @@ export async function checkReviewEligibility(artworkId: string, sellerId?: strin
     .select('id, orders!inner(buyer_id, payment_state, status)')
     .eq('artwork_id', artworkId)
     .eq('orders.buyer_id', user.id)
+    .eq('orders.payment_state', 'PAID')
     .limit(1)
 
   const hasPurchased = Boolean(orderItem && orderItem.length > 0)

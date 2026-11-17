@@ -555,26 +555,26 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
           </span>
         </div>
 
-        {/* Lock Overlay Badge */}
-        <div className="absolute top-3 right-3 z-20">
+        {/* Lock Overlay Badge – compact glass */}
+        <div className="absolute top-2 right-2 z-20">
           <button
             type="button"
             onClick={() => setIsLocked(!isLocked)}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur-md transition-all shadow-md ${
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold backdrop-blur-md transition-all shadow-md ${
               isLocked
-                ? 'bg-emerald-500/90 text-white hover:bg-emerald-600'
-                : 'bg-black/80 text-accent-gold hover:bg-black/90 border border-accent-gold/40'
+                ? 'bg-emerald-500/50 text-emerald-100 hover:bg-emerald-500/65 border border-emerald-400/30'
+                : 'bg-black/40 text-accent-gold hover:bg-black/55 border border-accent-gold/30'
             }`}
           >
             {isLocked ? (
               <>
-                <Lock aria-hidden="true" className="h-3.5 w-3.5" />
-                LOCKED TO WALL
+                <Lock aria-hidden="true" className="h-3 w-3" />
+                LOCKED
               </>
             ) : (
               <>
-                <Unlock aria-hidden="true" className="h-3.5 w-3.5" />
-                UNLOCKED (ADJUSTABLE)
+                <Unlock aria-hidden="true" className="h-3 w-3" />
+                UNLOCKED
               </>
             )}
           </button>
@@ -589,17 +589,17 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
           </div>
         )}
 
-        {/* Bottom Floating Controls Bar */}
-        <div className="absolute inset-x-3 bottom-3 z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-black/85 p-2.5 backdrop-blur-md border border-white/10 text-xs text-white">
+        {/* Bottom Floating Controls Bar – compact glassmorphism */}
+        <div className="absolute inset-x-2 bottom-2 z-20 flex flex-wrap items-center justify-between gap-1.5 rounded-xl bg-black/40 px-2 py-1.5 backdrop-blur-lg border border-white/10 shadow-lg text-xs text-white">
           {/* Frame Style Selectors */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-text-muted mr-1">Frame:</span>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-white/50 mr-0.5">Frame:</span>
             {(['black', 'walnut', 'white', 'gold'] as const).map((style) => (
               <button
                 key={style}
                 type="button"
                 onClick={() => setFrameStyle(style)}
-                className={`h-6 w-6 rounded-full border-2 transition-transform ${
+                className={`h-5 w-5 rounded-full border-2 transition-transform ${
                   frameStyle === style ? 'scale-110 border-accent-gold shadow-sm' : 'border-white/20 hover:scale-105'
                 }`}
                 style={{ backgroundColor: FRAME_COLORS[style].border }}
@@ -610,91 +610,91 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
           </div>
 
           {/* Scale Buttons */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             <button
               type="button"
               disabled={isLocked || scalePercent <= 40}
               onClick={() => setScalePercent((p) => Math.max(40, p - 10))}
-              className="rounded p-1 text-white/80 hover:bg-white/10 disabled:opacity-40"
+              className="rounded p-1 text-white/75 hover:bg-white/10 disabled:opacity-35"
               title="Decrease scale"
               aria-label="Decrease scale"
             >
-              <ZoomOut aria-hidden="true" className="h-4 w-4" />
+              <ZoomOut aria-hidden="true" className="h-3.5 w-3.5" />
             </button>
-            <span className="min-w-[3rem] text-center font-mono">{scalePercent}%</span>
+            <span className="min-w-[2.6rem] text-center font-mono text-[11px]">{scalePercent}%</span>
             <button
               type="button"
               disabled={isLocked || scalePercent >= 250}
               onClick={() => setScalePercent((p) => Math.min(250, p + 10))}
-              className="rounded p-1 text-white/80 hover:bg-white/10 disabled:opacity-40"
+              className="rounded p-1 text-white/75 hover:bg-white/10 disabled:opacity-35"
               title="Increase scale"
               aria-label="Increase scale"
             >
-              <ZoomIn aria-hidden="true" className="h-4 w-4" />
+              <ZoomIn aria-hidden="true" className="h-3.5 w-3.5" />
             </button>
           </div>
 
           {/* Rotation & Reset */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <button
               type="button"
               disabled={isLocked}
               onClick={() => setRotationY((r) => (r + 15) % 360)}
-              className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-[11px] hover:bg-white/20 disabled:opacity-40"
+              className="inline-flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-1 text-[10px] hover:bg-white/20 disabled:opacity-35"
               title="Rotate artwork angle"
             >
-              <RotateCw aria-hidden="true" className="h-3.5 w-3.5" />
+              <RotateCw aria-hidden="true" className="h-3 w-3" />
               <span>Rotate</span>
             </button>
 
             <button
               type="button"
               onClick={handleReset}
-              className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-[11px] hover:bg-white/20"
+              className="inline-flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-1 text-[10px] hover:bg-white/20"
               title="Reset position and scale"
             >
-              <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+              <RefreshCw aria-hidden="true" className="h-3 w-3" />
               <span>Reset</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Manual Controls Card */}
-      <Card className="flex flex-col gap-4 p-5">
+      {/* Manual Controls Card – compact */}
+      <Card className="flex flex-col gap-3 p-4">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Sliders aria-hidden="true" className="h-4 w-4 text-accent-gold" />
-            <h3 className="font-medium text-sm text-text-primary">Interactive Dimensions & Placement Controls</h3>
+          <div className="flex items-center gap-1.5">
+            <Sliders aria-hidden="true" className="h-3.5 w-3.5 text-accent-gold" />
+            <h3 className="font-medium text-xs text-text-primary">Dimensions &amp; Placement</h3>
           </div>
           <button
             type="button"
             onClick={() => setShowInstructions(!showInstructions)}
-            className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary"
+            className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-primary"
           >
-            <Info aria-hidden="true" className="h-3.5 w-3.5" />
-            <span>{showInstructions ? 'Hide tips' : 'Camera & surface tips'}</span>
+            <Info aria-hidden="true" className="h-3 w-3" />
+            <span>{showInstructions ? 'Hide tips' : 'Tips'}</span>
           </button>
         </div>
 
         {showInstructions && (
-          <div className="rounded-lg bg-surface-elevated p-3.5 text-xs text-text-secondary border border-border flex flex-col gap-1.5">
-            <p className="font-semibold text-text-primary">Surface & Wall Placement Tips:</p>
-            <ul className="list-disc list-inside space-y-1 text-text-muted">
+          <div className="rounded-lg bg-surface-elevated p-3 text-[11px] text-text-secondary border border-border flex flex-col gap-1">
+            <p className="font-semibold text-text-primary">Surface &amp; Wall Placement Tips:</p>
+            <ul className="list-disc list-inside space-y-0.5 text-text-muted">
               <li>Ensure the room is well-lit and the wall has some visual texture or frame contrast.</li>
               <li>In Live Camera mode, drag with one finger or mouse to adjust artwork placement against your real wall.</li>
-              <li>Press the <strong>LOCKED TO WALL</strong> toggle once aligned to freeze position while moving around.</li>
+              <li>Press the <strong>LOCKED</strong> toggle once aligned to freeze position.</li>
               <li>On WebXR-supported devices (Chrome on Android with ARCore), tap <strong>Launch Camera Wall AR</strong> for automatic plane detection.</li>
             </ul>
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-xs">
           {/* Scale Slider */}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             <div className="flex justify-between">
-              <span className="text-text-secondary font-medium">Fine Scale Adjustment</span>
-              <span className="font-mono text-accent-gold">{scalePercent}% ({currentWidthCm} × {currentHeightCm} cm)</span>
+              <span className="text-text-secondary font-medium text-[11px]">Scale</span>
+              <span className="font-mono text-accent-gold text-[11px]">{scalePercent}% ({currentWidthCm} × {currentHeightCm} cm)</span>
             </div>
             <input
               type="range"
@@ -704,15 +704,15 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
               disabled={isLocked}
               value={scalePercent}
               onChange={(e) => setScalePercent(Number(e.target.value))}
-              className="h-1.5 w-full rounded-lg bg-surface-elevated accent-accent-gold disabled:opacity-40"
+              className="h-1 w-full rounded-lg bg-surface-elevated accent-accent-gold disabled:opacity-40"
             />
           </div>
 
           {/* Wall Perspective Slider */}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             <div className="flex justify-between">
-              <span className="text-text-secondary font-medium">Viewing Angle / Yaw</span>
-              <span className="font-mono text-text-muted">{rotationY}°</span>
+              <span className="text-text-secondary font-medium text-[11px]">Yaw Angle</span>
+              <span className="font-mono text-text-muted text-[11px]">{rotationY}°</span>
             </div>
             <input
               type="range"
@@ -722,19 +722,19 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
               disabled={isLocked}
               value={rotationY}
               onChange={(e) => setRotationY(Number(e.target.value))}
-              className="h-1.5 w-full rounded-lg bg-surface-elevated accent-accent-gold disabled:opacity-40"
+              className="h-1 w-full rounded-lg bg-surface-elevated accent-accent-gold disabled:opacity-40"
             />
           </div>
         </div>
 
         {/* WebXR Camera Status */}
-        <div className="flex flex-col gap-2 pt-2 border-t border-border sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 text-xs">
-            <Camera aria-hidden="true" className="h-4 w-4 text-blue-400" />
+        <div className="flex flex-col gap-1.5 pt-2 border-t border-border sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <Camera aria-hidden="true" className="h-3.5 w-3.5 text-blue-400 shrink-0" />
             <span className="text-text-secondary">
               {webXrSupported === true
-                ? 'WebXR immersive-ar supported on this browser'
-                : 'WebXR camera pass-through not detected — using full 3D room simulation'}
+                ? 'WebXR immersive-ar supported'
+                : 'WebXR not detected — 3D simulation active'}
             </span>
           </div>
 
@@ -748,7 +748,7 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
                 )
                 setActiveMode('immersive-ar')
               }}
-              className="text-xs"
+              className="text-[11px]"
             >
               Launch Camera Wall AR
             </Button>
@@ -758,19 +758,19 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
                 variant="secondary"
                 size="sm"
                 onClick={() => setActiveMode(activeMode === 'camera-overlay' ? '3d-gallery' : 'camera-overlay')}
-                className="text-xs"
+                className="text-[11px]"
               >
                 {activeMode === 'camera-overlay' ? 'Switch to 3D Wall' : 'Try Live Camera AR'}
               </Button>
-              <span className="text-[11px] text-text-muted">
-                Works on all browsers & mobile devices.
+              <span className="text-[10px] text-text-muted">
+                Works on all browsers.
               </span>
             </div>
           )}
         </div>
 
         {xrLaunchMessage && (
-          <div role="status" className="rounded-lg border border-cyan-500/30 bg-cyan-950/40 p-3 text-xs text-cyan-200">
+          <div role="status" className="rounded-lg border border-cyan-500/30 bg-cyan-950/40 p-2 text-[11px] text-cyan-200">
             {xrLaunchMessage}
           </div>
         )}

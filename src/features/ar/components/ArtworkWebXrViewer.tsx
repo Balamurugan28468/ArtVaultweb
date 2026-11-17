@@ -1043,15 +1043,15 @@ export function ArtworkWebXrViewer({
           </div>
         )}
 
-        <div className="absolute bottom-0 left-0 right-0 z-30 p-4">
-          <div className="mx-auto flex max-w-md flex-col gap-3 rounded-2xl border border-white/15 bg-slate-950/75 p-4 shadow-2xl backdrop-blur-xl">
+        <div className="absolute bottom-0 left-0 right-0 z-30 p-3 pb-safe">
+          <div className="mx-auto flex max-w-md flex-col gap-2 rounded-2xl border border-white/10 bg-black/40 p-3 shadow-2xl backdrop-blur-xl">
             {mode === 'scanning' && (
               <>
                 <div className="text-center">
                   <p className="text-sm font-semibold">
                     {wallReady ? 'Wall ready' : 'Move your phone slowly'}
                   </p>
-                  <p className="mt-1 text-xs text-white/65">
+                  <p className="mt-0.5 text-[11px] text-white/60">
                     Point the centre reticle at a vertical wall.
                   </p>
                 </div>
@@ -1059,7 +1059,7 @@ export function ArtworkWebXrViewer({
                   type="button"
                   disabled={!wallReady}
                   onClick={placeArtwork}
-                  className="rounded-xl bg-cyan-300 px-5 py-3 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-35"
+                  className="rounded-xl bg-cyan-300 px-5 py-2.5 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   Tap to Place
                 </button>
@@ -1068,43 +1068,43 @@ export function ArtworkWebXrViewer({
 
             {(mode === 'locked' || mode === 'adjusting') && (
               <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-[10px] uppercase tracking-wider text-white/55">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    <p className="text-[9px] uppercase tracking-wider text-white/50">
                       Estimated Size
                     </p>
-                    <p className="mt-1 text-lg font-bold text-cyan-200">
+                    <p className="mt-0.5 text-sm font-bold text-cyan-200">
                       {formatArCentimetres(size.widthCm)} ×{' '}
                       {formatArCentimetres(size.heightCm)} cm
                     </p>
                   </div>
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-[10px] uppercase tracking-wider text-white/55">
+                  <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    <p className="text-[9px] uppercase tracking-wider text-white/50">
                       Scale
                     </p>
-                    <p className="mt-1 text-lg font-bold text-cyan-200">
+                    <p className="mt-0.5 text-sm font-bold text-cyan-200">
                       {size.scalePercent}%
                     </p>
                   </div>
                 </div>
 
                 <div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-1 overflow-hidden rounded-full bg-white/10">
                     <div
                       className="h-full rounded-full bg-cyan-300"
                       style={{ width: `${scaleProgress}%` }}
                     />
                   </div>
-                  <div className="mt-1 flex justify-between text-[10px] text-white/45">
+                  <div className="mt-0.5 flex justify-between text-[9px] text-white/40">
                     <span>{Math.round(MIN_AR_SCALE * 100)}%</span>
                     <span>{Math.round(MAX_AR_SCALE * 100)}%</span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-[11px]">
                   <span
                     className={
-                      anchored ? 'text-emerald-300' : 'text-white/60'
+                      anchored ? 'text-emerald-300' : 'text-white/55'
                     }
                   >
                     {anchored
@@ -1126,44 +1126,42 @@ export function ArtworkWebXrViewer({
                 </div>
 
                 {mode === 'locked' ? (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-1.5">
                     <button
                       type="button"
                       onClick={unlockPosition}
-                      className="rounded-xl bg-cyan-300 px-3 py-3 font-bold text-slate-950"
+                      className="rounded-xl bg-cyan-300 px-2 py-2.5 text-sm font-bold text-slate-950"
                       aria-label="Unlock artwork position"
                     >
-                      🔓 Unlock position
+                      🔓 Unlock
                     </button>
                     <button
                       type="button"
                       onClick={resetPlacement}
-                      className="rounded-xl border border-white/20 bg-white/10 px-3 py-3 font-semibold"
+                      className="rounded-xl border border-white/20 bg-white/10 px-2 py-2.5 text-sm font-semibold"
                     >
                       Reset
                     </button>
                     <button
                       type="button"
                       onClick={endAr}
-                      className="rounded-xl border border-emerald-300/40 bg-emerald-300/15 px-3 py-3 font-semibold text-emerald-200"
+                      className="rounded-xl border border-emerald-300/40 bg-emerald-300/15 px-2 py-2.5 text-sm font-semibold text-emerald-200"
                     >
                       Finish
                     </button>
                   </div>
                 ) : (
                   <>
-                    <p className="text-center text-xs text-white/65">
-                      Drag with one finger to reposition. Pinch with two
-                      fingers to resize. Use rotate buttons to adjust angle.
-                      The artwork stays unlocked until you press Lock position.
+                    <p className="text-center text-[11px] text-white/60">
+                      Drag to reposition. Pinch to resize. Rotate buttons adjust angle.
                     </p>
-                    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
+                    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] text-white/80">
                       <span>Rotation: {rotationDeg}°</span>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => rotateArtwork(-15)}
-                          className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20"
+                          className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-semibold hover:bg-white/20"
                           aria-label="Rotate counter-clockwise 15 degrees"
                         >
                           ↺ -15°
@@ -1171,7 +1169,7 @@ export function ArtworkWebXrViewer({
                         <button
                           type="button"
                           onClick={() => rotateArtwork(15)}
-                          className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20"
+                          className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-semibold hover:bg-white/20"
                           aria-label="Rotate clockwise 15 degrees"
                         >
                           ↻ +15°
@@ -1181,7 +1179,7 @@ export function ArtworkWebXrViewer({
                     <button
                       type="button"
                       onClick={lockPosition}
-                      className="rounded-xl bg-cyan-300 px-5 py-3 font-bold text-slate-950"
+                      className="rounded-xl bg-cyan-300 px-5 py-2.5 font-bold text-slate-950 text-sm"
                       aria-label="Lock artwork position"
                     >
                       🔒 Lock position
@@ -1189,7 +1187,7 @@ export function ArtworkWebXrViewer({
                     <button
                       type="button"
                       onClick={resetPlacement}
-                      className="rounded-xl border border-white/20 bg-white/10 px-5 py-2 font-semibold"
+                      className="rounded-xl border border-white/20 bg-white/10 px-5 py-1.5 text-sm font-semibold"
                     >
                       Reset placement
                     </button>

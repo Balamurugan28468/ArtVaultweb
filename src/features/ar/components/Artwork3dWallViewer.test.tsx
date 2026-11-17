@@ -40,7 +40,7 @@ describe('Artwork3dWallViewer - Universal Multi-Tier AR', () => {
     render(<Artwork3dWallViewer artwork={mockArtwork} />)
 
     expect(screen.getByText('3D Gallery Wall Simulation')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /UNLOCKED \(ADJUSTABLE\)/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /UNLOCKED/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Rotate/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Reset/i })).toBeInTheDocument()
     expect(screen.getByText(/Scale: 100%/i)).toBeInTheDocument()
@@ -49,14 +49,14 @@ describe('Artwork3dWallViewer - Universal Multi-Tier AR', () => {
   it('allows manual locking and unlocking of artwork placement', () => {
     render(<Artwork3dWallViewer artwork={mockArtwork} />)
 
-    const lockBtn = screen.getByRole('button', { name: /UNLOCKED \(ADJUSTABLE\)/i })
+    const lockBtn = screen.getByRole('button', { name: /UNLOCKED/i })
     fireEvent.click(lockBtn)
 
-    expect(screen.getByRole('button', { name: /LOCKED TO WALL/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /LOCKED/i })).toBeInTheDocument()
 
     // Unlock again
-    fireEvent.click(screen.getByRole('button', { name: /LOCKED TO WALL/i }))
-    expect(screen.getByRole('button', { name: /UNLOCKED \(ADJUSTABLE\)/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /LOCKED/i }))
+    expect(screen.getByRole('button', { name: /UNLOCKED/i })).toBeInTheDocument()
   })
 
   it('switches between 3D Gallery Wall and Live Camera View', async () => {

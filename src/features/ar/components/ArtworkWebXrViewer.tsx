@@ -4,6 +4,14 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { Artwork } from '@/features/artwork'
 import { Button } from '@/shared/ui'
+import {
+  artworkArDimensionsDefault,
+  artworkArDimensionsFromAspect,
+  artworkArDimensionsFromProof,
+  detectImageAspect,
+  MESH_FIT_FACTOR,
+  type ArtworkArDimensions,
+} from '../artworkArDimensions'
 import type { ArProof } from '../proof'
 import {
   MAX_AR_SCALE,
@@ -56,9 +64,19 @@ interface PinchStart {
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const WALL_NORMAL_AXIS = new THREE.Vector3(0, 1, 0)
-const WALL_VERTICAL_LIMIT = 0.45
+const WALL_VERTICAL_LIMIT = 0.62
 const WALL_OFFSET_METRES = 0.008
 const DRAG_METRES_PER_PIXEL = 0.0015
+const STALE_HIT_GRACE_FRAMES = 8
+
+// Module-level reusable scratch objects to avoid GC churn in per-frame XR loops
+const _scratchPosition = new THREE.Vector3()
+const _scratchHitQuaternion = new THREE.Quaternion()
+const _scratchNormal = new THREE.Vector3()
+const _scratchTowardViewer = new THREE.Vector3()
+const _scratchRight = new THREE.Vector3()
+const _scratchCorrectedUp = new THREE.Vector3()
+const _scratchRotationMatrix = new THREE.Matrix4()
 
 function disposeObject(object: THREE.Object3D) {
   object.traverse((entry) => {
@@ -93,53 +111,54 @@ function wallTransformFromPose(
   pose: XRPose,
   viewerPose: XRViewerPose | null | undefined,
 ): WallTransform | null {
-  const position = new THREE.Vector3(
+  _scratchPosition.set(
     pose.transform.position.x,
     pose.transform.position.y,
     pose.transform.position.z,
   )
   const orientation = pose.transform.orientation
-  const hitQuaternion = new THREE.Quaternion(
+  _scratchHitQuaternion.set(
     orientation.x,
     orientation.y,
     orientation.z,
     orientation.w,
   )
-  const normal = WALL_NORMAL_AXIS
-    .clone()
-    .applyQuaternion(hitQuaternion)
+  _scratchNormal
+    .copy(WALL_NORMAL_AXIS)
+    .applyQuaternion(_scratchHitQuaternion)
     .normalize()
 
-  if (Math.abs(normal.dot(WORLD_UP)) > WALL_VERTICAL_LIMIT) return null
+  if (Math.abs(_scratchNormal.dot(WORLD_UP)) > WALL_VERTICAL_LIMIT) return null
 
   if (viewerPose) {
-    const towardViewer = new THREE.Vector3(
-      viewerPose.transform.position.x,
-      viewerPose.transform.position.y,
-      viewerPose.transform.position.z,
-    )
-      .sub(position)
+    _scratchTowardViewer
+      .set(
+        viewerPose.transform.position.x,
+        viewerPose.transform.position.y,
+        viewerPose.transform.position.z,
+      )
+      .sub(_scratchPosition)
       .normalize()
 
-    if (normal.dot(towardViewer) < 0) normal.negate()
+    if (_scratchNormal.dot(_scratchTowardViewer) < 0) _scratchNormal.negate()
   }
 
-  const right = new THREE.Vector3().crossVectors(WORLD_UP, normal)
-  if (right.lengthSq() < 0.000001) return null
-  right.normalize()
+  _scratchRight.crossVectors(WORLD_UP, _scratchNormal)
+  if (_scratchRight.lengthSq() < 0.000001) return null
+  _scratchRight.normalize()
 
-  const correctedUp = new THREE.Vector3()
-    .crossVectors(normal, right)
+  _scratchCorrectedUp
+    .crossVectors(_scratchNormal, _scratchRight)
     .normalize()
-  const rotationMatrix = new THREE.Matrix4().makeBasis(
-    right,
-    correctedUp,
-    normal,
+  _scratchRotationMatrix.makeBasis(
+    _scratchRight,
+    _scratchCorrectedUp,
+    _scratchNormal,
   )
 
   return {
-    position,
-    quaternion: new THREE.Quaternion().setFromRotationMatrix(rotationMatrix),
+    position: _scratchPosition.clone(),
+    quaternion: new THREE.Quaternion().setFromRotationMatrix(_scratchRotationMatrix),
   }
 }
 
@@ -179,6 +198,7 @@ export function ArtworkWebXrViewer({
   const pointersRef = useRef<Map<number, PointerPoint>>(new Map())
   const dragStartRef = useRef<DragStart | null>(null)
   const pinchStartRef = useRef<PinchStart | null>(null)
+  const staleHitFramesRef = useRef(0)
 
   const [webXrSupported, setWebXrSupported] = useState<boolean | null>(null)
   const [modelReady, setModelReady] = useState(false)
@@ -192,9 +212,37 @@ export function ArtworkWebXrViewer({
   const [error, setError] = useState<string | null>(null)
   const [useFallback, setUseFallback] = useState(false)
 
-  const widthMm = proof?.widthMm ?? 600
-  const heightMm = proof?.heightMm ?? 800
   const imageUrl = poster || artwork?.images[0]?.url
+
+  const [dimensions, setDimensions] = useState<ArtworkArDimensions>(() => {
+    if (proof) return artworkArDimensionsFromProof(proof)
+    return artworkArDimensionsDefault()
+  })
+
+  // Detect image aspect ratio when no proof is supplied
+  useEffect(() => {
+    if (proof) {
+      setDimensions(artworkArDimensionsFromProof(proof))
+      return
+    }
+    if (!imageUrl) {
+      setDimensions(artworkArDimensionsDefault())
+      return
+    }
+    let active = true
+    void detectImageAspect(imageUrl).then((aspect) => {
+      if (!active) return
+      if (aspect) {
+        setDimensions(artworkArDimensionsFromAspect(aspect))
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [proof, imageUrl])
+
+  const widthMm = dimensions.widthMm
+  const heightMm = dimensions.heightMm
 
   const size = useMemo(
     () => scaleDisplaySize(widthMm, heightMm, scale),
@@ -293,6 +341,7 @@ export function ArtworkWebXrViewer({
     }
 
     hitTestSourceRef.current = null
+    staleHitFramesRef.current = 0
     referenceSpaceRef.current = null
     latestHitRef.current = null
     latestWallTransformRef.current = null
@@ -432,9 +481,10 @@ export function ArtworkWebXrViewer({
 
     const createDirectMesh = (url: string) => {
       const artGroup = new THREE.Group()
-      const wM = (widthMm / 1000) * 0.9
-      const hM = (heightMm / 1000) * 0.9
-      const frameGeo = new THREE.BoxGeometry(wM + 0.06, hM + 0.06, 0.03)
+      const wM = (dimensions.artworkWidthMm / 1000) * MESH_FIT_FACTOR
+      const hM = (dimensions.artworkHeightMm / 1000) * MESH_FIT_FACTOR
+      const frameBorderM = ((dimensions.frameMm * 2) / 1000) * MESH_FIT_FACTOR
+      const frameGeo = new THREE.BoxGeometry(wM + frameBorderM, hM + frameBorderM, 0.03)
       const frameMat = new THREE.MeshStandardMaterial({
         color: 0x1a1a1a,
         roughness: 0.4,
@@ -443,44 +493,35 @@ export function ArtworkWebXrViewer({
       artGroup.add(frameMesh)
 
       const canvasGeo = new THREE.PlaneGeometry(wM, hM)
+      const placeholderMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
+      const canvasMesh = new THREE.Mesh(canvasGeo, placeholderMat)
+      canvasMesh.position.z = 0.016
+      artGroup.add(canvasMesh)
+
+      // Add to scene immediately and mark ready so artwork is placed without delay
+      loadedModelRef.current = artGroup
+      adjustmentGroup.add(artGroup)
+      resetAdjustment()
+      modelReadyRef.current = true
+      setModelReady(true)
+      setExperienceMode('ready')
+
+      // Load texture and replace placeholder material when ready
       const textureLoader = new THREE.TextureLoader()
       textureLoader.load(
         url,
         (texture) => {
           if (disposed) {
-            disposeObject(artGroup)
+            texture.dispose()
             return
           }
           texture.colorSpace = THREE.SRGBColorSpace
-          const canvasMat = new THREE.MeshBasicMaterial({ map: texture })
-          const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat)
-          canvasMesh.position.z = 0.016
-          artGroup.add(canvasMesh)
-
-          loadedModelRef.current = artGroup
-          adjustmentGroup.add(artGroup)
-          resetAdjustment()
-          modelReadyRef.current = true
-          setModelReady(true)
-          setExperienceMode('ready')
+          placeholderMat.dispose()
+          canvasMesh.material = new THREE.MeshBasicMaterial({ map: texture })
         },
         undefined,
         () => {
-          if (disposed) {
-            disposeObject(artGroup)
-            return
-          }
-          const canvasMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
-          const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat)
-          canvasMesh.position.z = 0.016
-          artGroup.add(canvasMesh)
-
-          loadedModelRef.current = artGroup
-          adjustmentGroup.add(artGroup)
-          resetAdjustment()
-          modelReadyRef.current = true
-          setModelReady(true)
-          setExperienceMode('ready')
+          // Keep placeholder mesh on error
         },
       )
     }
@@ -543,7 +584,13 @@ export function ArtworkWebXrViewer({
       anchorGroupRef.current = null
       adjustmentGroupRef.current = null
     }
-  }, [proof?.modelUrl, imageUrl])
+  }, [
+    proof?.modelUrl,
+    imageUrl,
+    dimensions.artworkWidthMm,
+    dimensions.artworkHeightMm,
+    dimensions.frameMm,
+  ])
 
   const renderXrFrame = (frame: XRFrame) => {
     const renderer = rendererRef.current
@@ -582,36 +629,32 @@ export function ArtworkWebXrViewer({
     } else if (hitSource && reticle) {
       const hits = frame.getHitTestResults(hitSource)
       const hit = hits[0]
+      let validWall: WallTransform | null = null
 
       if (hit) {
         const hitPose = hit.getPose(referenceSpace)
         if (hitPose) {
-          const wall = wallTransformFromPose(hitPose, viewerPose)
-          if (wall) {
-            latestHitRef.current = hit
-            latestWallTransformRef.current = wall
-            reticle.visible = true
-            reticle.position.copy(wall.position)
-            reticle.quaternion.copy(wall.quaternion)
-            reticle.translateZ(0.003)
-            updateWallReady(true)
-          } else {
-            reticle.visible = false
-            latestHitRef.current = null
-            latestWallTransformRef.current = null
-            updateWallReady(false)
-          }
-        } else {
+          validWall = wallTransformFromPose(hitPose, viewerPose)
+        }
+      }
+
+      if (hit && validWall) {
+        staleHitFramesRef.current = 0
+        latestHitRef.current = hit
+        latestWallTransformRef.current = validWall
+        reticle.visible = true
+        reticle.position.copy(validWall.position)
+        reticle.quaternion.copy(validWall.quaternion)
+        reticle.translateZ(0.003)
+        updateWallReady(true)
+      } else {
+        staleHitFramesRef.current += 1
+        if (staleHitFramesRef.current > STALE_HIT_GRACE_FRAMES) {
           reticle.visible = false
           latestHitRef.current = null
           latestWallTransformRef.current = null
           updateWallReady(false)
         }
-      } else {
-        reticle.visible = false
-        latestHitRef.current = null
-        latestWallTransformRef.current = null
-        updateWallReady(false)
       }
     }
 
@@ -671,6 +714,7 @@ export function ArtworkWebXrViewer({
       updateWallReady(false)
       updateTrackingLost(false)
       setAnchored(false)
+      staleHitFramesRef.current = 0
       setPresenting(true)
       setExperienceMode('scanning')
 

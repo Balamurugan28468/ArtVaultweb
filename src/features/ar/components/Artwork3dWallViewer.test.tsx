@@ -116,4 +116,47 @@ describe('Artwork3dWallViewer - Universal Multi-Tier AR', () => {
 
     expect(screen.getByText(/Scale: 100%/i)).toBeInTheDocument()
   })
+
+  it('adapts base dimensions dynamically for landscape artwork', async () => {
+    class MockLandscapeImage {
+      crossOrigin = ''
+      naturalWidth = 800
+      naturalHeight = 400
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      private _src = ''
+
+      get src() {
+        return this._src
+      }
+
+      set src(url: string) {
+        this._src = url
+        queueMicrotask(() => this.onload?.())
+      }
+
+      addEventListener(type: string, listener: () => void) {
+        if (type === 'load') this.onload = listener
+        if (type === 'error') this.onerror = listener
+      }
+
+      removeEventListener() {}
+    }
+
+    const originalImage = window.Image
+    window.Image = MockLandscapeImage as never
+    globalThis.Image = MockLandscapeImage as never
+    vi.stubGlobal('Image', MockLandscapeImage)
+
+    render(<Artwork3dWallViewer artwork={mockArtwork} />)
+
+    // Initially uses default 50 × 67 cm, then adapts to 2:1 landscape 50 × 25 cm
+    await waitFor(() => {
+      expect(screen.getAllByText(/50 × 25 cm/i).length).toBeGreaterThan(0)
+    })
+
+    window.Image = originalImage
+    globalThis.Image = originalImage
+    vi.unstubAllGlobals()
+  })
 })

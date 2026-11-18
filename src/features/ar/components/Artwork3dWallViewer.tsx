@@ -20,6 +20,12 @@ import * as THREE from 'three'
 import type { Artwork } from '@/features/artwork'
 import { Button, Card } from '@/shared/ui'
 import {
+  artworkArDimensionsDefault,
+  artworkArDimensionsFromAspect,
+  detectImageAspect,
+  type ArtworkArDimensions,
+} from '../artworkArDimensions'
+import {
   detectArCapabilities,
   type ArExperienceLevel,
   type DeviceArCapabilities,
@@ -78,9 +84,31 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
 
   const coverUrl = artwork.images[0]?.url
 
-  // Base dimensions in cm (estimated standard gallery canvas)
-  const baseWidthCm = 60
-  const baseHeightCm = 80
+  const [dimensions, setDimensions] = useState<ArtworkArDimensions>(() =>
+    artworkArDimensionsDefault(),
+  )
+
+  // Detect image natural aspect ratio and update dimensions dynamically
+  useEffect(() => {
+    if (!coverUrl) {
+      setDimensions(artworkArDimensionsDefault())
+      return
+    }
+    let active = true
+    void detectImageAspect(coverUrl).then((aspect) => {
+      if (!active) return
+      if (aspect) {
+        setDimensions(artworkArDimensionsFromAspect(aspect))
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [coverUrl])
+
+  // Base dimensions in cm derived dynamically from product-aware aspect ratio
+  const baseWidthCm = dimensions.widthMm / 10
+  const baseHeightCm = dimensions.heightMm / 10
   const currentWidthCm = ((baseWidthCm * scalePercent) / 100).toFixed(0)
   const currentHeightCm = ((baseHeightCm * scalePercent) / 100).toFixed(0)
 
@@ -227,8 +255,15 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     groupRef.current = artGroup
     scene.add(artGroup)
 
+    // Frame & Canvas Mesh sizing based on product-aware aspect ratio
+    const canvasWidth = 1.2
+    const canvasHeight = 1.2 / dimensions.aspectRatio
+    const frameBorder = (dimensions.frameMm * 2 / dimensions.artworkWidthMm) * canvasWidth
+    const frameWidth = canvasWidth + Math.max(0.06, Math.min(0.12, frameBorder))
+    const frameHeight = canvasHeight + Math.max(0.06, Math.min(0.12, frameBorder))
+
     // Frame Mesh
-    const frameGeo = new THREE.BoxGeometry(1.28, 1.68, 0.05)
+    const frameGeo = new THREE.BoxGeometry(frameWidth, frameHeight, 0.05)
     const frameMat = new THREE.MeshStandardMaterial({
       color: FRAME_COLORS[frameStyle].hex,
       roughness: 0.4,
@@ -238,26 +273,26 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     frameMeshRef.current = frameMesh
     artGroup.add(frameMesh)
 
-    // Artwork Canvas Mesh with Image Texture
-    const canvasGeo = new THREE.PlaneGeometry(1.2, 1.6)
+    // Artwork Canvas Mesh with Image Texture + immediate placeholder
+    const canvasGeo = new THREE.PlaneGeometry(canvasWidth, canvasHeight)
+    const placeholderMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
+    const canvasMesh = new THREE.Mesh(canvasGeo, placeholderMat)
+    canvasMesh.position.z = 0.026
+    artworkMeshRef.current = canvasMesh
+    artGroup.add(canvasMesh)
+
     if (coverUrl) {
       const textureLoader = new THREE.TextureLoader()
       textureLoader.load(
         coverUrl,
         (texture) => {
           texture.colorSpace = THREE.SRGBColorSpace
-          const canvasMat = new THREE.MeshBasicMaterial({ map: texture })
-          const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat)
-          canvasMesh.position.z = 0.026
-          artworkMeshRef.current = canvasMesh
-          artGroup.add(canvasMesh)
+          placeholderMat.dispose()
+          canvasMesh.material = new THREE.MeshBasicMaterial({ map: texture })
         },
         undefined,
         () => {
-          const canvasMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
-          const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat)
-          canvasMesh.position.z = 0.026
-          artGroup.add(canvasMesh)
+          // Keep placeholder on error
         },
       )
     }
@@ -299,7 +334,7 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
       window.removeEventListener('resize', handleResize)
       renderer.dispose()
     }
-  }, [coverUrl, activeMode])
+  }, [coverUrl, activeMode, dimensions.aspectRatio])
 
   // Update Scale
   useEffect(() => {

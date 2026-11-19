@@ -494,7 +494,7 @@ export function ArtworkWebXrViewer({
 
       const canvasGeo = new THREE.PlaneGeometry(wM, hM)
       const placeholderMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
-      const canvasMesh = new THREE.Mesh(canvasGeo, placeholderMat)
+      const canvasMesh: THREE.Mesh = new THREE.Mesh(canvasGeo, placeholderMat)
       canvasMesh.position.z = 0.016
       artGroup.add(canvasMesh)
 

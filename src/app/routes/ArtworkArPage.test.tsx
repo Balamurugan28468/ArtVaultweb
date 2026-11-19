@@ -68,7 +68,7 @@ describe('ArtworkArPage', () => {
     expect(screen.getByRole('button', { name: /UNLOCKED \(ADJUSTABLE\)|LOCKED TO WALL/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Rotate/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Reset/i })).toBeInTheDocument()
-    expect(screen.getByText(/WebXR camera pass-through not detected|WebXR immersive-ar supported/i)).toBeInTheDocument()
+    expect(screen.getByText(/WebXR not detected|WebXR immersive-ar supported/i)).toBeInTheDocument()
   })
 
   it('links to the real artist profile in both navigation layouts', () => {

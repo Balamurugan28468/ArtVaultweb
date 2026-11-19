@@ -276,7 +276,7 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     // Artwork Canvas Mesh with Image Texture + immediate placeholder
     const canvasGeo = new THREE.PlaneGeometry(canvasWidth, canvasHeight)
     const placeholderMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
-    const canvasMesh = new THREE.Mesh(canvasGeo, placeholderMat)
+    const canvasMesh: THREE.Mesh = new THREE.Mesh(canvasGeo, placeholderMat)
     canvasMesh.position.z = 0.026
     artworkMeshRef.current = canvasMesh
     artGroup.add(canvasMesh)
@@ -594,6 +594,7 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
         <div className="absolute top-2 right-2 z-20">
           <button
             type="button"
+            aria-label={isLocked ? 'LOCKED TO WALL' : 'UNLOCKED (ADJUSTABLE)'}
             onClick={() => setIsLocked(!isLocked)}
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold backdrop-blur-md transition-all shadow-md ${
               isLocked

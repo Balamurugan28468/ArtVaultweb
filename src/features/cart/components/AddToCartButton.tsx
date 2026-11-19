@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { Link } from 'react-router'
+import { useOptionalAuth } from '@/app/providers/AuthProvider'
 import { Button, buttonClassName, useToast, type ButtonSize } from '@/shared/ui'
 import { useCart } from '../context/CartProvider'
 
@@ -21,20 +22,41 @@ import { useCart } from '../context/CartProvider'
  */
 export function AddToCartButton({
   artworkId,
+  sellerId,
   inventoryCount,
   size = 'md',
   className = '',
 }: {
   artworkId: string
+  sellerId?: string
   inventoryCount: number
   size?: ButtonSize
   className?: string
 }) {
+  const auth = useOptionalAuth()
+  const user = auth?.user
   const { getQuantity, addItem, isPending } = useCart()
   const toast = useToast()
   const [pending, setPending] = useState(false)
+  const isOwner = Boolean(user?.uid && sellerId && user.uid === sellerId)
   const quantityInCart = getQuantity(artworkId)
   const soldOut = inventoryCount <= 0
+
+  if (isOwner) {
+    return (
+      <Button
+        type="button"
+        variant="secondary"
+        size={size}
+        disabled
+        aria-disabled="true"
+        title="You cannot purchase your own artwork"
+        className={className}
+      >
+        Your artwork
+      </Button>
+    )
+  }
 
   if (soldOut) {
     return (

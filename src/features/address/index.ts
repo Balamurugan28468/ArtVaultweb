@@ -6,3 +6,5 @@ export { ConfirmDeleteAddressModal } from './components/ConfirmDeleteAddressModa
 export { useAddresses } from './hooks/useAddresses'
 export type { Address, AddressError, AddressErrorCode, AddressInput, AddressListState } from './types'
 export { isAddressError } from './types'
+export { deduplicateAddresses, getAddressSignature } from './utils/deduplicateAddresses'
+

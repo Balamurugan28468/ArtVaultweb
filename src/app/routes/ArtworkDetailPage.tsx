@@ -1,5 +1,6 @@
 import { Box, Sparkles } from 'lucide-react'
 import { useState } from 'react'
+import { useOptionalAuth } from '@/app/providers/AuthProvider'
 import { availableInventory } from '@/features/inventory/stock'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useArtistProfile } from '@/features/artist-profile'
@@ -61,6 +62,8 @@ export function ArtworkDetailPage() {
   const [cartPending, setCartPending] = useState(false)
   const navigate = useNavigate()
 
+  const auth = useOptionalAuth()
+  const isOwner = Boolean(auth?.user?.uid && artwork?.sellerId && auth.user.uid === artwork.sellerId)
   const sellerId = artwork?.sellerId
   const artistNames = useArtistDisplayNames(sellerId ? [sellerId] : [])
   const artistName = sellerId ? artistNames[sellerId] : null
@@ -177,8 +180,8 @@ export function ArtworkDetailPage() {
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/20 text-blue-400 sm:h-9 sm:w-9">
                     <Box aria-hidden="true" className="h-4 w-4" />
                   </span>
-                  <p className="text-sm font-medium text-text-primary">AR preview unavailable</p>
-                  <p className="hidden text-xs text-text-secondary sm:block">Camera placement and true-scale AR are not available yet.</p>
+                  <p className="text-sm font-medium text-text-primary">AR Gallery</p>
+                  <p className="hidden text-xs text-text-secondary sm:block">View artwork in your space with WebXR or interactive 3D simulation.</p>
                   <Link to={`/artworks/${artwork.id}/ar`} className={buttonClassName('info', 'sm', 'mt-1 self-start')}>
                     About AR preview
                   </Link>
@@ -188,14 +191,14 @@ export function ArtworkDetailPage() {
               {/* Commerce area */}
               <div className="flex flex-col gap-2 border-t border-border pt-3 sm:pt-4">
                 <div className="flex flex-wrap gap-2">
-                  <AddToCartButton artworkId={artwork.id} inventoryCount={availableInventory(artwork)} size="md" />
+                  <AddToCartButton artworkId={artwork.id} sellerId={artwork.sellerId} inventoryCount={availableInventory(artwork)} size="md" />
                   <Button
                     type="button"
                     variant="gold"
                     size="md"
-                    disabled={cartPending || isPending?.(artwork.id) || availableInventory(artwork) <= 0}
-                    aria-disabled={cartPending || isPending?.(artwork.id) || availableInventory(artwork) <= 0}
-                    title={availableInventory(artwork) <= 0 ? 'Sold out' : undefined}
+                    disabled={cartPending || isPending?.(artwork.id) || availableInventory(artwork) <= 0 || isOwner}
+                    aria-disabled={cartPending || isPending?.(artwork.id) || availableInventory(artwork) <= 0 || isOwner}
+                    title={isOwner ? 'You cannot purchase your own artwork' : availableInventory(artwork) <= 0 ? 'Sold out' : undefined}
                     onClick={async () => {
                       setCartPending(true)
                       try {
@@ -203,9 +206,12 @@ export function ArtworkDetailPage() {
                       } finally { setCartPending(false) }
                     }}
                   >
-                    {getQuantity(artwork.id) > 0 ? 'Review cart' : 'Add & review cart'}
+                    {isOwner ? 'Your artwork' : getQuantity(artwork.id) > 0 ? 'Review cart' : 'Add & review cart'}
                   </Button>
                 </div>
+                {isOwner && (
+                  <p className="text-xs text-text-secondary">You created this artwork and cannot purchase it.</p>
+                )}
                 <p className="text-xs text-text-muted">
                   Checkout collects shipping details. Order placement and payment processing are unavailable.
                 </p>

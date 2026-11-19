@@ -1,6 +1,7 @@
 import { Box, ImageOff, Sparkles, Star } from 'lucide-react'
 import { type ComponentType } from 'react'
 import { Link, useParams } from 'react-router'
+import { Artwork3dWallViewer } from '@/features/ar/components/Artwork3dWallViewer'
 import { DevelopmentArProof } from '@/features/ar/components/DevelopmentArProof'
 import { usePublicArtwork } from '@/features/artwork'
 import { LikeButton } from '@/features/likes'
@@ -138,11 +139,7 @@ export function ArtworkArPage() {
             </div>
 
             <div className="flex min-w-0 flex-col gap-3">
-              <h2 className="font-display text-lg font-medium text-text-primary">AR preview unavailable</h2>
-              <p role="status" className="rounded-md border border-blue-600/30 bg-blue-600/10 p-3 text-sm text-text-secondary">
-                Camera placement, true-scale viewing, room previews, and artwork transforms are not available yet.
-                You can view the artwork image and return to its details.
-              </p>
+              <Artwork3dWallViewer artwork={artwork} />
             </div>
             </DevelopmentArProof>
           </div>

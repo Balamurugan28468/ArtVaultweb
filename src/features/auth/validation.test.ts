@@ -4,9 +4,25 @@ import { EMAIL_OTP_LENGTH, getEmailDomainSuggestion } from './validation'
 
 const valid = { displayName: 'Alice', email: 'alice@example.com', password: 'StrongPass1', confirmPassword: 'StrongPass1' }
 
-it.each(['gmal.com', 'gmial.com', 'gmai.com', 'gmail.con', 'gmali.com'])('blocks %s for new signup while allowing existing identities to log in', domain => {
+it.each([
+  ['gmal.com', 'gmail.com'],
+  ['gmial.com', 'gmail.com'],
+  ['gmai.com', 'gmail.com'],
+  ['gmail.con', 'gmail.com'],
+  ['gmali.com', 'gmail.com'],
+  ['gmail.co', 'gmail.com'],
+  ['yaho.com', 'yahoo.com'],
+  ['yahooo.com', 'yahoo.com'],
+  ['yaho.co', 'yahoo.com'],
+  ['yahoo.co', 'yahoo.com'],
+  ['hotmail.co', 'hotmail.com'],
+  ['hotmial.com', 'hotmail.com'],
+  ['hotmai.com', 'hotmail.com'],
+  ['outlok.com', 'outlook.com'],
+  ['outlook.co', 'outlook.com'],
+])('blocks %s for new signup suggesting %s while allowing existing identities to log in', (domain, expectedSuggestion) => {
   const email = `alice@${domain}`
-  expect(getEmailDomainSuggestion(`  Alice@${domain.toUpperCase()}  `)).toBe('gmail.com')
+  expect(getEmailDomainSuggestion(`  Alice@${domain.toUpperCase()}  `)).toBe(expectedSuggestion)
   expect(signUpSchema.safeParse({ ...valid, email }).success).toBe(false)
   expect(signInSchema.safeParse({ email, password: 'existing' }).success).toBe(true)
 })

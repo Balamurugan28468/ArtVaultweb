@@ -88,7 +88,7 @@ export function SignInForm({
 
         {possibleEmailTypo && (
           <p id="sign-in-email-suggestion" className="text-xs text-text-secondary" role="status">
-            Check the address spelling: did you mean @gmail.com?
+            Check the address spelling: did you mean @{possibleEmailTypo}?
             Existing accounts with this address can still sign in.
           </p>
         )}

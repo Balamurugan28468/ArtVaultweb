@@ -230,27 +230,61 @@ export async function requireIdentity(
   }
 }
 
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>()
+const inFlightSignedUrls = new Map<string, Promise<string>>()
+
 export async function signedImage(
   path: string,
 ): Promise<string> {
-  const data =
-    await result(
-      createClient()
-        .storage
-        .from(
-          'artwork-images',
-        )
-        .createSignedUrl(
-          path,
-          300,
-        ),
-    )
-
-  if (
-    !data?.signedUrl
-  ) {
-    throw dataError(null)
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path
   }
 
-  return data.signedUrl
+  const cached = signedUrlCache.get(path)
+  const now = Date.now()
+  if (cached && now < cached.expiresAt - 60_000) {
+    return cached.url
+  }
+
+  const inFlight = inFlightSignedUrls.get(path)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const TTL_SECONDS = 3600 // 1 hour TTL: prevents 5-minute image expiration and eliminates redundant signing roundtrips
+
+  const promise = (async () => {
+    try {
+      const data =
+        await result(
+          createClient()
+            .storage
+            .from(
+              'artwork-images',
+            )
+            .createSignedUrl(
+              path,
+              TTL_SECONDS,
+            ),
+        )
+
+      if (
+        !data?.signedUrl
+      ) {
+        throw dataError(null)
+      }
+
+      signedUrlCache.set(path, {
+        url: data.signedUrl,
+        expiresAt: Date.now() + TTL_SECONDS * 1000,
+      })
+
+      return data.signedUrl
+    } finally {
+      inFlightSignedUrls.delete(path)
+    }
+  })()
+
+  inFlightSignedUrls.set(path, promise)
+  return promise
 }

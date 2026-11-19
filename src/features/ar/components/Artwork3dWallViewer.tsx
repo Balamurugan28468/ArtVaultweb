@@ -1,12 +1,17 @@
 import {
   Camera,
+  ChevronDown,
+  ChevronUp,
   Eye,
   Info,
   Lock,
   RefreshCw,
   RotateCw,
   Sliders,
+  Smartphone,
   Unlock,
+  Video,
+  VideoOff,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -14,6 +19,18 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { Artwork } from '@/features/artwork'
 import { Button, Card } from '@/shared/ui'
+import {
+  artworkArDimensionsDefault,
+  artworkArDimensionsFromAspect,
+  detectImageAspect,
+  type ArtworkArDimensions,
+} from '../artworkArDimensions'
+import {
+  detectArCapabilities,
+  type ArExperienceLevel,
+  type DeviceArCapabilities,
+} from '../capabilities'
+import { ArtworkWebXrViewer } from './ArtworkWebXrViewer'
 
 interface Artwork3dWallViewerProps {
   artwork: Artwork
@@ -30,12 +47,30 @@ const FRAME_COLORS: Record<FrameStyle, { border: string; hex: number }> = {
 
 export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  // Experience mode state
+  const [activeMode, setActiveMode] = useState<ArExperienceLevel>('3d-gallery')
+  const [capabilities, setCapabilities] = useState<DeviceArCapabilities | null>(null)
   const [scalePercent, setScalePercent] = useState(100)
   const [frameStyle, setFrameStyle] = useState<FrameStyle>('black')
   const [isLocked, setIsLocked] = useState(false)
   const [rotationY, setRotationY] = useState(0)
   const [webXrSupported, setWebXrSupported] = useState<boolean | null>(null)
   const [showInstructions, setShowInstructions] = useState(false)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
+  const [xrLaunchMessage, setXrLaunchMessage] = useState<string | null>(null)
+
+  // Camera overlay state
+  const [cameraActive, setCameraActive] = useState(false)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
+
+  // Drag positioning in Camera Overlay mode
+  const [artPosition, setArtPosition] = useState({ x: 0, y: 0 })
+  const isDraggingRef = useRef(false)
+  const dragStartPosRef = useRef({ x: 0, y: 0 })
+  const artPosRef = useRef({ x: 0, y: 0 })
 
   // Three.js scene refs
   const sceneRef = useRef<THREE.Scene | null>(null)
@@ -44,28 +79,117 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
   const artworkMeshRef = useRef<THREE.Mesh | null>(null)
   const frameMeshRef = useRef<THREE.Mesh | null>(null)
   const groupRef = useRef<THREE.Group | null>(null)
+  const wallMeshRef = useRef<THREE.Mesh | null>(null)
+  const floorMeshRef = useRef<THREE.Mesh | null>(null)
 
   const coverUrl = artwork.images[0]?.url
 
-  // Base dimensions in cm (estimated standard gallery canvas)
-  const baseWidthCm = 60
-  const baseHeightCm = 80
+  const [dimensions, setDimensions] = useState<ArtworkArDimensions>(() =>
+    artworkArDimensionsDefault(),
+  )
+
+  // Detect image natural aspect ratio and update dimensions dynamically
+  useEffect(() => {
+    if (!coverUrl) {
+      setDimensions(artworkArDimensionsDefault())
+      return
+    }
+    let active = true
+    void detectImageAspect(coverUrl).then((aspect) => {
+      if (!active) return
+      if (aspect) {
+        setDimensions(artworkArDimensionsFromAspect(aspect))
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [coverUrl])
+
+  // Base dimensions in cm derived dynamically from product-aware aspect ratio
+  const baseWidthCm = dimensions.widthMm / 10
+  const baseHeightCm = dimensions.heightMm / 10
   const currentWidthCm = ((baseWidthCm * scalePercent) / 100).toFixed(0)
   const currentHeightCm = ((baseHeightCm * scalePercent) / 100).toFixed(0)
 
-  // Check WebXR hardware support
+  // Detect capabilities on mount
   useEffect(() => {
-    if (typeof navigator !== 'undefined' && 'xr' in navigator && (navigator as any).xr?.isSessionSupported) {
-      ;(navigator as any).xr
-        .isSessionSupported('immersive-ar')
-        .then((supported: boolean) => setWebXrSupported(supported))
-        .catch(() => setWebXrSupported(false))
-    } else {
-      setWebXrSupported(false)
+    let active = true
+    void detectArCapabilities().then((caps) => {
+      if (!active) return
+      setCapabilities(caps)
+      setWebXrSupported(caps.immersiveArSupported)
+    })
+    return () => {
+      active = false
     }
   }, [])
 
-  // Initialize Three.js 3D Gallery View
+  // Manage camera stream lifecycle for Level 2 Camera Overlay
+  useEffect(() => {
+    if (activeMode !== 'camera-overlay') {
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach((track) => track.stop())
+        cameraStreamRef.current = null
+      }
+      setCameraActive(false)
+      setCameraError(null)
+      return
+    }
+
+    let active = true
+    setCameraError(null)
+
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
+      setCameraError('Camera API is not supported in this browser.')
+      return
+    }
+
+    navigator.mediaDevices
+      .getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      })
+      .then((stream) => {
+        if (!active) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
+        }
+        cameraStreamRef.current = stream
+        setCameraActive(true)
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.play().catch(() => undefined)
+        }
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        const name = err instanceof DOMException ? err.name : ''
+        if (name === 'NotAllowedError') {
+          setCameraError('Camera access was denied. Please allow camera permissions in browser settings.')
+        } else if (name === 'NotFoundError') {
+          setCameraError('No camera found on this device.')
+        } else {
+          setCameraError('Could not start camera feed. Please check browser camera permissions.')
+        }
+      })
+
+    return () => {
+      active = false
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach((track) => track.stop())
+        cameraStreamRef.current = null
+      }
+    }
+  }, [activeMode])
+
+  // Initialize Three.js 3D View (used for both 3D Gallery Wall and Camera Overlay)
   useEffect(() => {
     const container = mountRef.current
     if (!container) return
@@ -73,15 +197,20 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     const width = container.clientWidth || 600
     const height = container.clientHeight || 420
 
+    let renderer: THREE.WebGLRenderer
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    } catch {
+      return
+    }
+
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x0f1115)
     sceneRef.current = scene
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100)
     camera.position.set(0, 0, 3.2)
     cameraRef.current = camera
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setSize(width, height)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     rendererRef.current = renderer
@@ -106,6 +235,7 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     })
     const wallMesh = new THREE.Mesh(wallGeo, wallMat)
     wallMesh.position.z = -0.1
+    wallMeshRef.current = wallMesh
     scene.add(wallMesh)
 
     // Baseboard floor accent
@@ -117,6 +247,7 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     const floorMesh = new THREE.Mesh(floorGeo, floorMat)
     floorMesh.rotation.x = -Math.PI / 2
     floorMesh.position.y = -1.8
+    floorMeshRef.current = floorMesh
     scene.add(floorMesh)
 
     // Group for Artwork + Frame
@@ -124,8 +255,15 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     groupRef.current = artGroup
     scene.add(artGroup)
 
+    // Frame & Canvas Mesh sizing based on product-aware aspect ratio
+    const canvasWidth = 1.2
+    const canvasHeight = 1.2 / dimensions.aspectRatio
+    const frameBorder = (dimensions.frameMm * 2 / dimensions.artworkWidthMm) * canvasWidth
+    const frameWidth = canvasWidth + Math.max(0.06, Math.min(0.12, frameBorder))
+    const frameHeight = canvasHeight + Math.max(0.06, Math.min(0.12, frameBorder))
+
     // Frame Mesh
-    const frameGeo = new THREE.BoxGeometry(1.28, 1.68, 0.05)
+    const frameGeo = new THREE.BoxGeometry(frameWidth, frameHeight, 0.05)
     const frameMat = new THREE.MeshStandardMaterial({
       color: FRAME_COLORS[frameStyle].hex,
       roughness: 0.4,
@@ -135,29 +273,41 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     frameMeshRef.current = frameMesh
     artGroup.add(frameMesh)
 
-    // Artwork Canvas Mesh with Image Texture
-    const canvasGeo = new THREE.PlaneGeometry(1.2, 1.6)
+    // Artwork Canvas Mesh with Image Texture + immediate placeholder
+    const canvasGeo = new THREE.PlaneGeometry(canvasWidth, canvasHeight)
+    const placeholderMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
+    const canvasMesh: THREE.Mesh = new THREE.Mesh(canvasGeo, placeholderMat)
+    canvasMesh.position.z = 0.026
+    artworkMeshRef.current = canvasMesh
+    artGroup.add(canvasMesh)
+
     if (coverUrl) {
       const textureLoader = new THREE.TextureLoader()
       textureLoader.load(
         coverUrl,
         (texture) => {
           texture.colorSpace = THREE.SRGBColorSpace
-          const canvasMat = new THREE.MeshBasicMaterial({ map: texture })
-          const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat)
-          canvasMesh.position.z = 0.026
-          artworkMeshRef.current = canvasMesh
-          artGroup.add(canvasMesh)
+          placeholderMat.dispose()
+          canvasMesh.material = new THREE.MeshBasicMaterial({ map: texture })
         },
         undefined,
         () => {
-          // Fallback if texture fails
-          const canvasMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
-          const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat)
-          canvasMesh.position.z = 0.026
-          artGroup.add(canvasMesh)
+          // Keep placeholder on error
         },
       )
+    }
+
+    // Adjust scene background based on activeMode
+    if (activeMode === 'camera-overlay') {
+      scene.background = null
+      renderer.setClearColor(0x000000, 0)
+      wallMesh.visible = false
+      floorMesh.visible = false
+    } else {
+      scene.background = new THREE.Color(0x0f1115)
+      renderer.setClearColor(0x0f1115, 1)
+      wallMesh.visible = true
+      floorMesh.visible = true
     }
 
     // Animation Loop
@@ -184,7 +334,7 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
       window.removeEventListener('resize', handleResize)
       renderer.dispose()
     }
-  }, [coverUrl])
+  }, [coverUrl, activeMode, dimensions.aspectRatio])
 
   // Update Scale
   useEffect(() => {
@@ -207,65 +357,285 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
     mat.metalness = frameStyle === 'gold' ? 0.7 : 0.1
   }, [frameStyle])
 
+  // Update Position in Camera Overlay mode
+  useEffect(() => {
+    if (!groupRef.current) return
+    if (activeMode === 'camera-overlay') {
+      groupRef.current.position.x = artPosition.x
+      groupRef.current.position.y = artPosition.y
+    } else {
+      groupRef.current.position.set(0, 0, 0)
+    }
+  }, [artPosition, activeMode])
+
+  // Drag handlers for Camera Overlay mode
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (isLocked || activeMode !== 'camera-overlay') return
+    isDraggingRef.current = true
+    dragStartPosRef.current = { x: e.clientX, y: e.clientY }
+    artPosRef.current = { ...artPosition }
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current || isLocked) return
+    const dx = (e.clientX - dragStartPosRef.current.x) * 0.005
+    const dy = (dragStartPosRef.current.y - e.clientY) * 0.005
+    const nextPos = {
+      x: Math.max(-2.5, Math.min(2.5, artPosRef.current.x + dx)),
+      y: Math.max(-1.8, Math.min(1.8, artPosRef.current.y + dy)),
+    }
+    setArtPosition(nextPos)
+  }
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    isDraggingRef.current = false
+    try {
+      ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+    } catch {
+      // Ignore if already released
+    }
+  }
+
   const handleReset = () => {
     setScalePercent(100)
     setRotationY(0)
+    setArtPosition({ x: 0, y: 0 })
     setIsLocked(false)
+  }
+
+  // If user selected Full Immersive WebXR AR, render ArtworkWebXrViewer
+  if (activeMode === 'immersive-ar') {
+    return (
+      <div className="flex flex-col gap-4">
+        <ArtworkWebXrViewer
+          artwork={artwork}
+          onExit={() => setActiveMode('3d-gallery')}
+        />
+      </div>
+    )
   }
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 3D Wall Canvas Container */}
+      {/* Experience Tier Selector Tabs */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-surface-elevated p-1.5 text-xs">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setActiveMode('3d-gallery')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-colors ${
+              activeMode === '3d-gallery'
+                ? 'bg-accent-gold text-black shadow-sm'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface'
+            }`}
+          >
+            <Eye aria-hidden="true" className="h-3.5 w-3.5" />
+            3D Gallery Wall
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveMode('camera-overlay')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-colors ${
+              activeMode === 'camera-overlay'
+                ? 'bg-accent-gold text-black shadow-sm'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface'
+            }`}
+          >
+            <Video aria-hidden="true" className="h-3.5 w-3.5" />
+            Live Camera View
+          </button>
+
+          {webXrSupported === true && (
+            <button
+              type="button"
+              onClick={() => setActiveMode('immersive-ar')}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 px-3 py-1.5 font-medium transition-colors border border-blue-500/30"
+            >
+              <Camera aria-hidden="true" className="h-3.5 w-3.5" />
+              Immersive WebXR
+            </button>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowDiagnostics(!showDiagnostics)}
+          className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] text-text-muted hover:text-text-primary"
+        >
+          <Info aria-hidden="true" className="h-3.5 w-3.5" />
+          <span>Device & Connection Guide</span>
+          {showDiagnostics ? (
+            <ChevronUp aria-hidden="true" className="h-3 w-3" />
+          ) : (
+            <ChevronDown aria-hidden="true" className="h-3 w-3" />
+          )}
+        </button>
+      </div>
+
+      {/* Expandable Device & Connection Guide */}
+      {showDiagnostics && (
+        <Card className="flex flex-col gap-3 p-4 text-xs border-cyan-500/30 bg-cyan-950/20">
+          <div className="flex items-center gap-2 text-cyan-300 font-semibold">
+            <Smartphone aria-hidden="true" className="h-4 w-4" />
+            <span>Universal AR Device & Capability Matrix</span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 text-text-secondary">
+            <div className="flex items-center justify-between rounded-lg bg-black/40 p-2 border border-white/5">
+              <span>Secure Context (HTTPS / localhost):</span>
+              <span className="font-mono text-cyan-200">
+                {capabilities?.isSecureContext ? '✅ Secure' : '⚠️ Insecure HTTP'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-black/40 p-2 border border-white/5">
+              <span>WebXR API:</span>
+              <span className="font-mono text-cyan-200">
+                {capabilities?.hasWebXrApi ? '✅ Available' : '❌ Not in browser'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-black/40 p-2 border border-white/5">
+              <span>Immersive AR Session:</span>
+              <span className="font-mono text-cyan-200">
+                {capabilities?.immersiveArSupported
+                  ? '✅ Supported (Hit-test ready)'
+                  : '❌ Unsupported'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-black/40 p-2 border border-white/5">
+              <span>Camera API (getUserMedia):</span>
+              <span className="font-mono text-cyan-200">
+                {capabilities?.hasCameraApi ? '✅ Ready' : '❌ Unavailable'}
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-black/50 p-3 text-[11px] text-text-muted space-y-1.5 border border-white/5">
+            <p className="font-medium text-text-secondary">Connection Modes:</p>
+            <p>
+              • <strong>Wireless Production:</strong> When deployed to HTTPS, WebXR and camera AR work completely wirelessly across all compatible phones, tablets, and computers with zero cables needed.
+            </p>
+            <p>
+              • <strong>USB Development:</strong> Connect Android over USB and run <code className="text-accent-gold">adb reverse tcp:5173 tcp:5173</code>, then open <code className="text-accent-gold">http://localhost:5173</code> on your phone so Chrome treats it as a secure origin.
+            </p>
+            <p>
+              • <strong>Wi-Fi LAN Development:</strong> If accessing via <code className="text-accent-gold">http://192.168.x.x:5173</code> without HTTPS, browsers block camera and WebXR access for security. Use USB ADB reverse or deploy to HTTPS for wireless access.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {/* Viewport Canvas Container */}
       <div className="relative overflow-hidden rounded-2xl border border-border bg-surface-elevated shadow-elevated">
-        <div ref={mountRef} className="h-[22rem] w-full sm:h-[30rem]" />
+        {/* Live Video Feed Background for Camera Mode */}
+        {activeMode === 'camera-overlay' && (
+          <div className="absolute inset-0 z-0 overflow-hidden bg-black">
+            <video
+              ref={videoRef}
+              playsInline
+              autoPlay
+              muted
+              className="h-full w-full object-cover"
+            />
+            {cameraError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center bg-black/85 text-white">
+                <VideoOff className="h-8 w-8 text-rose-400" />
+                <p className="text-sm font-medium">{cameraError}</p>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setActiveMode('3d-gallery')}
+                >
+                  Return to 3D Gallery Wall
+                </Button>
+              </div>
+            )}
+            {!cameraActive && !cameraError && (
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-white/70">
+                Initializing camera feed...
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 3D Canvas Mount Point */}
+        <div
+          ref={mountRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          style={{ touchAction: activeMode === 'camera-overlay' && !isLocked ? 'none' : 'auto' }}
+          className="relative z-10 h-[22rem] w-full sm:h-[30rem] cursor-grab active:cursor-grabbing"
+        />
 
         {/* Status Overlay Badge */}
-        <div className="absolute top-3 left-3 flex flex-wrap items-center gap-2">
+        <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1 text-xs font-medium text-white backdrop-blur-md border border-white/10">
-            <Eye aria-hidden="true" className="h-3.5 w-3.5 text-accent-gold" />
-            3D Gallery Wall Simulation
+            {activeMode === 'camera-overlay' ? (
+              <>
+                <Video aria-hidden="true" className="h-3.5 w-3.5 text-accent-gold" />
+                Live Camera Room View
+              </>
+            ) : (
+              <>
+                <Eye aria-hidden="true" className="h-3.5 w-3.5 text-accent-gold" />
+                3D Gallery Wall Simulation
+              </>
+            )}
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-black/75 px-2.5 py-1 text-xs text-text-muted backdrop-blur-md border border-white/10">
             Scale: {scalePercent}% ({currentWidthCm} × {currentHeightCm} cm)
           </span>
         </div>
 
-        {/* Lock Overlay Badge */}
-        <div className="absolute top-3 right-3">
+        {/* Lock Overlay Badge – compact glass */}
+        <div className="absolute top-2 right-2 z-20">
           <button
             type="button"
+            aria-label={isLocked ? 'LOCKED TO WALL' : 'UNLOCKED (ADJUSTABLE)'}
             onClick={() => setIsLocked(!isLocked)}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur-md transition-all shadow-md ${
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold backdrop-blur-md transition-all shadow-md ${
               isLocked
-                ? 'bg-emerald-500/90 text-white hover:bg-emerald-600'
-                : 'bg-black/80 text-accent-gold hover:bg-black/90 border border-accent-gold/40'
+                ? 'bg-emerald-500/50 text-emerald-100 hover:bg-emerald-500/65 border border-emerald-400/30'
+                : 'bg-black/40 text-accent-gold hover:bg-black/55 border border-accent-gold/30'
             }`}
           >
             {isLocked ? (
               <>
-                <Lock aria-hidden="true" className="h-3.5 w-3.5" />
-                LOCKED TO WALL
+                <Lock aria-hidden="true" className="h-3 w-3" />
+                LOCKED
               </>
             ) : (
               <>
-                <Unlock aria-hidden="true" className="h-3.5 w-3.5" />
-                UNLOCKED (ADJUSTABLE)
+                <Unlock aria-hidden="true" className="h-3 w-3" />
+                UNLOCKED
               </>
             )}
           </button>
         </div>
 
-        {/* Bottom Floating Controls Bar */}
-        <div className="absolute inset-x-3 bottom-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-black/85 p-2.5 backdrop-blur-md border border-white/10 text-xs text-white">
+        {/* Camera mode dragging notice */}
+        {activeMode === 'camera-overlay' && !isLocked && (
+          <div className="pointer-events-none absolute inset-x-4 top-14 z-20 text-center">
+            <span className="inline-block rounded-full bg-black/70 px-3 py-1 text-[11px] text-white/90 backdrop-blur-md border border-white/10">
+              Drag on screen to reposition artwork in room
+            </span>
+          </div>
+        )}
+
+        {/* Bottom Floating Controls Bar – compact glassmorphism */}
+        <div className="absolute inset-x-2 bottom-2 z-20 flex flex-wrap items-center justify-between gap-1.5 rounded-xl bg-black/40 px-2 py-1.5 backdrop-blur-lg border border-white/10 shadow-lg text-xs text-white">
           {/* Frame Style Selectors */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-text-muted mr-1">Frame:</span>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-white/50 mr-0.5">Frame:</span>
             {(['black', 'walnut', 'white', 'gold'] as const).map((style) => (
               <button
                 key={style}
                 type="button"
                 onClick={() => setFrameStyle(style)}
-                className={`h-6 w-6 rounded-full border-2 transition-transform ${
+                className={`h-5 w-5 rounded-full border-2 transition-transform ${
                   frameStyle === style ? 'scale-110 border-accent-gold shadow-sm' : 'border-white/20 hover:scale-105'
                 }`}
                 style={{ backgroundColor: FRAME_COLORS[style].border }}
@@ -276,91 +646,91 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
           </div>
 
           {/* Scale Buttons */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             <button
               type="button"
               disabled={isLocked || scalePercent <= 40}
               onClick={() => setScalePercent((p) => Math.max(40, p - 10))}
-              className="rounded p-1 text-white/80 hover:bg-white/10 disabled:opacity-40"
+              className="rounded p-1 text-white/75 hover:bg-white/10 disabled:opacity-35"
               title="Decrease scale"
               aria-label="Decrease scale"
             >
-              <ZoomOut aria-hidden="true" className="h-4 w-4" />
+              <ZoomOut aria-hidden="true" className="h-3.5 w-3.5" />
             </button>
-            <span className="min-w-[3rem] text-center font-mono">{scalePercent}%</span>
+            <span className="min-w-[2.6rem] text-center font-mono text-[11px]">{scalePercent}%</span>
             <button
               type="button"
               disabled={isLocked || scalePercent >= 250}
               onClick={() => setScalePercent((p) => Math.min(250, p + 10))}
-              className="rounded p-1 text-white/80 hover:bg-white/10 disabled:opacity-40"
+              className="rounded p-1 text-white/75 hover:bg-white/10 disabled:opacity-35"
               title="Increase scale"
               aria-label="Increase scale"
             >
-              <ZoomIn aria-hidden="true" className="h-4 w-4" />
+              <ZoomIn aria-hidden="true" className="h-3.5 w-3.5" />
             </button>
           </div>
 
           {/* Rotation & Reset */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <button
               type="button"
               disabled={isLocked}
               onClick={() => setRotationY((r) => (r + 15) % 360)}
-              className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-[11px] hover:bg-white/20 disabled:opacity-40"
+              className="inline-flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-1 text-[10px] hover:bg-white/20 disabled:opacity-35"
               title="Rotate artwork angle"
             >
-              <RotateCw aria-hidden="true" className="h-3.5 w-3.5" />
+              <RotateCw aria-hidden="true" className="h-3 w-3" />
               <span>Rotate</span>
             </button>
 
             <button
               type="button"
               onClick={handleReset}
-              className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-[11px] hover:bg-white/20"
+              className="inline-flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-1 text-[10px] hover:bg-white/20"
               title="Reset position and scale"
             >
-              <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+              <RefreshCw aria-hidden="true" className="h-3 w-3" />
               <span>Reset</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Manual Controls Card */}
-      <Card className="flex flex-col gap-4 p-5">
+      {/* Manual Controls Card – compact */}
+      <Card className="flex flex-col gap-3 p-4">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Sliders aria-hidden="true" className="h-4 w-4 text-accent-gold" />
-            <h3 className="font-medium text-sm text-text-primary">Interactive Dimensions & Placement Controls</h3>
+          <div className="flex items-center gap-1.5">
+            <Sliders aria-hidden="true" className="h-3.5 w-3.5 text-accent-gold" />
+            <h3 className="font-medium text-xs text-text-primary">Dimensions &amp; Placement</h3>
           </div>
           <button
             type="button"
             onClick={() => setShowInstructions(!showInstructions)}
-            className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary"
+            className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-primary"
           >
-            <Info aria-hidden="true" className="h-3.5 w-3.5" />
-            <span>{showInstructions ? 'Hide tips' : 'Camera & surface tips'}</span>
+            <Info aria-hidden="true" className="h-3 w-3" />
+            <span>{showInstructions ? 'Hide tips' : 'Tips'}</span>
           </button>
         </div>
 
         {showInstructions && (
-          <div className="rounded-lg bg-surface-elevated p-3.5 text-xs text-text-secondary border border-border flex flex-col gap-1.5">
-            <p className="font-semibold text-text-primary">Wall Surface Detection Tips:</p>
-            <ul className="list-disc list-inside space-y-1 text-text-muted">
+          <div className="rounded-lg bg-surface-elevated p-3 text-[11px] text-text-secondary border border-border flex flex-col gap-1">
+            <p className="font-semibold text-text-primary">Surface &amp; Wall Placement Tips:</p>
+            <ul className="list-disc list-inside space-y-0.5 text-text-muted">
               <li>Ensure the room is well-lit and the wall has some visual texture or frame contrast.</li>
-              <li>Hold your phone roughly 1 to 2 meters away from the desired wall location.</li>
-              <li>Slowly pan your device in small circular motions to allow hit-testing to map vertical planes.</li>
-              <li>Press the <strong>LOCK TO WALL</strong> toggle once aligned to freeze placement while you examine room perspective.</li>
+              <li>In Live Camera mode, drag with one finger or mouse to adjust artwork placement against your real wall.</li>
+              <li>Press the <strong>LOCKED</strong> toggle once aligned to freeze position.</li>
+              <li>On WebXR-supported devices (Chrome on Android with ARCore), tap <strong>Launch Camera Wall AR</strong> for automatic plane detection.</li>
             </ul>
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-xs">
           {/* Scale Slider */}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             <div className="flex justify-between">
-              <span className="text-text-secondary font-medium">Fine Scale Adjustment</span>
-              <span className="font-mono text-accent-gold">{scalePercent}% ({currentWidthCm} × {currentHeightCm} cm)</span>
+              <span className="text-text-secondary font-medium text-[11px]">Scale</span>
+              <span className="font-mono text-accent-gold text-[11px]">{scalePercent}% ({currentWidthCm} × {currentHeightCm} cm)</span>
             </div>
             <input
               type="range"
@@ -370,15 +740,15 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
               disabled={isLocked}
               value={scalePercent}
               onChange={(e) => setScalePercent(Number(e.target.value))}
-              className="h-1.5 w-full rounded-lg bg-surface-elevated accent-accent-gold disabled:opacity-40"
+              className="h-1 w-full rounded-lg bg-surface-elevated accent-accent-gold disabled:opacity-40"
             />
           </div>
 
           {/* Wall Perspective Slider */}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             <div className="flex justify-between">
-              <span className="text-text-secondary font-medium">Viewing Angle / Yaw</span>
-              <span className="font-mono text-text-muted">{rotationY}°</span>
+              <span className="text-text-secondary font-medium text-[11px]">Yaw Angle</span>
+              <span className="font-mono text-text-muted text-[11px]">{rotationY}°</span>
             </div>
             <input
               type="range"
@@ -388,19 +758,19 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
               disabled={isLocked}
               value={rotationY}
               onChange={(e) => setRotationY(Number(e.target.value))}
-              className="h-1.5 w-full rounded-lg bg-surface-elevated accent-accent-gold disabled:opacity-40"
+              className="h-1 w-full rounded-lg bg-surface-elevated accent-accent-gold disabled:opacity-40"
             />
           </div>
         </div>
 
         {/* WebXR Camera Status */}
-        <div className="flex flex-col gap-2 pt-2 border-t border-border sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 text-xs">
-            <Camera aria-hidden="true" className="h-4 w-4 text-blue-400" />
+        <div className="flex flex-col gap-1.5 pt-2 border-t border-border sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <Camera aria-hidden="true" className="h-3.5 w-3.5 text-blue-400 shrink-0" />
             <span className="text-text-secondary">
               {webXrSupported === true
-                ? 'WebXR immersive-ar supported on this browser'
-                : 'WebXR camera pass-through not detected — using full 3D room simulation'}
+                ? 'WebXR immersive-ar supported'
+                : 'WebXR not detected — 3D simulation active'}
             </span>
           </div>
 
@@ -409,20 +779,38 @@ export function Artwork3dWallViewer({ artwork }: Artwork3dWallViewerProps) {
               variant="info"
               size="sm"
               onClick={() => {
-                alert('Launching WebXR AR session... Please grant camera permission when prompted.')
+                setXrLaunchMessage(
+                  'WebXR detected. Starting camera AR session...',
+                )
+                setActiveMode('immersive-ar')
               }}
-              className="text-xs"
+              className="text-[11px]"
             >
               Launch Camera Wall AR
             </Button>
           ) : (
-            <span className="text-[11px] text-text-muted">
-              Use Chrome on Android with Google Play Services for AR to place on real walls.
-            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setActiveMode(activeMode === 'camera-overlay' ? '3d-gallery' : 'camera-overlay')}
+                className="text-[11px]"
+              >
+                {activeMode === 'camera-overlay' ? 'Switch to 3D Wall' : 'Try Live Camera AR'}
+              </Button>
+              <span className="text-[10px] text-text-muted">
+                Works on all browsers.
+              </span>
+            </div>
           )}
         </div>
+
+        {xrLaunchMessage && (
+          <div role="status" className="rounded-lg border border-cyan-500/30 bg-cyan-950/40 p-2 text-[11px] text-cyan-200">
+            {xrLaunchMessage}
+          </div>
+        )}
       </Card>
     </div>
   )
 }
-

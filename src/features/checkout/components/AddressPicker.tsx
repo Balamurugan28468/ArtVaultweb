@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { AddressFormModal, useAddresses, type Address } from '@/features/address'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AddressFormModal, deduplicateAddresses, useAddresses, type Address } from '@/features/address'
 import { Link } from 'react-router'
 import { Badge, Button, Card, Skeleton } from '@/shared/ui'
 import { shippingAddressSchema, type ShippingAddressFormValues } from '../schemas'
@@ -42,25 +42,26 @@ export function AddressPicker({
     onChange(values, complete)
   }, [onChange])
 
-  const addresses = state.status === 'loaded' ? state.addresses : []
+  const rawAddresses = state.status === 'loaded' ? state.addresses : []
+  const addresses = useMemo(() => deduplicateAddresses(rawAddresses), [rawAddresses])
 
   useEffect(() => {
-    if (state.status !== 'loaded' || state.addresses.length === 0) return
+    if (state.status !== 'loaded' || addresses.length === 0) return
     if (awaitingId) {
-      if (state.addresses.some((address) => address.id === awaitingId)) {
+      if (addresses.some((address) => address.id === awaitingId)) {
         setSelectedId(awaitingId)
         setAwaitingId(null)
       }
       return
     }
-    if (selectedId && state.addresses.some((address) => address.id === selectedId)) return
-    const preferred = state.addresses.find((address) => address.isDefault) ?? state.addresses[0]
+    if (selectedId && addresses.some((address) => address.id === selectedId)) return
+    const preferred = addresses.find((address) => address.isDefault) ?? addresses[0]
     setSelectedId(preferred.id)
     // Only re-run when the loaded address list itself changes — picking a
     // default is a one-time-per-list decision, not something that should
     // re-fire on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, awaitingId])
+  }, [state, awaitingId, addresses])
 
   const selectedAddress = addresses.find((address) => address.id === selectedId) ?? null
 

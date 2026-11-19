@@ -39,14 +39,14 @@ export default defineConfig({
       // Firestore/Auth/Storage snapshot data, never imported into the app
       // bundle — so it and its transient recovery-staging siblings are
       // excluded outright.
-      ignored: ['**/emulator-data/**', '**/firebase-export-*/**'],
+      ignored: ['**/emulator-data/**', '**/firebase-export-*/**', '**/ar-proof.local/**'],
     },
   },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     globals: false,
-    pool: 'threads',
+    pool: 'forks',
     // Scoped to src/ so this never picks up firestore-tests/ (a separate
     // suite that needs a live Firestore emulator — see vitest.rules.config.ts).
     include: ['src/**/*.test.{ts,tsx}'],

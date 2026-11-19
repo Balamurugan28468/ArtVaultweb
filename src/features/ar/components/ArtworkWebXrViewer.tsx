@@ -2,7 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import type { Artwork } from '@/features/artwork'
 import { Button } from '@/shared/ui'
+import {
+  artworkArDimensionsDefault,
+  artworkArDimensionsFromAspect,
+  artworkArDimensionsFromProof,
+  detectImageAspect,
+  MESH_FIT_FACTOR,
+  type ArtworkArDimensions,
+} from '../artworkArDimensions'
 import type { ArProof } from '../proof'
 import {
   MAX_AR_SCALE,
@@ -23,9 +32,11 @@ type ExperienceMode =
   | 'error'
 
 interface ArtworkWebXrViewerProps {
-  proof: ArProof
-  title: string
+  artwork?: Artwork
+  proof?: ArProof | null
+  title?: string
   poster?: string
+  onExit?: () => void
 }
 
 interface WallTransform {
@@ -53,9 +64,19 @@ interface PinchStart {
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const WALL_NORMAL_AXIS = new THREE.Vector3(0, 1, 0)
-const WALL_VERTICAL_LIMIT = 0.45
+const WALL_VERTICAL_LIMIT = 0.62
 const WALL_OFFSET_METRES = 0.008
 const DRAG_METRES_PER_PIXEL = 0.0015
+const STALE_HIT_GRACE_FRAMES = 8
+
+// Module-level reusable scratch objects to avoid GC churn in per-frame XR loops
+const _scratchPosition = new THREE.Vector3()
+const _scratchHitQuaternion = new THREE.Quaternion()
+const _scratchNormal = new THREE.Vector3()
+const _scratchTowardViewer = new THREE.Vector3()
+const _scratchRight = new THREE.Vector3()
+const _scratchCorrectedUp = new THREE.Vector3()
+const _scratchRotationMatrix = new THREE.Matrix4()
 
 function disposeObject(object: THREE.Object3D) {
   object.traverse((entry) => {
@@ -90,60 +111,63 @@ function wallTransformFromPose(
   pose: XRPose,
   viewerPose: XRViewerPose | null | undefined,
 ): WallTransform | null {
-  const position = new THREE.Vector3(
+  _scratchPosition.set(
     pose.transform.position.x,
     pose.transform.position.y,
     pose.transform.position.z,
   )
   const orientation = pose.transform.orientation
-  const hitQuaternion = new THREE.Quaternion(
+  _scratchHitQuaternion.set(
     orientation.x,
     orientation.y,
     orientation.z,
     orientation.w,
   )
-  const normal = WALL_NORMAL_AXIS
-    .clone()
-    .applyQuaternion(hitQuaternion)
+  _scratchNormal
+    .copy(WALL_NORMAL_AXIS)
+    .applyQuaternion(_scratchHitQuaternion)
     .normalize()
 
-  if (Math.abs(normal.dot(WORLD_UP)) > WALL_VERTICAL_LIMIT) return null
+  if (Math.abs(_scratchNormal.dot(WORLD_UP)) > WALL_VERTICAL_LIMIT) return null
 
   if (viewerPose) {
-    const towardViewer = new THREE.Vector3(
-      viewerPose.transform.position.x,
-      viewerPose.transform.position.y,
-      viewerPose.transform.position.z,
-    )
-      .sub(position)
+    _scratchTowardViewer
+      .set(
+        viewerPose.transform.position.x,
+        viewerPose.transform.position.y,
+        viewerPose.transform.position.z,
+      )
+      .sub(_scratchPosition)
       .normalize()
 
-    if (normal.dot(towardViewer) < 0) normal.negate()
+    if (_scratchNormal.dot(_scratchTowardViewer) < 0) _scratchNormal.negate()
   }
 
-  const right = new THREE.Vector3().crossVectors(WORLD_UP, normal)
-  if (right.lengthSq() < 0.000001) return null
-  right.normalize()
+  _scratchRight.crossVectors(WORLD_UP, _scratchNormal)
+  if (_scratchRight.lengthSq() < 0.000001) return null
+  _scratchRight.normalize()
 
-  const correctedUp = new THREE.Vector3()
-    .crossVectors(normal, right)
+  _scratchCorrectedUp
+    .crossVectors(_scratchNormal, _scratchRight)
     .normalize()
-  const rotationMatrix = new THREE.Matrix4().makeBasis(
-    right,
-    correctedUp,
-    normal,
+  _scratchRotationMatrix.makeBasis(
+    _scratchRight,
+    _scratchCorrectedUp,
+    _scratchNormal,
   )
 
   return {
-    position,
-    quaternion: new THREE.Quaternion().setFromRotationMatrix(rotationMatrix),
+    position: _scratchPosition.clone(),
+    quaternion: new THREE.Quaternion().setFromRotationMatrix(_scratchRotationMatrix),
   }
 }
 
 export function ArtworkWebXrViewer({
+  artwork,
   proof,
-  title,
-  poster,
+  title = artwork?.title || 'Artwork',
+  poster = artwork?.images[0]?.url,
+  onExit,
 }: ArtworkWebXrViewerProps) {
   const canvasHostRef = useRef<HTMLDivElement>(null)
   const overlayRootRef = useRef<HTMLDivElement>(null)
@@ -168,11 +192,13 @@ export function ArtworkWebXrViewer({
   const trackingLostRef = useRef(false)
   const modeRef = useRef<ExperienceMode>('loading')
   const scaleRef = useRef(1)
+  const rotationDegRef = useRef(0)
   const offsetXRef = useRef(0)
   const offsetYRef = useRef(0)
   const pointersRef = useRef<Map<number, PointerPoint>>(new Map())
   const dragStartRef = useRef<DragStart | null>(null)
   const pinchStartRef = useRef<PinchStart | null>(null)
+  const staleHitFramesRef = useRef(0)
 
   const [webXrSupported, setWebXrSupported] = useState<boolean | null>(null)
   const [modelReady, setModelReady] = useState(false)
@@ -182,12 +208,45 @@ export function ArtworkWebXrViewer({
   const [trackingLost, setTrackingLost] = useState(false)
   const [anchored, setAnchored] = useState(false)
   const [scale, setScale] = useState(1)
+  const [rotationDeg, setRotationDeg] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [useFallback, setUseFallback] = useState(false)
 
+  const imageUrl = poster || artwork?.images[0]?.url
+
+  const [dimensions, setDimensions] = useState<ArtworkArDimensions>(() => {
+    if (proof) return artworkArDimensionsFromProof(proof)
+    return artworkArDimensionsDefault()
+  })
+
+  // Detect image aspect ratio when no proof is supplied
+  useEffect(() => {
+    if (proof) {
+      setDimensions(artworkArDimensionsFromProof(proof))
+      return
+    }
+    if (!imageUrl) {
+      setDimensions(artworkArDimensionsDefault())
+      return
+    }
+    let active = true
+    void detectImageAspect(imageUrl).then((aspect) => {
+      if (!active) return
+      if (aspect) {
+        setDimensions(artworkArDimensionsFromAspect(aspect))
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [proof, imageUrl])
+
+  const widthMm = dimensions.widthMm
+  const heightMm = dimensions.heightMm
+
   const size = useMemo(
-    () => scaleDisplaySize(proof.widthMm, proof.heightMm, scale),
-    [proof.widthMm, proof.heightMm, scale],
+    () => scaleDisplaySize(widthMm, heightMm, scale),
+    [widthMm, heightMm, scale],
   )
 
   const scaleProgress = useMemo(
@@ -235,6 +294,7 @@ export function ArtworkWebXrViewer({
       WALL_OFFSET_METRES,
     )
     group.scale.setScalar(scaleRef.current)
+    group.rotation.z = THREE.MathUtils.degToRad(rotationDegRef.current)
   }
 
   const clearPointers = () => {
@@ -245,9 +305,13 @@ export function ArtworkWebXrViewer({
 
   const resetAdjustment = () => {
     scaleRef.current = 1
+    rotationDegRef.current = 0
     offsetXRef.current = 0
     offsetYRef.current = 0
-    if (mountedRef.current) setScale(1)
+    if (mountedRef.current) {
+      setScale(1)
+      setRotationDeg(0)
+    }
     clearPointers()
     applyAdjustment()
   }
@@ -256,6 +320,13 @@ export function ArtworkWebXrViewer({
     const next = clampArScale(requested)
     scaleRef.current = next
     if (mountedRef.current) setScale(next)
+    applyAdjustment()
+  }
+
+  const rotateArtwork = (deltaDegrees: number) => {
+    const next = (rotationDegRef.current + deltaDegrees + 360) % 360
+    rotationDegRef.current = next
+    if (mountedRef.current) setRotationDeg(next)
     applyAdjustment()
   }
 
@@ -270,6 +341,7 @@ export function ArtworkWebXrViewer({
     }
 
     hitTestSourceRef.current = null
+    staleHitFramesRef.current = 0
     referenceSpaceRef.current = null
     latestHitRef.current = null
     latestWallTransformRef.current = null
@@ -288,6 +360,7 @@ export function ArtworkWebXrViewer({
       setPresenting(false)
       setAnchored(false)
       setExperienceMode(modelReadyRef.current ? 'ready' : 'loading')
+      onExit?.()
     }
   }
 
@@ -348,11 +421,18 @@ export function ArtworkWebXrViewer({
     const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 20)
     cameraRef.current = camera
 
-    const renderer = new THREE.WebGLRenderer({
-      alpha: true,
-      antialias: true,
-      powerPreference: 'high-performance',
-    })
+    let renderer: THREE.WebGLRenderer
+    try {
+      renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: true,
+        powerPreference: 'high-performance',
+      })
+    } catch {
+      setError('WebGL is not supported in this browser environment.')
+      setExperienceMode('error')
+      return
+    }
     rendererRef.current = renderer
     renderer.xr.enabled = true
     renderer.xr.setReferenceSpaceType('local')
@@ -399,29 +479,89 @@ export function ArtworkWebXrViewer({
     reticleRef.current = reticle
     scene.add(reticle)
 
-    const loader = new GLTFLoader()
-    void loader.loadAsync(proof.modelUrl).then(
-      (gltf) => {
-        if (disposed) {
-          disposeObject(gltf.scene)
-          return
-        }
+    const createDirectMesh = (url: string) => {
+      const artGroup = new THREE.Group()
+      const wM = (dimensions.artworkWidthMm / 1000) * MESH_FIT_FACTOR
+      const hM = (dimensions.artworkHeightMm / 1000) * MESH_FIT_FACTOR
+      const frameBorderM = ((dimensions.frameMm * 2) / 1000) * MESH_FIT_FACTOR
+      const frameGeo = new THREE.BoxGeometry(wM + frameBorderM, hM + frameBorderM, 0.03)
+      const frameMat = new THREE.MeshStandardMaterial({
+        color: 0x1a1a1a,
+        roughness: 0.4,
+      })
+      const frameMesh = new THREE.Mesh(frameGeo, frameMat)
+      artGroup.add(frameMesh)
 
-        loadedModelRef.current = gltf.scene
-        adjustmentGroup.add(gltf.scene)
-        resetAdjustment()
-        modelReadyRef.current = true
-        setModelReady(true)
-        setExperienceMode('ready')
-      },
-      () => {
-        if (disposed) return
-        modelReadyRef.current = false
-        setModelReady(false)
-        setError('The ArtVault AR model could not be loaded.')
-        setExperienceMode('error')
-      },
-    )
+      const canvasGeo = new THREE.PlaneGeometry(wM, hM)
+      const placeholderMat = new THREE.MeshStandardMaterial({ color: 0x2d3748 })
+      const canvasMesh: THREE.Mesh = new THREE.Mesh(canvasGeo, placeholderMat)
+      canvasMesh.position.z = 0.016
+      artGroup.add(canvasMesh)
+
+      // Add to scene immediately and mark ready so artwork is placed without delay
+      loadedModelRef.current = artGroup
+      adjustmentGroup.add(artGroup)
+      resetAdjustment()
+      modelReadyRef.current = true
+      setModelReady(true)
+      setExperienceMode('ready')
+
+      // Load texture and replace placeholder material when ready
+      const textureLoader = new THREE.TextureLoader()
+      textureLoader.load(
+        url,
+        (texture) => {
+          if (disposed) {
+            texture.dispose()
+            return
+          }
+          texture.colorSpace = THREE.SRGBColorSpace
+          placeholderMat.dispose()
+          canvasMesh.material = new THREE.MeshBasicMaterial({ map: texture })
+        },
+        undefined,
+        () => {
+          // Keep placeholder mesh on error
+        },
+      )
+    }
+
+    if (proof?.modelUrl) {
+      const loader = new GLTFLoader()
+      void loader.loadAsync(proof.modelUrl).then(
+        (gltf) => {
+          if (disposed) {
+            disposeObject(gltf.scene)
+            return
+          }
+
+          loadedModelRef.current = gltf.scene
+          adjustmentGroup.add(gltf.scene)
+          resetAdjustment()
+          modelReadyRef.current = true
+          setModelReady(true)
+          setExperienceMode('ready')
+        },
+        () => {
+          if (disposed) return
+          if (imageUrl) {
+            createDirectMesh(imageUrl)
+          } else {
+            modelReadyRef.current = false
+            setModelReady(false)
+            setError('The ArtVault AR model could not be loaded.')
+            setExperienceMode('error')
+          }
+        },
+      )
+    } else if (imageUrl) {
+      createDirectMesh(imageUrl)
+    } else {
+      modelReadyRef.current = false
+      setModelReady(false)
+      setError('The ArtVault AR model could not be loaded.')
+      setExperienceMode('error')
+    }
 
     return () => {
       disposed = true
@@ -444,7 +584,13 @@ export function ArtworkWebXrViewer({
       anchorGroupRef.current = null
       adjustmentGroupRef.current = null
     }
-  }, [proof.modelUrl])
+  }, [
+    proof?.modelUrl,
+    imageUrl,
+    dimensions.artworkWidthMm,
+    dimensions.artworkHeightMm,
+    dimensions.frameMm,
+  ])
 
   const renderXrFrame = (frame: XRFrame) => {
     const renderer = rendererRef.current
@@ -483,36 +629,32 @@ export function ArtworkWebXrViewer({
     } else if (hitSource && reticle) {
       const hits = frame.getHitTestResults(hitSource)
       const hit = hits[0]
+      let validWall: WallTransform | null = null
 
       if (hit) {
         const hitPose = hit.getPose(referenceSpace)
         if (hitPose) {
-          const wall = wallTransformFromPose(hitPose, viewerPose)
-          if (wall) {
-            latestHitRef.current = hit
-            latestWallTransformRef.current = wall
-            reticle.visible = true
-            reticle.position.copy(wall.position)
-            reticle.quaternion.copy(wall.quaternion)
-            reticle.translateZ(0.003)
-            updateWallReady(true)
-          } else {
-            reticle.visible = false
-            latestHitRef.current = null
-            latestWallTransformRef.current = null
-            updateWallReady(false)
-          }
-        } else {
+          validWall = wallTransformFromPose(hitPose, viewerPose)
+        }
+      }
+
+      if (hit && validWall) {
+        staleHitFramesRef.current = 0
+        latestHitRef.current = hit
+        latestWallTransformRef.current = validWall
+        reticle.visible = true
+        reticle.position.copy(validWall.position)
+        reticle.quaternion.copy(validWall.quaternion)
+        reticle.translateZ(0.003)
+        updateWallReady(true)
+      } else {
+        staleHitFramesRef.current += 1
+        if (staleHitFramesRef.current > STALE_HIT_GRACE_FRAMES) {
           reticle.visible = false
           latestHitRef.current = null
           latestWallTransformRef.current = null
           updateWallReady(false)
         }
-      } else {
-        reticle.visible = false
-        latestHitRef.current = null
-        latestWallTransformRef.current = null
-        updateWallReady(false)
       }
     }
 
@@ -537,9 +679,9 @@ export function ArtworkWebXrViewer({
 
     try {
       session = await xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test', 'dom-overlay'],
-        optionalFeatures: ['anchors'],
-        domOverlay: { root: overlayRootRef.current },
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['dom-overlay', 'anchors', 'local-floor'],
+        domOverlay: overlayRootRef.current ? { root: overlayRootRef.current } : undefined,
       })
       sessionRef.current = session
 
@@ -572,13 +714,14 @@ export function ArtworkWebXrViewer({
       updateWallReady(false)
       updateTrackingLost(false)
       setAnchored(false)
+      staleHitFramesRef.current = 0
       setPresenting(true)
       setExperienceMode('scanning')
 
       renderer.setAnimationLoop((_time, frame) => {
         if (frame) renderXrFrame(frame)
       })
-    } catch {
+    } catch (cause: unknown) {
       if (session && sessionRef.current === session) {
         try {
           await session.end()
@@ -589,9 +732,15 @@ export function ArtworkWebXrViewer({
 
       finishSessionState()
       if (mountedRef.current) {
-        setError(
-          'ArtVault AR 2.0 could not start. WebXR hit-test and DOM-overlay support are required.',
-        )
+        const name = cause instanceof DOMException ? cause.name : ''
+        const errorMessage = name === 'NotAllowedError'
+          ? 'Camera/AR permission was denied. Please allow camera permissions in your browser settings and try again.'
+          : name === 'SecurityError'
+            ? 'Camera AR requires a secure connection (HTTPS). Please access ArtVault over HTTPS or localhost.'
+            : name === 'NotSupportedError'
+              ? 'WebXR immersive AR with hit-test is not supported on this device. You can use the 3D gallery preview instead.'
+              : 'ArtVault AR could not start. Please ensure WebXR and camera permissions are available, or use the 3D gallery preview.'
+        setError(errorMessage)
         setExperienceMode('error')
       }
     }
@@ -775,7 +924,13 @@ export function ArtworkWebXrViewer({
   }
 
   if (useFallback || webXrSupported === false) {
-    return <ArtworkArViewer proof={proof} title={title} poster={poster} />
+    if (onExit) {
+      onExit()
+      return null
+    }
+    if (proof) {
+      return <ArtworkArViewer proof={proof} title={title} poster={poster} />
+    }
   }
 
   return (
@@ -792,8 +947,8 @@ export function ArtworkWebXrViewer({
 
       <p className="text-sm text-text-secondary">
         Estimated starting display size:{' '}
-        {formatArCentimetres(proof.widthMm / 10)} ×{' '}
-        {formatArCentimetres(proof.heightMm / 10)} cm including the frame.
+        {formatArCentimetres(widthMm / 10)} ×{' '}
+        {formatArCentimetres(heightMm / 10)} cm including the frame.
       </p>
 
       <p className="text-xs text-text-muted">
@@ -832,10 +987,10 @@ export function ArtworkWebXrViewer({
           <p>{error}</p>
           <div className="flex flex-wrap gap-2">
             <Button variant="info" onClick={startAr} disabled={!modelReady}>
-              Retry AR 2.0
+              Retry Immersive AR
             </Button>
             <Button onClick={() => setUseFallback(true)}>
-              Use compatibility AR
+              Use 3D Gallery Preview
             </Button>
           </div>
         </div>
@@ -932,15 +1087,15 @@ export function ArtworkWebXrViewer({
           </div>
         )}
 
-        <div className="absolute bottom-0 left-0 right-0 z-30 p-4">
-          <div className="mx-auto flex max-w-md flex-col gap-3 rounded-2xl border border-white/15 bg-slate-950/75 p-4 shadow-2xl backdrop-blur-xl">
+        <div className="absolute bottom-0 left-0 right-0 z-30 p-3 pb-safe">
+          <div className="mx-auto flex max-w-md flex-col gap-2 rounded-2xl border border-white/10 bg-black/40 p-3 shadow-2xl backdrop-blur-xl">
             {mode === 'scanning' && (
               <>
                 <div className="text-center">
                   <p className="text-sm font-semibold">
                     {wallReady ? 'Wall ready' : 'Move your phone slowly'}
                   </p>
-                  <p className="mt-1 text-xs text-white/65">
+                  <p className="mt-0.5 text-[11px] text-white/60">
                     Point the centre reticle at a vertical wall.
                   </p>
                 </div>
@@ -948,7 +1103,7 @@ export function ArtworkWebXrViewer({
                   type="button"
                   disabled={!wallReady}
                   onClick={placeArtwork}
-                  className="rounded-xl bg-cyan-300 px-5 py-3 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-35"
+                  className="rounded-xl bg-cyan-300 px-5 py-2.5 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   Tap to Place
                 </button>
@@ -957,43 +1112,43 @@ export function ArtworkWebXrViewer({
 
             {(mode === 'locked' || mode === 'adjusting') && (
               <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-[10px] uppercase tracking-wider text-white/55">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    <p className="text-[9px] uppercase tracking-wider text-white/50">
                       Estimated Size
                     </p>
-                    <p className="mt-1 text-lg font-bold text-cyan-200">
+                    <p className="mt-0.5 text-sm font-bold text-cyan-200">
                       {formatArCentimetres(size.widthCm)} ×{' '}
                       {formatArCentimetres(size.heightCm)} cm
                     </p>
                   </div>
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-[10px] uppercase tracking-wider text-white/55">
+                  <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    <p className="text-[9px] uppercase tracking-wider text-white/50">
                       Scale
                     </p>
-                    <p className="mt-1 text-lg font-bold text-cyan-200">
+                    <p className="mt-0.5 text-sm font-bold text-cyan-200">
                       {size.scalePercent}%
                     </p>
                   </div>
                 </div>
 
                 <div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-1 overflow-hidden rounded-full bg-white/10">
                     <div
                       className="h-full rounded-full bg-cyan-300"
                       style={{ width: `${scaleProgress}%` }}
                     />
                   </div>
-                  <div className="mt-1 flex justify-between text-[10px] text-white/45">
+                  <div className="mt-0.5 flex justify-between text-[9px] text-white/40">
                     <span>{Math.round(MIN_AR_SCALE * 100)}%</span>
                     <span>{Math.round(MAX_AR_SCALE * 100)}%</span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-[11px]">
                   <span
                     className={
-                      anchored ? 'text-emerald-300' : 'text-white/60'
+                      anchored ? 'text-emerald-300' : 'text-white/55'
                     }
                   >
                     {anchored
@@ -1015,41 +1170,60 @@ export function ArtworkWebXrViewer({
                 </div>
 
                 {mode === 'locked' ? (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-1.5">
                     <button
                       type="button"
                       onClick={unlockPosition}
-                      className="rounded-xl bg-cyan-300 px-3 py-3 font-bold text-slate-950"
+                      className="rounded-xl bg-cyan-300 px-2 py-2.5 text-sm font-bold text-slate-950"
                       aria-label="Unlock artwork position"
                     >
-                      🔓 Unlock position
+                      🔓 Unlock
                     </button>
                     <button
                       type="button"
                       onClick={resetPlacement}
-                      className="rounded-xl border border-white/20 bg-white/10 px-3 py-3 font-semibold"
+                      className="rounded-xl border border-white/20 bg-white/10 px-2 py-2.5 text-sm font-semibold"
                     >
                       Reset
                     </button>
                     <button
                       type="button"
                       onClick={endAr}
-                      className="rounded-xl border border-emerald-300/40 bg-emerald-300/15 px-3 py-3 font-semibold text-emerald-200"
+                      className="rounded-xl border border-emerald-300/40 bg-emerald-300/15 px-2 py-2.5 text-sm font-semibold text-emerald-200"
                     >
                       Finish
                     </button>
                   </div>
                 ) : (
                   <>
-                    <p className="text-center text-xs text-white/65">
-                      Drag with one finger to reposition. Pinch with two
-                      fingers to resize. The artwork stays unlocked until
-                      you press Lock position.
+                    <p className="text-center text-[11px] text-white/60">
+                      Drag to reposition. Pinch to resize. Rotate buttons adjust angle.
                     </p>
+                    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] text-white/80">
+                      <span>Rotation: {rotationDeg}°</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => rotateArtwork(-15)}
+                          className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-semibold hover:bg-white/20"
+                          aria-label="Rotate counter-clockwise 15 degrees"
+                        >
+                          ↺ -15°
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rotateArtwork(15)}
+                          className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-semibold hover:bg-white/20"
+                          aria-label="Rotate clockwise 15 degrees"
+                        >
+                          ↻ +15°
+                        </button>
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={lockPosition}
-                      className="rounded-xl bg-cyan-300 px-5 py-3 font-bold text-slate-950"
+                      className="rounded-xl bg-cyan-300 px-5 py-2.5 font-bold text-slate-950 text-sm"
                       aria-label="Lock artwork position"
                     >
                       🔒 Lock position
@@ -1057,7 +1231,7 @@ export function ArtworkWebXrViewer({
                     <button
                       type="button"
                       onClick={resetPlacement}
-                      className="rounded-xl border border-white/20 bg-white/10 px-5 py-2 font-semibold"
+                      className="rounded-xl border border-white/20 bg-white/10 px-5 py-1.5 text-sm font-semibold"
                     >
                       Reset placement
                     </button>

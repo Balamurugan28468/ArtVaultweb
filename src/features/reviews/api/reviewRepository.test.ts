@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const { createClient } = vi.hoisted(() => {
+const { createClient, queryBuilder } = vi.hoisted(() => {
   const sampleRow = {
     id: 'rev-1',
     artwork_id: 'art-1',
@@ -74,5 +74,24 @@ describe('reviewRepository', () => {
     const eligibility = await checkReviewEligibility('art-1', 'u1')
     expect(eligibility.eligible).toBe(false)
     expect(eligibility.reason).toBe('SELLER_OWN_ARTWORK')
+  })
+
+  it('checkReviewEligibility verifies orders.payment_state is PAID and rejects unpaid orders', async () => {
+    queryBuilder.maybeSingle.mockResolvedValueOnce({ data: null, error: null })
+    queryBuilder.limit.mockResolvedValueOnce({ data: [], error: null })
+
+    const eligibility = await checkReviewEligibility('art-1', 'seller-other')
+    expect(eligibility.eligible).toBe(false)
+    expect(eligibility.reason).toBe('NOT_PURCHASED')
+    expect(queryBuilder.eq).toHaveBeenCalledWith('orders.payment_state', 'PAID')
+  })
+
+  it('checkReviewEligibility confirms eligibility when a PAID order item exists', async () => {
+    queryBuilder.maybeSingle.mockResolvedValueOnce({ data: null, error: null })
+    queryBuilder.limit.mockResolvedValueOnce({ data: [{ id: 'item-1' }], error: null })
+
+    const eligibility = await checkReviewEligibility('art-1', 'seller-other')
+    expect(eligibility.eligible).toBe(true)
+    expect(queryBuilder.eq).toHaveBeenCalledWith('orders.payment_state', 'PAID')
   })
 })

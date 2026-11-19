@@ -24,6 +24,8 @@ export function CheckoutPage() {
   const checkout = useCheckoutOrder(user?.uid)
   const { lines, subtotal, isLoading, unavailableCount } = useCartLines()
   const artistNames = useArtistDisplayNames(lines.map((line) => line.artwork.sellerId))
+  const hasSelfPurchase = lines.some((line) => Boolean(user?.uid && line.artwork.sellerId === user.uid))
+  const hasInsufficientInventory = lines.some((line) => line.quantity > availableInventory(line.artwork))
 
   const profile = profileState.status === 'loaded' ? profileState.profile : null
   const [shippingAddress, setShippingAddress] = useState<ShippingAddressFormValues | null>(null)
@@ -123,6 +125,12 @@ export function CheckoutPage() {
                         <p className="truncate text-xs text-text-muted">
                           {artistNames[line.artwork.sellerId] ?? 'ArtVault seller'} · Qty {line.quantity}
                         </p>
+                        {Boolean(user?.uid && line.artwork.sellerId === user.uid) && (
+                          <p className="text-xs font-medium text-danger">You cannot purchase your own artwork</p>
+                        )}
+                        {line.quantity > availableInventory(line.artwork) && (
+                          <p className="text-xs font-medium text-danger">Insufficient stock ({availableInventory(line.artwork)} available)</p>
+                        )}
                       </div>
                       <p className="shrink-0 text-sm font-medium text-text-primary">₹{line.lineTotal / 100}</p>
                     </li>
@@ -157,7 +165,7 @@ export function CheckoutPage() {
                       variant="gold"
                       size="lg"
                       className="w-full"
-                      disabled={checkout.pending || mode !== 'account' || !addressComplete || !addressId || unavailableCount > 0 || lines.some((line) => isPending?.(line.artwork.id) || line.quantity > availableInventory(line.artwork))}
+                      disabled={checkout.pending || mode !== 'account' || !addressComplete || !addressId || unavailableCount > 0 || hasSelfPurchase || hasInsufficientInventory || lines.some((line) => isPending?.(line.artwork.id))}
                       onClick={() => { if (addressId) void checkout.submit(lines.map((line) => line.artwork.id), addressId) }}
                     >
                       {checkout.pending ? 'Creating order…' : 'Create unpaid order'}
@@ -166,7 +174,23 @@ export function CheckoutPage() {
                       The server verifies prices and stock. Only included cart items are removed after a successful order. Payment remains unavailable.
                       {(!addressComplete || !addressId) && ' Select or save a complete shipping address first.'}
                     </p>
-                    {checkout.error && <p role="alert" className="text-sm text-danger">{checkout.error}</p>}
+                    {hasSelfPurchase && (
+                      <p role="alert" className="text-sm text-danger">
+                        Your cart contains artwork you created. Please remove your artwork before checking out.
+                      </p>
+                    )}
+                    {hasInsufficientInventory && (
+                      <p role="alert" className="text-sm text-danger">
+                        One or more items exceed available stock. Please adjust quantities or remove unavailable items.
+                      </p>
+                    )}
+                    {checkout.error && (
+                      <p role="alert" className="text-sm text-danger">
+                        {checkout.error === 'Artwork is unavailable for purchase'
+                          ? 'Artwork is unavailable for purchase. It may be sold, unlisted, or you cannot purchase your own artwork.'
+                          : checkout.error}
+                      </p>
+                    )}
                   </div>
                 }
               />

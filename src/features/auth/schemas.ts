@@ -46,7 +46,15 @@ export const signUpSchema = z
   .object({
     displayName: z.string().refine(value => !/\p{Cc}/u.test(value), 'Name must not contain control characters.')
       .pipe(requiredTextField({ label: 'Name', min: NAME_MIN_LENGTH, max: NAME_MAX_LENGTH })),
-    email: authEmailField().refine(email => !getEmailDomainSuggestion(email), 'Did you mean @gmail.com? Please check your email before sending a code.'),
+    email: authEmailField().superRefine((email, ctx) => {
+      const suggestion = getEmailDomainSuggestion(email)
+      if (suggestion) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Did you mean @${suggestion}? Please check your email before sending a code.`,
+        })
+      }
+    }),
     password: signupPasswordSchema,
     confirmPassword: z.string().min(1, 'Please confirm your password.'),
   })
